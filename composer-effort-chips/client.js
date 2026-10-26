@@ -295,25 +295,26 @@ window.__ModuleLoader__.load({
       const effectiveEffort = current?.reasoningEffort ?? reasoning?.defaultEffort;
 
       // Known reasoning-effort sets, verified against vendor docs (2026-10).
-      // Constraint: chips can only offer DSH's universal effort vocabulary
-      // (off / low / high / max); wire-only levels such as GPT's `medium`
-      // / `xhigh` or GLM-5.2's passthrough values have no DSH id and are
-      // approximated by the nearest supported level.
+      // DSH/pi-ai level vocabulary: off / minimal / low / medium / high /
+      // xhigh / max — each key's wire spelling is remappable per model in
+      // `reasoningEfforts` config, so these ids travel to any provider.
       const MODEL_EFFORT_TABLE = [
-        // OpenAI GPT-5: minimal/low/medium/high; GPT-5.1 default none;
-        // codex-max adds xhigh. medium/xhigh have no DSH id — approximated.
-        { match: /(^|[\/-])(gpt-5|o[13456])([.\-/]|$)/i, efforts: ['off', 'low', 'high'] },
+        // gpt-5.1-codex-max adds xhigh on top of the GPT-5 set.
+        { match: /codex-max/i, efforts: ['off', 'low', 'medium', 'high', 'xhigh'] },
+        // OpenAI GPT-5: minimal/low/medium/high (minimal≈off); GPT-5.1
+        // defaults to none (=off). o-series: low/medium/high.
+        { match: /(^|[\/-])(gpt-5|o[13456])([.\-/]|$)/i, efforts: ['off', 'low', 'medium', 'high'] },
         // Claude 4.5+: adaptive thinking effort low/medium/high, plus off.
-        { match: /claude/i, efforts: ['off', 'low', 'high'] },
-        // Gemini 2.5/3: thinking budget off/low/high (dynamic has no id).
+        { match: /claude/i, efforts: ['off', 'low', 'medium', 'high'] },
+        // Gemini 2.5/3: thinking budget off/low/high (dynamic≈default).
         { match: /gemini/i, efforts: ['off', 'low', 'high'] },
         // Grok: reasoning effort low/high.
         { match: /grok/i, efforts: ['low', 'high'] },
         // GLM-5.3 / 5.3-FLASH: docs.z.ai — ONLY max/high/low, thinking is
         // forced on (no off). Default is max.
         { match: /glm-5\.3/i, efforts: ['low', 'high', 'max'] },
-        // GLM-5.2 and older: accepts none→xhigh but maps most values;
-        // effective levels reduce to off/low/high/max.
+        // GLM-5.2 and older: accepts none→xhigh (maps xhigh→max etc.);
+        // effective selectable levels reduce to off/low/high/max.
         { match: /glm/i, efforts: ['off', 'low', 'high', 'max'] },
         // DeepSeek R1/reasoner: always reasons, no effort parameter.
         { match: /deepseek-(r\d|reasoner)/i, efforts: ['high'] },
