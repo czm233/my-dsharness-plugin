@@ -294,26 +294,32 @@ window.__ModuleLoader__.load({
       const reasoning = currentModel?.reasoning;
       const effectiveEffort = current?.reasoningEffort ?? reasoning?.defaultEffort;
 
-      // Known reasoning-effort sets for mainstream model families, matched
-      // against the model id (and name) when the directory entry carries no
-      // `reasoning` metadata (typical for hand-declared relay models).
-      // Ids use DSH's universal effort vocabulary: off / low / high / max.
+      // Known reasoning-effort sets, verified against vendor docs (2026-10).
+      // Constraint: chips can only offer DSH's universal effort vocabulary
+      // (off / low / high / max); wire-only levels such as GPT's `medium`
+      // / `xhigh` or GLM-5.2's passthrough values have no DSH id and are
+      // approximated by the nearest supported level.
       const MODEL_EFFORT_TABLE = [
-        // OpenAI GPT-5 / o-series: reasoning effort low→high (minimal≈off).
-        { match: /(^|[\/-])(gpt-5|o[13456])([.\-/]|$)/i, efforts: ['off', 'low', 'high', 'max'] },
-        // Claude 4/5 family: extended thinking on/off with effort levels.
+        // OpenAI GPT-5: minimal/low/medium/high; GPT-5.1 default none;
+        // codex-max adds xhigh. medium/xhigh have no DSH id — approximated.
+        { match: /(^|[\/-])(gpt-5|o[13456])([.\-/]|$)/i, efforts: ['off', 'low', 'high'] },
+        // Claude 4.5+: adaptive thinking effort low/medium/high, plus off.
         { match: /claude/i, efforts: ['off', 'low', 'high'] },
-        // Gemini 2.5/3: thinking with low/high budgets.
+        // Gemini 2.5/3: thinking budget off/low/high (dynamic has no id).
         { match: /gemini/i, efforts: ['off', 'low', 'high'] },
-        // Grok 4: reasoning on/off.
-        { match: /grok/i, efforts: ['off', 'high'] },
-        // GLM 4.x/5.x: deep thinking toggle.
-        { match: /glm/i, efforts: ['off', 'low', 'high'] },
-        // DeepSeek R1/reasoner: always-reasoning family.
+        // Grok: reasoning effort low/high.
+        { match: /grok/i, efforts: ['low', 'high'] },
+        // GLM-5.3 / 5.3-FLASH: docs.z.ai — ONLY max/high/low, thinking is
+        // forced on (no off). Default is max.
+        { match: /glm-5\.3/i, efforts: ['low', 'high', 'max'] },
+        // GLM-5.2 and older: accepts none→xhigh but maps most values;
+        // effective levels reduce to off/low/high/max.
+        { match: /glm/i, efforts: ['off', 'low', 'high', 'max'] },
+        // DeepSeek R1/reasoner: always reasons, no effort parameter.
         { match: /deepseek-(r\d|reasoner)/i, efforts: ['high'] },
-        // Qwen 3 thinking variants.
+        // Qwen 3: thinking on/off, effort low/high.
         { match: /qwq|qwen3/i, efforts: ['off', 'low', 'high'] },
-        // Kimi k-series thinking.
+        // Kimi k-series: thinking on/off.
         { match: /kimi|moonshot/i, efforts: ['off', 'high'] },
       ];
       const matchEfforts = (model) => {
