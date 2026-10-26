@@ -485,12 +485,14 @@ window.__ModuleLoader__.load({
               FlatModelPicker,
             ),
           );
-          scope.slots.inject('conversation.input.left', () =>
+          scope.slots.inject('conversation.input.right', () =>
             scope.slots.register(
               {
-                name: 'conversation.input.left',
+                name: 'conversation.input.right',
                 id: 'composer-channel-model-pickers',
-                order: 0,
+                // Right side of the composer, immediately after the effort
+                // chips (order 10) so channel/model sit right next to them.
+                order: 11,
                 inject: (sessionId) => {
                   const directory = models.directoryFor(sessionId);
                   const available = sessions.subagentAddress(sessionId) === undefined;
