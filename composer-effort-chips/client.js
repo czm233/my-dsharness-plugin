@@ -393,6 +393,17 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { style: rowStyle, 'data-composer-effort-chips': true },
+        // DEBUG MARKER 1.3.5 — visible proof of which code build the renderer
+        // is actually running. Remove once the layout is confirmed.
+        h('span', {
+          key: 'debug-version-marker',
+          style: {
+            fontSize: 9, lineHeight: '12px', padding: '0 4px', flex: 'none',
+            border: '1px solid currentColor', borderRadius: 4, opacity: 0.55,
+            color: 'var(--dsw-alias-state-business-primary, #4f9cf9)',
+          },
+          title: 'composer-effort-chips build marker',
+        }, '1.3.5'),
         effortChips.length > 0 &&
           h(
             'div',
