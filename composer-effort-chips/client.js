@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
             color: 'var(--dsw-alias-state-business-primary, #4f9cf9)',
           },
           title: 'composer-effort-chips build marker',
-        }, '1.3.7'),
+        }, '1.3.8'),
         effortChips.length > 0 &&
           h(
             'div',
@@ -489,6 +489,13 @@ window.__ModuleLoader__.load({
             '*:has(> .htuFrW_root) > *:has(.htuFrW_root) {',
             '  order: -1 !important;',
             '}',
+            // Row flip: the composer row directly parents our entries and
+            // contains the shipped model seat somewhere below. Reversing the
+            // row renders [ours..., shipped seat] as [shipped seat, ...ours]
+            // — exactly the target layout — independent of class names.
+            '*:has(> [data-composer-effort-chips]):has(.htuFrW_root) {',
+            '  flex-direction: row-reverse;',
+            '}',
             // DEBUG 1: badge turns RED iff this stylesheet is live at all.
             '[data-composer-effort-chips] > span:first-child {',
             '  color: #ff3b30 !important;',
@@ -504,29 +511,44 @@ window.__ModuleLoader__.load({
           document.head.appendChild(style);
           return () => style.remove();
         });
-        // JS fallback for the visual reorder: locate the shipped model-select
-        // root (.htuFrW_root) and, if it sits to the RIGHT of our cluster
-        // inside the same flex parent, physically move it in front. CSS
-        // `order` remains the preferred mechanism; this only fires when the
-        // DOM order still has the shipped trigger after our row. Idempotent:
-        // once it is in front, the check is a no-op.
+        // JS fallback for the visual reorder: find the shipped model-select
+        // root, climb from it to the child of the COMMON ancestor that also
+        // contains our row, and physically move that wrapper in front of our
+        // cluster. The official node stays attached to its parent the whole
+        // time (only repositioned), so React insert/remove using it as a
+        // reference keeps working. Idempotent: no-op once it is in front.
         ctx.effect(() => {
           if (typeof document === 'undefined') return undefined;
           let timer = 0;
           const reconcile = () => {
             timer = 0;
             try {
-              const root = document.querySelector('.htuFrW_root');
               const ours = document.querySelector('[data-composer-effort-chips]');
-              const parent = root?.parentElement;
-              if (!root || !ours || !parent || !parent.contains(ours)) return;
-              // If `ours` follows `root` in document order, layout is correct.
-              if (root.compareDocumentPosition(ours) & Node.DOCUMENT_POSITION_FOLLOWING) return;
-              // Walk `ours` up to the direct child of `parent` that contains it.
-              let target = ours;
-              while (target.parentElement !== parent) target = target.parentElement;
-              if (target === root) return;
-              parent.insertBefore(root, target);
+              if (!ours) return;
+              for (const root of document.querySelectorAll('.htuFrW_root')) {
+                if (root.contains(ours) || ours.contains(root)) continue;
+                // Climb from the shipped root to its child-of-common-ancestor.
+                let a = root;
+                let hops = 0;
+                while (a.parentElement && !a.parentElement.contains(ours) && hops < 12) {
+                  a = a.parentElement;
+                  hops += 1;
+                }
+                const row = a.parentElement;
+                if (!row || !row.contains(ours)) continue;
+                // Direct child of the row that contains our cluster.
+                let target = ours;
+                while (target.parentElement !== row) target = target.parentElement;
+                if (target === a) continue;
+                // Only act while the shipped seat sits AFTER our cluster.
+                if (!(target.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
+                row.insertBefore(a, target);
+                // Green flash: visible proof the mover fired this build.
+                const prev = a.style.outline;
+                a.style.outline = '2px solid #2ecc40';
+                setTimeout(() => { a.style.outline = prev; }, 1200);
+                return;
+              }
             } catch (error) {
               console.error('[composer-effort-chips] seat reorder failed:', error);
             }
