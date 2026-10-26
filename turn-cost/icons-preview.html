@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>turn-cost 图标候选</title>
+<style>
+  body { background: #141517; color: #cfd3d9; font-family: -apple-system, "PingFang SC", sans-serif; margin: 0; padding: 28px; }
+  h1 { font-size: 15px; font-weight: 600; color: #e8eaed; margin: 0 0 6px; }
+  p.sub { font-size: 12px; color: #8a8f98; margin: 0 0 22px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; max-width: 980px; }
+  .card { background: #1d1f23; border-radius: 10px; padding: 16px 14px 14px; }
+  .num { font-size: 11px; color: #6f7680; letter-spacing: .08em; }
+  .name { font-size: 13px; font-weight: 600; color: #e8eaed; margin: 2px 0 12px; }
+  .row { display: flex; align-items: center; gap: 14px; }
+  .big svg { width: 32px; height: 32px; }
+  .small { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 6px 8px; border-radius: 6px; background: #232529; color: #9aa0a8; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .small svg { width: 15px; height: 15px; flex: none; display: block; }
+  svg * { vector-effect: non-scaling-stroke; }
+</style>
+</head>
+<body>
+<h1>turn-cost 图标候选（10 个）</h1>
+<p class="sub">右侧小样是状态栏里的实际大小（15px，含金额文字效果）；选定后回复编号即可，例如「用 4」。</p>
+<div class="grid" id="grid"></div>
+<script>
+const ICONS = [
+  { n: '硬币 ¥', s: `<circle cx="8" cy="8" r="6.4"/><path d="M5.6 4.9 8 8.1l2.4-3.2M8 8.1v3.6M6.2 9.2h3.6M6.2 10.9h3.6"/>` },
+  { n: '硬币 $', s: `<circle cx="8" cy="8" r="6.4"/><path d="M9.9 5.9c-.3-.8-1-1.2-1.9-1.2-1.1 0-1.9.5-1.9 1.4 0 1.9 3.9 1.2 3.9 3.2 0 .9-.8 1.5-2 1.5-1 0-1.7-.4-2-1.2M8 3.9v8.2"/>` },
+  { n: '钞票', s: `<rect x="1.6" y="4" width="12.8" height="8" rx="1"/><circle cx="8" cy="8" r="2"/>` },
+  { n: '价格标签', s: `<path d="M8.2 2.4h5.4v5.4L8 13.2a.9.9 0 0 1-1.3 0L2.4 8.8a.9.9 0 0 1 0-1.3z"/><circle cx="11" cy="5" r=".9"/>` },
+  { n: '天平', s: `<path d="M8 2.6v9.9M4.8 12.5h6.4M2.6 4.6h10.8M4.4 4.6 2.7 8.2a1.9 1.9 0 0 0 3.4 0zM11.6 4.6 9.9 8.2a1.9 1.9 0 0 0 3.4 0z"/>` },
+  { n: '计算器', s: `<rect x="3.6" y="2" width="8.8" height="12" rx="1.4"/><path d="M5.6 4.4h4.8M5.6 7.6h.9M7.6 7.6h.9M9.5 7.6h.9M5.6 9.8h.9M7.6 9.8h.9M9.5 9.8h.9M5.6 12h.9M7.6 12h.9M9.5 12h.9"/>` },
+  { n: '购物袋', s: `<path d="M4.3 5.4h7.4l.8 7.6a.9.9 0 0 1-.9 1H4.4a.9.9 0 0 1-.9-1z"/><path d="M5.9 5.2V4.4a2.1 2.1 0 0 1 4.2 0v.8"/>` },
+  { n: '闪电', s: `<path d="M8.9 2 4.4 8.7h3l-.8 5.3 4.9-7.5H8.4z"/>` },
+  { n: '钱包', s: `<rect x="2" y="4.4" width="12" height="8.6" rx="1.5"/><path d="M14 8.2h-3.4a1.2 1.2 0 0 0 0 2.4H14M2 6.4h12"/>` },
+  { n: '成本趋势', s: `<path d="M2 11.5 6 7.5l3 2 5-5.5"/><path d="M11.4 4h2.6v2.6"/>` },
+];
+const grid = document.getElementById('grid');
+ICONS.forEach((icon, i) => {
+  const wrap = (size, extra) => `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="${extra || ''}" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">${icon.s}</svg>`;
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="num">候选 ${i + 1}</div>
+    <div class="name">${icon.n}</div>
+    <div class="row">
+      <span class="big">${wrap(32)}</span>
+      <span class="small">${wrap(15)}≈$0.118</span>
+    </div>`;
+  grid.appendChild(card);
+});
+</script>
+</body>
+</html>

@@ -1,14 +1,9 @@
-// Browser half of the Turn Cost plugin: derives each completed Turn's token
-// usage from the session log through a Conversation node definition, prices it
-// with the configured per-million list prices, and renders a money pill IN the
-// turn-tail actions row, immediately LEFT of the shipped usage pill (portaled
-// next to it; the shipped pill stays untouched).
-//
-// Diagnosability: the optional uiConversation service is polled with ctx.get
-// (a declared inject that cannot be satisfied stays pending forever), and any
-// gap is rendered as visible Chinese text on the pill itself (¥?·原因), plus
-// package-tagged console logs. Critical pill styles are inline so the pill
-// never degrades to raw browser chrome if a stylesheet fails to apply.
+// Browser half of the Turn Cost plugin: renders a money pill immediately LEFT
+// of the shipped usage pill in the turn-tail actions row (portaled next to it;
+// the shipped pill and every native affordance stay untouched). Per-turn token
+// usage is folded on the HOST half from the durable session log and fetched
+// through the bundle RPC route (/api/turn-cost/rpc), so no client-side
+// conversation service dependency exists.
 
 window.__ModuleLoader__.load({
   id: '@local/turn-cost',
@@ -20,9 +15,9 @@ window.__ModuleLoader__.load({
 
     const NS = 'turnCost'
     const LOG = '[turn-cost]'
-
-    /** uiConversation availability: 'pending' | 'missing' | 'ok'; definition: false | true; defError text. */
-    const diag = { uiConv: 'pending', definition: false, defError: '', rpc: false }
+    const RPC_CHANNEL = '/api'
+    // Carrier joins `<channel>/<method>`; the host route path stays /api/turn-cost/rpc.
+    const RPC_METHOD = 'turn-cost/rpc'
 
     const zh = {
       'title': '本轮费用',
@@ -36,7 +31,7 @@ window.__ModuleLoader__.load({
       'output': '输出',
       'reasoning': '（其中推理 {tokens}）',
       'breakdown': '费用明细（按牌价折算）',
-      'inputCost': '输入 · 未缓存',
+      'inputCost': '未缓存输入',
       'cacheReadCost': '缓存读取',
       'cacheWriteCost': '缓存写入',
       'outputCost': '输出',
@@ -56,7 +51,7 @@ window.__ModuleLoader__.load({
       'output': 'Output',
       'reasoning': ' ({tokens} reasoning)',
       'breakdown': 'Cost breakdown (list price)',
-      'inputCost': 'Input · uncached',
+      'inputCost': 'Uncached input',
       'cacheReadCost': 'Cached input',
       'cacheWriteCost': 'Cache write',
       'outputCost': 'Output',
@@ -65,10 +60,10 @@ window.__ModuleLoader__.load({
       'listNote': 'Estimated at list prices, not an actual bill',
     }
 
-    /** GLM-5.3-Flash CN list prices; replaced by the Host half's prices.json over the package RPC. */
+    /** GLM-5.3-Flash CN list prices; replaced by the Host half's prices.json over the RPC route. */
     const DEFAULT_PRICES = {
-      currency: '¥',
-      perMillion: { input: 0.8, cacheRead: 0.23, cacheWrite: 0, output: 2.8 },
+      currency: '$',
+      perMillion: { input: 0.15, cacheRead: 0.03, cacheWrite: 0, output: 0.5 },
     }
 
     /** Minimal observable snapshot store: stable snapshot between sets, stable subscribe identity. */
@@ -90,85 +85,6 @@ window.__ModuleLoader__.load({
     }
 
     const pricesStore = createSnapshotStore(DEFAULT_PRICES)
-
-    function isCount(value) {
-      return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    }
-
-    /** Last usage chunk of a recorded assistant stream, matching the shipped reader. */
-    function lastStreamUsage(stream) {
-      if (!Array.isArray(stream)) return undefined
-      for (let index = stream.length - 1; index >= 0; index -= 1) {
-        const record = stream[index]
-        if (record?.type === 'chunk' && record.chunk?.type === 'usage') return record.chunk.usage
-      }
-      return undefined
-    }
-
-    function routeOf(message) {
-      const source = message?.source
-      if (typeof source?.provider === 'string' && source.provider.length > 0
-        && typeof source.model === 'string' && source.model.length > 0) {
-        return { provider: source.provider, model: source.model }
-      }
-      return undefined
-    }
-
-    /** Keep one attempt only when its buckets are coherent; totals fall back to the known buckets. */
-    function normalizeUsage(usage, route) {
-      if (usage === undefined || usage === null) return undefined
-      const { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, totalTokens } = usage
-      if (!isCount(inputTokens) || !isCount(outputTokens)) return undefined
-      const known = inputTokens
-        + (isCount(cacheReadTokens) ? cacheReadTokens : 0)
-        + (isCount(cacheWriteTokens) ? cacheWriteTokens : 0)
-      let total
-      if (isCount(totalTokens)) total = totalTokens
-      else if (isCount(cacheReadTokens) && isCount(cacheWriteTokens)) total = known + outputTokens
-      else return undefined
-      return {
-        input: inputTokens,
-        output: outputTokens,
-        total,
-        cacheRead: isCount(cacheReadTokens) ? cacheReadTokens : undefined,
-        cacheWrite: isCount(cacheWriteTokens) ? cacheWriteTokens : undefined,
-        reasoning: isCount(reasoningTokens) && reasoningTokens <= outputTokens ? reasoningTokens : undefined,
-        route,
-      }
-    }
-
-    /**
-     * Turn-scoped usage accumulator: one settled attempt per assistant/message,
-     * matching the shipped per-turn meter's attempt summation. Publishes no view node.
-     */
-    const usageDefinition = {
-      kind: 'turnCost',
-      match: (event) => {
-        if (event.type === 'turn/start') return { id: String(event.data.turn), role: 'start' }
-        if (event.type === 'assistant/message') return { id: String(event.data.turn), role: 'update' }
-        return null
-      },
-      start: (_context, match) => ({ turn: match.event.data.turn, attempts: [] }),
-      update: (context, match) => {
-        if (context.state === undefined || match.event.type !== 'assistant/message') return context.state
-        const data = match.event.data
-        const usage = data.usage !== undefined ? data.usage : lastStreamUsage(data.stream)
-        const attempt = normalizeUsage(usage, routeOf(data.message))
-        if (attempt === undefined) return context.state
-        return { ...context.state, attempts: [...context.state.attempts, attempt] }
-      },
-      buildLocationData: (context, scope, previous) => {
-        if (scope !== 'turn' || context.state === undefined) return null
-        if (previous?.kind === 'turn' && previous.key === 'turnCost'
-          && previous.value.attempts === context.state.attempts) return previous
-        return {
-          kind: 'turn',
-          turn: context.state.turn,
-          key: 'turnCost',
-          value: { attempts: context.state.attempts },
-        }
-      },
-    }
 
     /** Sum attempts into the displayed usage; optional buckets survive only when every attempt reported them. */
     function aggregate(attempts) {
@@ -210,15 +126,6 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function formatCompactTokens(value) {
-      if (value < 1000) return String(value)
-      const scale = candidate => candidate >= 100
-        ? String(Math.round(candidate))
-        : String(Math.round(candidate * 10) / 10)
-      if (value < 1_000_000) return `${scale(value / 1000)}K`
-      return `${scale(value / 1_000_000)}M`
-    }
-
     function formatExactTokens(value) {
       return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
     }
@@ -233,15 +140,19 @@ window.__ModuleLoader__.load({
       return `${currency}${Number(value.toFixed(4))}`
     }
 
+    const ICON_SIZE = 'calc(15px + var(--dsh-content-font-delta, 0px))'
+    /** Dollar-coin glyph (candidate 2): outline circle with a $ mark. */
     const IconCoin = () => h('svg', {
       viewBox: '0 0 16 16', fill: 'none', xmlns: 'http://www.w3.org/2000/svg', 'aria-hidden': true,
+      style: { width: ICON_SIZE, height: ICON_SIZE, flex: 'none', display: 'block' },
+      stroke: 'currentColor', strokeWidth: 1, strokeLinecap: 'round', strokeLinejoin: 'round',
     },
-      h('ellipse', { cx: 8, cy: 3.9, rx: 6, ry: 2.6, stroke: 'currentColor' }),
-      h('path', { d: 'M2 3.9V12c0 1.45 2.68 2.6 6 2.6s6-1.15 6-2.6V3.9', stroke: 'currentColor' }),
-      h('path', { d: 'M2 8c0 1.44 2.68 2.6 6 2.6S14 9.44 14 8', stroke: 'currentColor' }),
+      h('circle', { cx: 8, cy: 8, r: 6.4 }),
+      h('path', { d: 'M9.9 5.9c-.3-.8-1-1.2-1.9-1.2-1.1 0-1.9.5-1.9 1.4 0 1.9 3.9 1.2 3.9 3.2 0 .9-.8 1.5-2 1.5-1 0-1.7-.4-2-1.2' }),
+      h('path', { d: 'M8 3.9v8.2' }),
     )
 
-    /** Only non-critical chrome lives here (hover, dialog surface); pill base styles are inline. */
+    /** Non-critical chrome (hover, dialog surface); pill base styles are inline. */
     const CSS = [
       '.dsh-turn-cost-trigger:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }',
       '.dsh-turn-cost-panel { position: fixed; z-index: 1100; box-sizing: border-box; width: max-content; min-width: min(300px, calc(100vw - 24px)); max-width: min(440px, calc(100vw - 24px)); padding: 16px; border: 0; border-radius: var(--dsw-radius-lg, 10px); background: var(--dsw-specific-menu, #1d1f23); box-shadow: var(--dsw-elevation-prominent, 0 8px 24px rgba(0,0,0,.35)); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); cursor: default; }',
@@ -256,15 +167,15 @@ window.__ModuleLoader__.load({
       '.dsh-turn-cost-route { overflow-wrap: anywhere; }',
       '.dsh-turn-cost-reasoning { color: var(--dsw-alias-label-tertiary); white-space: nowrap; }',
       '.dsh-turn-cost-breakdown { margin: 2px 0 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }',
-      '.dsh-turn-cost-total dd { font-weight: 600; }',
+      '.dsh-turn-cost-total-line { display: flex; justify-content: space-between; gap: 16px; margin: 0 0 8px; color: var(--dsw-alias-label-primary); font-weight: 600; font-variant-numeric: tabular-nums; }',
       '.dsh-turn-cost-note { margin-top: 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
     ].join('\n')
 
     const PILL_STYLE = {
       display: 'inline-flex',
+      flex: 'none',
       alignItems: 'center',
       gap: 4,
-      minWidth: 0,
       height: 'calc(28px + var(--dsh-content-font-delta, 0px))',
       padding: '6px 8px',
       border: 'none',
@@ -286,28 +197,11 @@ window.__ModuleLoader__.load({
     }
 
     function CostPanel(props) {
-      const { usage, parts, total, routes, hitText, prices, t, panelRef, pos } = props
+      // Cost-only panel: token details live in the shipped usage dialog, so
+      // this panel skips them and shows just the priced breakdown.
+      const { usage, parts, total, prices, t, panelRef, pos } = props
       const currency = prices.currency
       const perMillion = prices.perMillion
-      const detailRows = [
-        ...(routes !== '' ? detailRow(t('model'), routes, 'dsh-turn-cost-route') : []),
-        ...(hitText !== null ? detailRow(t('cacheHit'), `${hitText}%`) : []),
-        ...detailRow(t('input'), `${formatExactTokens(usage.uncachedInputTokens)} tok`),
-        ...(usage.cacheReadTokens !== undefined
-          ? detailRow(t('cacheRead'), `${formatExactTokens(usage.cacheReadTokens)} tok`) : []),
-        ...(usage.cacheWriteTokens !== undefined
-          ? detailRow(t('cacheWrite'), `${formatExactTokens(usage.cacheWriteTokens)} tok`) : []),
-        ...detailRow(
-          t('output'),
-          [
-            `${formatExactTokens(usage.outputTokens)} tok`,
-            ...(usage.reasoningTokens !== undefined
-              ? [h('span', { key: 'r', className: 'dsh-turn-cost-reasoning' },
-                t('reasoning', { tokens: `${formatExactTokens(usage.reasoningTokens)} tok` }))]
-              : []),
-          ],
-        ),
-      ]
       const costRows = [
         ...detailRow(
           t('inputCost'),
@@ -327,7 +221,6 @@ window.__ModuleLoader__.load({
           t('outputCost'),
           `${formatMoney(parts.output, currency)} · ${t('unitPrice', { price: formatPrice(perMillion.output, currency) })}`,
         ),
-        ...detailRow(t('total'), t('pillTotal', { cost: formatMoney(total, currency) }), 'dsh-turn-cost-total'),
       ]
       return h('div', {
         ref: panelRef,
@@ -342,16 +235,17 @@ window.__ModuleLoader__.load({
             t('pillTotal', { cost: formatMoney(total, currency) })),
         ),
         h('div', { className: 'dsh-turn-cost-rule', 'aria-hidden': true }),
-        h('dl', { className: 'dsh-turn-cost-details' }, detailRows),
-        h('div', { className: 'dsh-turn-cost-rule', 'aria-hidden': true }),
         h('div', { className: 'dsh-turn-cost-breakdown' }, t('breakdown')),
+        h('div', { className: 'dsh-turn-cost-total-line' },
+          h('span', null, t('total')),
+          h('span', null, t('pillTotal', { cost: formatMoney(total, currency) })),
+        ),
         h('dl', { className: 'dsh-turn-cost-details' }, costRows),
-        h('div', { className: 'dsh-turn-cost-note' }, t('listNote')),
       )
     }
 
     function CostPill(props) {
-      const { usage, prices, t, diagnostic, diagnosticText, diagnosticLabel } = props
+      const { usage, prices, t, mode, errorText, probeLabel, probeTitle, probeLines } = props
       const [open, setOpen] = useState(false)
       const rootRef = useRef(null)
       const panelRef = useRef(null)
@@ -371,8 +265,9 @@ window.__ModuleLoader__.load({
         const width = panel.offsetWidth
         const height = panel.offsetHeight
         let left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - margin - width)
-        let top = rect.top - gap - height
-        if (top < margin) top = Math.min(rect.bottom + gap, window.innerHeight - margin - height)
+        // Open below the trigger; flip above when there is no room.
+        let top = rect.bottom + gap
+        if (top + height > window.innerHeight - margin) top = rect.top - gap - height
         setPos({ left: `${left}px`, top: `${top}px` })
       }, [open])
 
@@ -398,40 +293,94 @@ window.__ModuleLoader__.load({
         }
       }, [open])
 
-      const label = diagnostic === true
-        ? diagnosticLabel
-        : t('pillTotal', { cost: formatMoney(props.total, prices.currency) })
+      const label = mode === 'ok'
+        ? t('pillTotal', { cost: formatMoney(props.total, prices.currency) })
+        : mode === 'loading' ? '¥…' : mode === 'error' ? '¥?·失败' : (probeLabel ?? '¥?·诊断')
+      const clickable = mode === 'ok' || mode === 'probe'
 
       return h('span', { className: 'dsh-turn-cost', ref: rootRef },
         h('button', {
           type: 'button',
           className: 'dsh-turn-cost-trigger',
-          style: diagnostic === true ? { ...PILL_STYLE, opacity: 0.6, cursor: 'help' } : PILL_STYLE,
+          style: mode !== 'ok' ? { ...PILL_STYLE, opacity: 0.75, cursor: 'pointer' } : PILL_STYLE,
           'data-turn-cost-trigger': '',
-          'aria-haspopup': diagnostic === true ? undefined : 'dialog',
+          'aria-haspopup': mode === 'ok' ? 'dialog' : undefined,
           'aria-expanded': open,
-          title: diagnostic === true ? diagnosticText : t('listNote'),
-          onClick: () => { if (diagnostic !== true) setOpen(!open) },
+          title: mode === 'probe' ? probeTitle : mode === 'error' ? `${LOG} ${errorText}` : t('listNote'),
+          onClick: () => { if (clickable) setOpen(!open) },
         },
           h(IconCoin),
-          h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
-          diagnostic !== true
-            ? h('span', { style: { opacity: 0.7 } },
-              t('pillTokens', { tokens: formatCompactTokens(usage.totalTokens) }))
-            : null,
+          h('span', {
+            style: mode === 'probe'
+              ? { whiteSpace: 'nowrap' }
+              : { overflow: 'hidden', textOverflow: 'ellipsis' },
+          }, label),
         ),
-        open && createPortal(
-          h(CostPanel, { usage, parts: props.parts, total: props.total, routes: props.routes, hitText: props.hitText, prices, t, panelRef, pos }),
+        open && mode === 'ok' && createPortal(
+          h(CostPanel, { usage, parts: props.parts, total: props.total, prices, t, panelRef, pos }),
+          document.body,
+        ),
+        open && mode === 'probe' && createPortal(
+          h('div', {
+            className: 'dsh-turn-cost-panel',
+            role: 'status',
+            style: pos ?? { visibility: 'hidden', left: 0, top: 0 },
+            ref: panelRef,
+          },
+            h('div', { className: 'dsh-turn-cost-title' },
+              h('span', { className: 'dsh-turn-cost-title-label' }, h(IconCoin), '诊断'),
+              h('span', { className: 'dsh-turn-cost-title-value' }, '¥?'),
+            ),
+            h('div', { className: 'dsh-turn-cost-rule', 'aria-hidden': true }),
+            ...(Array.isArray(probeLines) ? probeLines : []).map((line, index) => h('div', {
+              key: index,
+              style: { fontSize: 11, lineHeight: '17px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+            }, line)),
+          ),
           document.body,
         ),
       )
     }
 
     function CostTail(props) {
-      const { owner, t } = props
+      const { turn: turnLocation, t, sessionId, callUsage } = props
       const prices = props.usePrices(value => value)
-      const entry = owner?.turn?.data instanceof Map ? owner.turn.data.get('turnCost') : undefined
-      const usage = useMemo(() => aggregate(entry?.attempts), [entry])
+      // Tail owner fields are flattened onto props: props.turn is the TurnLocation.
+      const turnNo = typeof turnLocation?.turn === 'number' ? turnLocation.turn : undefined
+      const status = turnLocation?.status
+
+      const [state, setState] = useState({ kind: 'loading' })
+      useEffect(() => {
+        if (typeof sessionId !== 'string' || sessionId === '' || turnNo === undefined) {
+          setState({ kind: 'idle' })
+          return undefined
+        }
+        let cancelled = false
+        setState({ kind: 'loading' })
+        callUsage(sessionId, turnNo).then(
+          (value) => {
+            if (!cancelled) setState({
+              kind: 'done',
+              attempts: Array.isArray(value?.attempts) ? value.attempts : [],
+              events: Number(value?.events ?? -1),
+              matched: Number(value?.matched ?? -1),
+            })
+          },
+          (error) => {
+            if (!cancelled) {
+              const message = String(error?.message ?? error)
+              console.error(LOG, 'usage rpc failed:', message)
+              setState({ kind: 'error', message })
+            }
+          },
+        )
+        return () => { cancelled = true }
+      }, [sessionId, turnNo, status, callUsage])
+
+      const usage = useMemo(
+        () => state.kind === 'done' ? aggregate(state.attempts) : undefined,
+        [state],
+      )
 
       const parts = useMemo(() => {
         if (usage === undefined) return undefined
@@ -445,38 +394,38 @@ window.__ModuleLoader__.load({
       }, [usage, prices])
       const total = usage === undefined ? 0
         : parts.input + parts.cacheRead + parts.cacheWrite + parts.output
-      let hitText = null
-      if (usage !== undefined && usage.cacheReadTokens !== undefined) {
-        const prompt = usage.totalTokens - usage.outputTokens
-        if (prompt > 0) {
-          hitText = (usage.cacheReadTokens / prompt * 100).toFixed(1)
-          if (hitText === '100.0' && usage.uncachedInputTokens > 0) hitText = '99.9'
-        }
-      }
-      const routes = usage?.routes?.map(route => `${route.provider}/${route.model}`).join(', ') ?? ''
 
-      let diagnostic = false
-      let diagnosticLabel = ''
-      let diagnosticText = ''
-      if (usage === undefined) {
-        diagnostic = true
-        const keys = owner?.turn?.data instanceof Map ? Array.from(owner.turn.data.keys()).join(',') : 'no-map'
-        if (diag.uiConv === 'pending') diagnosticLabel = '¥?连接中'
-        else if (diag.uiConv === 'missing') diagnosticLabel = '¥?·服务缺失'
-        else if (diag.definition === true) {
-          diagnosticLabel = entry === undefined ? '¥?·无数据' : '¥?·无用量'
+      // Every state stays visible on the pill itself, so one screenshot is a
+      // full diagnosis; nothing is ever silently hidden.
+      let body
+      if (usage !== undefined) {
+        body = h(CostPill, { usage, prices, t, mode: 'ok', parts, total })
+      } else {
+        let label
+        const lines = [
+          `状态: ${state.kind}`,
+          `sessionId: ${sessionId ?? '无'}`,
+          `turnNo: ${turnNo ?? '无'}`,
+          `turn.status: ${status ?? '无'}`,
+        ]
+        if (state.kind === 'idle') label = '¥?·无坐标'
+        else if (state.kind === 'loading') {
+          label = '¥…'
+          lines.push('状态: 正在请求 Host…')
+        } else if (state.kind === 'error') {
+          label = '¥?·失败'
+          lines.push(`错误: ${state.message}`)
         } else {
-          diagnosticLabel = '¥?·注册失败'
+          label = '¥?·无用量'
+          lines.push(`事件总数: ${state.events}`)
+          lines.push(`命中 assistant/message: ${state.matched}`)
+          lines.push(`attempts: ${state.attempts.length}`)
         }
-        diagnosticText = LOG + ' uiConv:' + diag.uiConv
-          + ' def:' + (diag.definition === true ? 'ok' : (diag.defError === '' ? 'NO' : 'ERR:' + diag.defError))
-          + ' data:[' + keys + ']'
-        console.log(LOG, 'tail without usage:', diagnosticText)
+        body = h(CostPill, { prices, t, mode: 'probe', probeLabel: label, probeLines: lines })
       }
 
-      // Inline seat: portal the pill next to the shipped usage pill inside the
-      // actions row; the shipped pill is hidden via an inline style (restored on
-      // cleanup). Without that anchor, fall back to a dedicated row.
+      // Inline seat: portal the pill immediately left of the shipped usage pill
+      // inside the actions row. Without that anchor, fall back to a dedicated row.
       const anchorRef = useRef(null)
       const [slot, setSlot] = useState(null)
       useLayoutEffect(() => {
@@ -487,15 +436,12 @@ window.__ModuleLoader__.load({
           return undefined
         }
         const span = document.createElement('span')
-        span.style.cssText = 'display:inline-flex;align-items:center;min-width:0;'
+        span.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;height:calc(28px + var(--dsh-content-font-delta, 0px));vertical-align:middle;'
         shipped.parentElement.insertBefore(span, shipped)
         setSlot(span)
         return () => { span.remove() }
-      }, [entry])
+      }, [])
 
-      const body = h(CostPill, {
-        usage, prices, t, diagnostic, diagnosticText, diagnosticLabel, parts, total, routes, hitText,
-      })
       if (slot === 'fallback') {
         return h('div', {
           ref: anchorRef,
@@ -513,13 +459,10 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log(LOG, 'apply (v5, inline seat, original pill untouched)')
+        console.log(LOG, 'apply (v6, host-folded usage)')
 
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'turn-cost: dictionaries')
 
-        // The setup body must only install; the returned function is the disposer.
-        // (v1-v3 passed the removal as the setup body, so the stylesheet was
-        // removed immediately after being appended.)
         ctx.effect(() => {
           const styleElement = document.createElement('style')
           styleElement.dataset.plugin = '@local/turn-cost'
@@ -528,71 +471,36 @@ window.__ModuleLoader__.load({
           return () => { styleElement.remove() }
         }, 'turn-cost: stylesheet')
 
-        // The uiConversation service may apply after this plugin; poll briefly
-        // instead of a declared inject (which would stay pending forever) or a
-        // single read (which may simply be too early).
-        const timers = new Set()
-        let tries = 0
-        const tryRegister = () => {
-          tries += 1
-          let service
-          try {
-            service = ctx.get('uiConversation')
-          } catch (error) {
-            console.error(LOG, 'ctx.get(uiConversation) threw', error)
+        /** One shaped RPC call through the client connection carrier. */
+        async function callRpc(action, args) {
+          const service = ctx.get('connection')
+          if (service === undefined || service === null || typeof service.rpc?.call !== 'function') {
+            throw new Error('connection service is unavailable')
           }
-          if (service !== undefined && service !== null) {
-            diag.uiConv = 'ok'
-            try {
-              service.events.register(usageDefinition)
-              diag.definition = true
-              console.log(LOG, 'usage definition registered')
-            } catch (error) {
-              diag.defError = String(error?.message ?? error).slice(0, 120)
-              console.error(LOG, 'definition registration failed', error)
-            }
-            return
+          const result = await service.rpc.call(RPC_CHANNEL, RPC_METHOD, { action, ...args })
+          if (result === null || typeof result !== 'object' || result.ok !== true) {
+            throw new Error(String(result?.error?.message ?? 'rpc returned no payload'))
           }
-          if (tries < 20) {
-            const timer = setTimeout(() => {
-              timers.delete(timer)
-              tryRegister()
-            }, 300)
-            timers.add(timer)
-          } else {
-            diag.uiConv = 'missing'
-            console.error(LOG, 'uiConversation never became available')
-          }
+          return result.value
         }
-        tryRegister()
-        ctx.effect(() => {
-          for (const timer of timers) clearTimeout(timer)
-        }, 'turn-cost: registration polling')
 
-        try {
-          if (typeof host !== 'undefined' && host !== null && typeof host.call === 'function') {
-            host.call('turnCost/prices').then((next) => {
-              diag.rpc = true
-              console.log(LOG, 'prices from host:', JSON.stringify(next))
-              if (next !== null && typeof next === 'object'
-                && typeof next.currency === 'string' && next.currency.length > 0
-                && next.perMillion !== null && typeof next.perMillion === 'object') {
-                pricesStore.set(next)
-              }
-            }).catch((error) => { console.error(LOG, 'prices RPC failed; defaults stay', error) })
-          } else {
-            console.error(LOG, 'host seat unavailable; defaults stay')
+        callRpc('prices', {}).then((next) => {
+          if (next !== null && typeof next === 'object'
+            && typeof next.currency === 'string' && next.currency.length > 0
+            && next.perMillion !== null && typeof next.perMillion === 'object') {
+            pricesStore.set(next)
           }
-        } catch (error) {
-          console.error(LOG, 'host.call threw synchronously', error)
-        }
+        }).catch((error) => { console.error(LOG, 'prices rpc failed; defaults stay', error) })
 
         ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
           name: 'conversation.chat.turnTail',
           id: '@local/turn-cost',
           order: 90,
           locale: NS,
-          inject: () => ({ hooks: { prices: pricesStore } }),
+          inject: () => ({
+            hooks: { prices: pricesStore },
+            callUsage: (sessionId, turn) => callRpc('usage', { sessionId: String(sessionId), turn }),
+          }),
         }, CostTail))
         console.log(LOG, 'tail slot registered')
       },

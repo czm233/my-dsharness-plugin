@@ -1,9 +1,9 @@
 {
-  "currency": "¥",
+  "currency": "$",
   "perMillion": {
-    "input": 0.8,
-    "cacheRead": 0.23,
+    "input": 0.15,
+    "cacheRead": 0.03,
     "cacheWrite": 0,
-    "output": 2.8
+    "output": 0.5
   }
 }

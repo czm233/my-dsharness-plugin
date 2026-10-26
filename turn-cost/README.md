@@ -1,6 +1,6 @@
 # @local/turn-cost
 
-把每轮回答末尾的“本轮用量 N tok”替换为按模型牌价折算的金额（≈¥x.xx），点击可展开 token 明细与费用构成。
+把每轮回答末尾的“本轮用量 N tok”替换为按模型牌价折算的金额（≈$x.xx），点击可展开 token 明细与费用构成。
 
 ## 原理
 
@@ -13,12 +13,12 @@
 
 ```json
 {
-  "currency": "¥",
-  "perMillion": { "input": 0.8, "cacheRead": 0.23, "cacheWrite": 0, "output": 2.8 }
+  "currency": "$",
+  "perMillion": { "input": 0.15, "cacheRead": 0.03, "cacheWrite": 0, "output": 0.5 }
 }
 ```
 
-默认值是 GLM-5.3-Flash 的国内牌价（输入 ¥0.8/M、缓存命中 ¥0.23/M、输出 ¥2.8/M，缓存存储限时免费记 0）。金额为“按牌价折算的等效金额”，不是实际账单——订阅套餐不按 token 计费。
+默认值是 GLM-5.3-Flash 的国际牌价（输入 $0.15/M、缓存命中 $0.03/M、输出 $0.50/M，缓存存储限时免费记 0）。金额为“按牌价折算的等效金额”，不是实际账单——订阅套餐不按 token 计费。
 
 Host 半通过 `harness.handle('turnCost/prices')` 把该表提供给浏览器半；若 RPC 通道不可用，浏览器半使用内置的同值默认价。
 

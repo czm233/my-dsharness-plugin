@@ -1,6 +1,6 @@
 {
   "name": "@local/turn-cost",
-  "version": "1.1.0",
+  "version": "1.15.0",
   "private": true,
   "type": "module",
   "description": "Shows each completed turn's token usage as a list-price money estimate in the chat tail.",
