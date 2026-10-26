@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "title": {
+    "en": "czm DSH plugins",
+    "zh": "czm 的 DSH 插件"
+  },
+  "description": {
+    "en": "Personal DeepSeek Harness plugins maintained by czm233.",
+    "zh": "czm233 维护的 DeepSeek Harness 个人插件。"
+  },
+  "plugins": [
+    {
+      "name": "composer-usage-plus",
+      "title": { "en": "Composer Usage Plus", "zh": "用量明细+" },
+      "description": {
+        "en": "Composer usage pill with session cost and GLM plan quota (bars show remaining).",
+        "zh": "输入框用量胶囊:会话成本明细与 GLM 套餐额度(进度条显示剩余)。"
+      },
+      "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "composer-usage-plus" },
+      "metadata": { "category": "usage", "keywords": ["dsh", "usage", "glm", "quota", "cost"] },
+      "versions": [
+        { "version": "1.0.1", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "composer-usage-plus" } }
+      ]
+    },
+    {
+      "name": "agent-workflow-board",
+      "title": { "en": "Agent Workflow Board", "zh": "流程画布" },
+      "description": {
+        "en": "Canvas view of agent-team workflow graphs inside a session.",
+        "zh": "在会话内以画布方式查看 Agent 团队工作流图。"
+      },
+      "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "agent-workflow-board" },
+      "metadata": { "category": "workflow", "keywords": ["dsh", "canvas", "workflow", "agent-teams"] },
+      "versions": [
+        { "version": "2.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "agent-workflow-board" } }
+      ]
+    },
+    {
+      "name": "composer-effort-chips",
+      "title": { "en": "Composer Effort Chips", "zh": "推理力度切换" },
+      "description": {
+        "en": "Quick reasoning-effort switching chips in the composer.",
+        "zh": "在输入框快速切换推理力度。"
+      },
+      "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "composer-effort-chips" },
+      "metadata": { "category": "interface", "keywords": ["dsh", "reasoning-effort", "composer"] },
+      "versions": [
+        { "version": "1.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "composer-effort-chips" } }
+      ]
+    },
+    {
+      "name": "turn-cost",
+      "title": { "en": "Turn Cost", "zh": "单轮成本" },
+      "description": {
+        "en": "Per-turn token cost estimation with local price table.",
+        "zh": "按单轮估算 token 成本,内置本地价格表。"
+      },
+      "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "turn-cost" },
+      "metadata": { "category": "usage", "keywords": ["dsh", "cost", "token", "pricing"] },
+      "versions": [
+        { "version": "1.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "turn-cost" } }
+      ]
+    }
+  ]
+}
