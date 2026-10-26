@@ -19,6 +19,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "composer-usage-plus" },
       "metadata": { "category": "usage", "keywords": ["dsh", "usage", "glm", "quota", "cost"] },
       "versions": [
+        { "version": "1.15.1", "publishTimestamp": 1793043064, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065", "path": "turn-cost" } },
         { "version": "1.0.1", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "composer-usage-plus" } }
       ]
     },
@@ -32,6 +33,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "agent-workflow-board" },
       "metadata": { "category": "workflow", "keywords": ["dsh", "canvas", "workflow", "agent-teams"] },
       "versions": [
+        { "version": "1.15.1", "publishTimestamp": 1793043064, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065", "path": "turn-cost" } },
         { "version": "2.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "agent-workflow-board" } }
       ]
     },
@@ -45,6 +47,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "composer-effort-chips" },
       "metadata": { "category": "interface", "keywords": ["dsh", "reasoning-effort", "composer"] },
       "versions": [
+        { "version": "1.15.1", "publishTimestamp": 1793043064, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065", "path": "turn-cost" } },
         { "version": "1.2.0", "publishTimestamp": 1793041800, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "d3b87929d6362fbc908c7d8ea0d5a82c3f42e1bb", "path": "composer-effort-chips" } },
         { "version": "1.1.2", "publishTimestamp": 1793041200, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "2f6b494b895d5df9ef1ef150ef2dd1aecf6a7a95", "path": "composer-effort-chips" } },
         { "version": "1.1.1", "publishTimestamp": 1793040600, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "c09c94a34051e5add93be77baeaf3a7a443c9169", "path": "composer-effort-chips" } },
@@ -62,6 +65,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "turn-cost" },
       "metadata": { "category": "usage", "keywords": ["dsh", "cost", "token", "pricing"] },
       "versions": [
+        { "version": "1.15.1", "publishTimestamp": 1793043064, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065", "path": "turn-cost" } },
         { "version": "1.1.0", "publishTimestamp": 1793061000, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "04cf19d21b05aae2e0c182cf1311ffc4787ac5b2", "path": "turn-cost" } },
         { "version": "1.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "turn-cost" } }
       ]
