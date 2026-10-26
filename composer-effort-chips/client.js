@@ -21,6 +21,10 @@ window.__ModuleLoader__.load({
       return id === 'deepseek-account' ? 0 : id === 'deepseek-official' ? 1 : 2;
     }
 
+    // Last {model, reasoningEffort} seen per channel id, shared by every
+    // composer instance in the page.
+    const lastSelectionByProvider = new Map();
+
     const chipBase = {
       appearance: 'none',
       border: 'none',
@@ -210,18 +214,46 @@ window.__ModuleLoader__.load({
       const disabled = !!locked || busy || !current;
       const currentGroup = groups.find((group) => group.id === current?.provider);
 
+      // Remember the last selection per channel (including changes made
+      // through the shipped selector) so hopping channels restores the
+      // model you actually left behind, not the channel's first model.
+      React.useEffect(() => {
+        if (current?.provider && current?.model) {
+          lastSelectionByProvider.set(current.provider, {
+            model: current.model,
+            reasoningEffort: current.reasoningEffort,
+          });
+        }
+      }, [current?.provider, current?.model, current?.reasoningEffort]);
+
       const channelOptions = groups.map((group) => ({
         key: group.id,
         label: groupLabel(group),
         active: group.id === current?.provider,
         onPick: () => {
           if (group.id === current?.provider) return;
-          // Switch channel: land on its first model, let effort fall back to
-          // that model's default.
-          const first = group.models[0];
+          // Restore the model last used on this channel when it still
+          // exists; otherwise fall back to the channel's first model.
+          const remembered = lastSelectionByProvider.get(group.id);
+          const target =
+            (remembered && group.models.find((model) => model.id === remembered.model)) ||
+            group.models[0];
+          if (!target) {
+            select({ provider: group.id });
+            return;
+          }
+          const efforts = target.reasoning?.efforts;
+          const effort =
+            remembered?.reasoningEffort ??
+            lastSelectionByProvider.get(current.provider)?.reasoningEffort;
+          const keep =
+            effort !== undefined &&
+            Array.isArray(efforts) &&
+            efforts.some((level) => level.id === effort);
           select({
             provider: group.id,
-            ...(first ? { model: first.id } : {}),
+            model: target.id,
+            ...(keep ? { reasoningEffort: effort } : {}),
           });
         },
       }));
