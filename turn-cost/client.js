@@ -1,10 +1,14 @@
 // Browser half of the Turn Cost plugin: derives each completed Turn's token
 // usage from the session log through a Conversation node definition, prices it
 // with the configured per-million list prices, and renders a money pill IN the
-// turn-tail actions row, exactly where the shipped usage pill sits (portaled
-// next to it; the shipped pill is hidden by stylesheet while this plugin runs).
-// Optional services resolve through ctx.get so a missing channel degrades to
-// visible diagnostics instead of a silently pending declared inject.
+// turn-tail actions row, immediately LEFT of the shipped usage pill (portaled
+// next to it; the shipped pill stays untouched).
+//
+// Diagnosability: the optional uiConversation service is polled with ctx.get
+// (a declared inject that cannot be satisfied stays pending forever), and any
+// gap is rendered as visible Chinese text on the pill itself (¥?·原因), plus
+// package-tagged console logs. Critical pill styles are inline so the pill
+// never degrades to raw browser chrome if a stylesheet fails to apply.
 
 window.__ModuleLoader__.load({
   id: '@local/turn-cost',
@@ -16,6 +20,9 @@ window.__ModuleLoader__.load({
 
     const NS = 'turnCost'
     const LOG = '[turn-cost]'
+
+    /** uiConversation availability: 'pending' | 'missing' | 'ok'; definition: false | true; defError text. */
+    const diag = { uiConv: 'pending', definition: false, defError: '', rpc: false }
 
     const zh = {
       'title': '本轮费用',
@@ -234,19 +241,10 @@ window.__ModuleLoader__.load({
       h('path', { d: 'M2 8c0 1.44 2.68 2.6 6 2.6S14 9.44 14 8', stroke: 'currentColor' }),
     )
 
+    /** Only non-critical chrome lives here (hover, dialog surface); pill base styles are inline. */
     const CSS = [
-      // The shipped usage pill yields its seat to this plugin's pill.
-      '[data-turn-tail] button[aria-haspopup=\'dialog\']:not([data-turn-cost-trigger]) { display: none !important; }',
-      '.dsh-turn-cost-slot { display: inline-flex; align-items: center; min-width: 0; }',
-      '.dsh-turn-cost-row { display: flex; justify-content: flex-end; align-items: center; height: calc(28px + var(--dsh-content-font-delta, 0px)); }',
-      '.dsh-turn-cost { display: inline-flex; min-width: 0; position: relative; }',
-      '.dsh-turn-cost-trigger { display: inline-flex; align-items: center; gap: 4px; min-width: 0; height: calc(28px + var(--dsh-content-font-delta, 0px)); padding: 6px 8px; border: none; border-radius: var(--dsw-radius-sm); background: transparent; color: var(--dsw-alias-label-tertiary); font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px); font-variant-numeric: tabular-nums; line-height: calc(24px + var(--dsh-content-font-delta, 0px)); white-space: nowrap; cursor: pointer; }',
-      '.dsh-turn-cost-trigger svg { width: calc(15px + var(--dsh-content-font-delta, 0px)); height: calc(15px + var(--dsh-content-font-delta, 0px)); flex: none; }',
-      '.dsh-turn-cost-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }',
-      '.dsh-turn-cost-sub { opacity: 0.7; }',
-      '.dsh-turn-cost-trigger:hover, .dsh-turn-cost-trigger[aria-expanded=\'true\'] { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }',
-      '.dsh-turn-cost-probe { opacity: 0.55; cursor: help; }',
-      '.dsh-turn-cost-panel { position: fixed; z-index: 1100; box-sizing: border-box; width: max-content; min-width: min(300px, calc(100vw - 24px)); max-width: min(440px, calc(100vw - 24px)); padding: 16px; border: 0; border-radius: var(--dsw-radius-lg); background: var(--dsw-specific-menu); backdrop-filter: var(--dsw-menu-backdrop-filter); --dsw-elevation-stroke-color: var(--dsw-alias-border-l1); box-shadow: var(--dsw-elevation-prominent); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); cursor: default; }',
+      '.dsh-turn-cost-trigger:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-secondary); }',
+      '.dsh-turn-cost-panel { position: fixed; z-index: 1100; box-sizing: border-box; width: max-content; min-width: min(300px, calc(100vw - 24px)); max-width: min(440px, calc(100vw - 24px)); padding: 16px; border: 0; border-radius: var(--dsw-radius-lg, 10px); background: var(--dsw-specific-menu, #1d1f23); box-shadow: var(--dsw-elevation-prominent, 0 8px 24px rgba(0,0,0,.35)); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); cursor: default; }',
       '.dsh-turn-cost-title { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }',
       '.dsh-turn-cost-title-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }',
       '.dsh-turn-cost-title-label svg { width: 14px; height: 14px; flex: none; }',
@@ -261,6 +259,24 @@ window.__ModuleLoader__.load({
       '.dsh-turn-cost-total dd { font-weight: 600; }',
       '.dsh-turn-cost-note { margin-top: 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
     ].join('\n')
+
+    const PILL_STYLE = {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      minWidth: 0,
+      height: 'calc(28px + var(--dsh-content-font-delta, 0px))',
+      padding: '6px 8px',
+      border: 'none',
+      borderRadius: 'var(--dsw-radius-sm, 6px)',
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-tertiary)',
+      fontSize: 'calc(var(--dsh-content-font-size-secondary, 13px) - 1px)',
+      fontVariantNumeric: 'tabular-nums',
+      lineHeight: 'calc(24px + var(--dsh-content-font-delta, 0px))',
+      whiteSpace: 'nowrap',
+      cursor: 'pointer',
+    }
 
     function detailRow(term, value, extraClass) {
       return [
@@ -335,7 +351,7 @@ window.__ModuleLoader__.load({
     }
 
     function CostPill(props) {
-      const { usage, prices, t, diagnostic } = props
+      const { usage, prices, t, diagnostic, diagnosticText, diagnosticLabel } = props
       const [open, setOpen] = useState(false)
       const rootRef = useRef(null)
       const panelRef = useRef(null)
@@ -383,26 +399,24 @@ window.__ModuleLoader__.load({
       }, [open])
 
       const label = diagnostic === true
-        ? '¥?'
+        ? diagnosticLabel
         : t('pillTotal', { cost: formatMoney(props.total, prices.currency) })
-      const title = diagnostic === true
-        ? props.diagnosticText
-        : t('listNote')
 
       return h('span', { className: 'dsh-turn-cost', ref: rootRef },
         h('button', {
           type: 'button',
-          className: 'dsh-turn-cost-trigger' + (diagnostic === true ? ' dsh-turn-cost-probe' : ''),
+          className: 'dsh-turn-cost-trigger',
+          style: diagnostic === true ? { ...PILL_STYLE, opacity: 0.6, cursor: 'help' } : PILL_STYLE,
           'data-turn-cost-trigger': '',
-          'aria-haspopup': 'dialog',
+          'aria-haspopup': diagnostic === true ? undefined : 'dialog',
           'aria-expanded': open,
-          title,
+          title: diagnostic === true ? diagnosticText : t('listNote'),
           onClick: () => { if (diagnostic !== true) setOpen(!open) },
         },
           h(IconCoin),
-          h('span', { className: 'dsh-turn-cost-label' }, label),
+          h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' } }, label),
           diagnostic !== true
-            ? h('span', { className: 'dsh-turn-cost-sub' },
+            ? h('span', { style: { opacity: 0.7 } },
               t('pillTokens', { tokens: formatCompactTokens(usage.totalTokens) }))
             : null,
         ),
@@ -442,18 +456,27 @@ window.__ModuleLoader__.load({
       const routes = usage?.routes?.map(route => `${route.provider}/${route.model}`).join(', ') ?? ''
 
       let diagnostic = false
+      let diagnosticLabel = ''
       let diagnosticText = ''
       if (usage === undefined) {
         diagnostic = true
         const keys = owner?.turn?.data instanceof Map ? Array.from(owner.turn.data.keys()).join(',') : 'no-map'
-        diagnosticText = LOG + ' uiConv:' + (diag.uiConversation ? 'ok' : 'MISSING')
-          + ' def:' + (diag.definition ? 'ok' : 'NO')
+        if (diag.uiConv === 'pending') diagnosticLabel = '¥?连接中'
+        else if (diag.uiConv === 'missing') diagnosticLabel = '¥?·服务缺失'
+        else if (diag.definition === true) {
+          diagnosticLabel = entry === undefined ? '¥?·无数据' : '¥?·无用量'
+        } else {
+          diagnosticLabel = '¥?·注册失败'
+        }
+        diagnosticText = LOG + ' uiConv:' + diag.uiConv
+          + ' def:' + (diag.definition === true ? 'ok' : (diag.defError === '' ? 'NO' : 'ERR:' + diag.defError))
           + ' data:[' + keys + ']'
         console.log(LOG, 'tail without usage:', diagnosticText)
       }
 
       // Inline seat: portal the pill next to the shipped usage pill inside the
-      // actions row; without that anchor, fall back to a dedicated row.
+      // actions row; the shipped pill is hidden via an inline style (restored on
+      // cleanup). Without that anchor, fall back to a dedicated row.
       const anchorRef = useRef(null)
       const [slot, setSlot] = useState(null)
       useLayoutEffect(() => {
@@ -464,51 +487,87 @@ window.__ModuleLoader__.load({
           return undefined
         }
         const span = document.createElement('span')
-        span.className = 'dsh-turn-cost-slot'
+        span.style.cssText = 'display:inline-flex;align-items:center;min-width:0;'
         shipped.parentElement.insertBefore(span, shipped)
         setSlot(span)
         return () => { span.remove() }
       }, [entry])
 
       const body = h(CostPill, {
-        usage, prices, t, diagnostic, diagnosticText, parts, total, routes, hitText,
+        usage, prices, t, diagnostic, diagnosticText, diagnosticLabel, parts, total, routes, hitText,
       })
       if (slot === 'fallback') {
-        return h('div', { ref: anchorRef, className: 'dsh-turn-cost-row', 'data-turn-cost-row': '' }, body)
+        return h('div', {
+          ref: anchorRef,
+          style: {
+            display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+            height: 'calc(28px + var(--dsh-content-font-delta, 0px))',
+          },
+          'data-turn-cost-row': '',
+        }, body)
       }
       return h('span', { ref: anchorRef, 'data-turn-cost-row': '' },
         slot !== null && slot !== 'fallback' ? createPortal(body, slot) : null)
     }
 
-    const diag = { uiConversation: false, definition: false, rpc: false }
-
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log(LOG, 'apply (v3, inline seat)')
+        console.log(LOG, 'apply (v5, inline seat, original pill untouched)')
 
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'turn-cost: dictionaries')
 
-        const styleElement = document.createElement('style')
-        styleElement.dataset.plugin = '@local/turn-cost'
-        styleElement.textContent = CSS
-        document.head.appendChild(styleElement)
-        ctx.effect(() => styleElement.remove(), 'turn-cost: stylesheet')
+        // The setup body must only install; the returned function is the disposer.
+        // (v1-v3 passed the removal as the setup body, so the stylesheet was
+        // removed immediately after being appended.)
+        ctx.effect(() => {
+          const styleElement = document.createElement('style')
+          styleElement.dataset.plugin = '@local/turn-cost'
+          styleElement.textContent = CSS
+          document.head.appendChild(styleElement)
+          return () => { styleElement.remove() }
+        }, 'turn-cost: stylesheet')
 
-        const uiConversation = ctx.get('uiConversation')
-        diag.uiConversation = uiConversation !== undefined && uiConversation !== null
-        console.log(LOG, 'ctx.get(uiConversation) ->', diag.uiConversation ? 'present' : 'MISSING')
-        if (diag.uiConversation) {
+        // The uiConversation service may apply after this plugin; poll briefly
+        // instead of a declared inject (which would stay pending forever) or a
+        // single read (which may simply be too early).
+        const timers = new Set()
+        let tries = 0
+        const tryRegister = () => {
+          tries += 1
+          let service
           try {
-            uiConversation.events.register(usageDefinition)
-            diag.definition = true
-            console.log(LOG, 'usage definition registered')
+            service = ctx.get('uiConversation')
           } catch (error) {
-            console.error(LOG, 'definition registration failed', error)
+            console.error(LOG, 'ctx.get(uiConversation) threw', error)
           }
-        } else {
-          console.error(LOG, 'uiConversation service unavailable; usage fold cannot register')
+          if (service !== undefined && service !== null) {
+            diag.uiConv = 'ok'
+            try {
+              service.events.register(usageDefinition)
+              diag.definition = true
+              console.log(LOG, 'usage definition registered')
+            } catch (error) {
+              diag.defError = String(error?.message ?? error).slice(0, 120)
+              console.error(LOG, 'definition registration failed', error)
+            }
+            return
+          }
+          if (tries < 20) {
+            const timer = setTimeout(() => {
+              timers.delete(timer)
+              tryRegister()
+            }, 300)
+            timers.add(timer)
+          } else {
+            diag.uiConv = 'missing'
+            console.error(LOG, 'uiConversation never became available')
+          }
         }
+        tryRegister()
+        ctx.effect(() => {
+          for (const timer of timers) clearTimeout(timer)
+        }, 'turn-cost: registration polling')
 
         try {
           if (typeof host !== 'undefined' && host !== null && typeof host.call === 'function') {
@@ -535,7 +594,7 @@ window.__ModuleLoader__.load({
           locale: NS,
           inject: () => ({ hooks: { prices: pricesStore } }),
         }, CostTail))
-        console.log(LOG, 'tail slot registered', JSON.stringify(diag))
+        console.log(LOG, 'tail slot registered')
       },
     }
   },

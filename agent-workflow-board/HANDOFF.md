@@ -7,7 +7,7 @@
 
 ## 0. 插件基本信息
 
-- **唯一地址（canonical）**：`/Users/czm/githubProject/czm-personal-website/plugins/agent-workflow-board/`
+- **唯一地址（canonical）**：`/Users/czm/githubProject/my-dsharness-plugin/agent-workflow-board/`
   - default-workspace 里的旧副本已删除，不要在别处新建副本再改（曾因两份副本不同步浪费一轮排查）
 - **安装方式**：`plugin_manager` → `remove_bundle: @local/agent-workflow-board` → `install_bundle, target=上面的目录`（profile 里是 link 安装，remove+install 强制重新组合）
 - **文件结构**：`host.js`（Host 半：存储路由 + agent 名册）、`client.js`（Client 半：全部 UI）、`cordis.patch.yml`（insert 一行）、`locale/zh.json`+`en.json`（展示元数据）、`icon.svg`
@@ -27,7 +27,7 @@
 7. **会话顶标签需要刷新页面才出现/更新**（Client 模块表只在页面加载时注入；`pnpm run dev:web` 没跑就没有热更新）。
 8. **框选矩形、节点、连线必须渲染在 `.awbc-plane` 内**（平面带 translate(pan)）；放在视口层会导致平移后坐标错位（曾经"框选出现在左上角"就是这个）。
 9. **端口圆心钉在 `top:26px`**（26 + 半径 5 + 节点边框 1 = 32px = NODE_H/2 = 连线终点），不要改回 `top:50%`（节点实际高度可变，会偏上/偏下）。
-10. **插件只有一个副本**，改代码就改 czm-personal-website 这份。
+10. **插件只有一个副本**，改代码就改 my-dsharness-plugin 这份。
 11. `cordis_inspect_query` 的 `input` 参数当前有 bug（传了就报 "must be an object"），只能无参调用；调试前端行为用「DEBUG 角标」模式（window 捕获阶段 pointerdown 计数 + 画布上实时读数，本会话用它一步定位过 bug）。
 
 ## 2. M1 现状（全部已验收）
@@ -128,5 +128,5 @@
 
 ## 6. 给新会话的开场白模板
 
-> 插件在 `/Users/czm/githubProject/czm-personal-website/plugins/agent-workflow-board/`，
+> 插件在 `/Users/czm/githubProject/my-dsharness-plugin/agent-workflow-board/`，
 > 先读目录里的 `HANDOFF.md`（交接文档），按 M2 计划开工。改完用 plugin_manager remove+install 该目录重装，刷新页面验证。
