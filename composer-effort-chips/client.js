@@ -453,6 +453,17 @@ window.__ModuleLoader__.load({
             '  width: 176px;',
             '  flex: none;',
             '}',
+            // Reorder the composer trailing row: the shipped model selector
+            // seat moves to the LEFT of our slot cluster (chips + channel/
+            // model pickers), so our controls own the spot next to Send.
+            // Pure visual reorder — nothing is removed or unmounted.
+            '[class*="standardControls"] {',
+            '  display: flex;',
+            '  align-items: center;',
+            '}',
+            '[class*="standardControls"] > div:has(button [class*="triggerEffort"]) {',
+            '  order: -1;',
+            '}',
           ].join('\n');
           document.head.appendChild(style);
           return () => style.remove();
