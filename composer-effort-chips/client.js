@@ -461,7 +461,8 @@ window.__ModuleLoader__.load({
             '  display: flex;',
             '  align-items: center;',
             '}',
-            '[class*="standardControls"] > div:has(button [class*="triggerEffort"]) {',
+            '[class*="standardControls"] > *:has(button [class*="triggerEffort"]),',
+            '[class*="standardControls"] > button:has([class*="triggerEffort"]) {',
             '  order: -1;',
             '}',
           ].join('\n');
