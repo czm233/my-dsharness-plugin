@@ -6,7 +6,7 @@
 ## 1. 路径唯一
 
 - 本地开发路径**只有一个**:`/Users/czm/githubProject/my-dsharness-plugin/`
-- 远程仓库**只有一个**:`https://github.com/czm233/my-dsharness-plugin`(私有)
+- 远程仓库**只有一个**:`https://github.com/czm233/my-dsharness-plugin`(公开;注意不要提交密钥等敏感信息)
 - 任何其他位置(default-workspace、czm-personal-website 等)出现的插件副本都是过期残留:发现即删除,**绝不**在副本上改代码。
 - DSH 的插件软链接在 `~/.dsh/profiles/desktop/node_modules/@local/<插件名>`,必须指向本仓库内的对应子目录。
 
@@ -19,6 +19,20 @@
 3. **云端**(GitHub 上的 main 分支)——正式版本的最终依据。
 
 云端可随时 `git pull` 同步到本地;本地与云端冲突时,先确认哪边是要保留的结果,再决定合并方向,**不允许**两份长期分叉。
+
+## 2.5 插件链接的登记表(2026-10-27 事故教训)
+
+**软链接的源头不是 `ln -s`,而是 `~/.dsh/profiles/desktop/package.json` 的 `dependencies`(`@local/<名>: "link:<绝对路径>"`)+ `pnpm-lock.yaml`。**
+
+- 任何时候跑 `pnpm install`(重启 DSH、装任何插件都会触发),pnpm 会**按登记表重建全部软链接**,手动 `ln -sfn` 改的链接会被无声覆盖回去。
+- 因此:**搬家/迁移插件 = 改 package.json 里的 link: 条目(或用 plugin_manager 重装)→ 跑 pnpm install**,绝不是手改链接。
+- 验证链接健康:所有 `@local/*` 都应指向本仓库对应子目录,且 `readlink` 目标存在。
+- 本机捆绑的 pnpm 用法(和 DSH 内部完全一致):
+  ```bash
+  RUNTIME=~/.dsh/dsh-runtimes/dsh-primary-runtime
+  export PATH="$RUNTIME/dependencies/node/bin:$PATH"
+  cd ~/.dsh/profiles/desktop && node $RUNTIME/dependencies/pnpm/bin/pnpm.cjs install
+  ```
 
 ## 3. 临时改动的生命周期
 

@@ -58,6 +58,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "turn-cost" },
       "metadata": { "category": "usage", "keywords": ["dsh", "cost", "token", "pricing"] },
       "versions": [
+        { "version": "1.1.0", "publishTimestamp": 1793061000, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "04cf19d21b05aae2e0c182cf1311ffc4787ac5b2", "path": "turn-cost" } },
         { "version": "1.0.0", "publishTimestamp": 1793018467, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "3f5262be54388614d7d46561d32eb9c97fa09230", "path": "turn-cost" } }
       ]
     }
