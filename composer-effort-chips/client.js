@@ -294,14 +294,50 @@ window.__ModuleLoader__.load({
       const reasoning = currentModel?.reasoning;
       const effectiveEffort = current?.reasoningEffort ?? reasoning?.defaultEffort;
 
+      // Known reasoning-effort sets for mainstream model families, matched
+      // against the model id (and name) when the directory entry carries no
+      // `reasoning` metadata (typical for hand-declared relay models).
+      // Ids use DSH's universal effort vocabulary: off / low / high / max.
+      const MODEL_EFFORT_TABLE = [
+        // OpenAI GPT-5 / o-series: reasoning effort low→high (minimal≈off).
+        { match: /(^|[\/-])(gpt-5|o[13456])([.\-/]|$)/i, efforts: ['off', 'low', 'high', 'max'] },
+        // Claude 4/5 family: extended thinking on/off with effort levels.
+        { match: /claude/i, efforts: ['off', 'low', 'high'] },
+        // Gemini 2.5/3: thinking with low/high budgets.
+        { match: /gemini/i, efforts: ['off', 'low', 'high'] },
+        // Grok 4: reasoning on/off.
+        { match: /grok/i, efforts: ['off', 'high'] },
+        // GLM 4.x/5.x: deep thinking toggle.
+        { match: /glm/i, efforts: ['off', 'low', 'high'] },
+        // DeepSeek R1/reasoner: always-reasoning family.
+        { match: /deepseek-(r\d|reasoner)/i, efforts: ['high'] },
+        // Qwen 3 thinking variants.
+        { match: /qwq|qwen3/i, efforts: ['off', 'low', 'high'] },
+        // Kimi k-series thinking.
+        { match: /kimi|moonshot/i, efforts: ['off', 'high'] },
+      ];
+      const matchEfforts = (model) => {
+        const haystack = `${model.id} ${model.name ?? ''}`;
+        for (const entry of MODEL_EFFORT_TABLE) {
+          if (entry.match.test(haystack)) return entry.efforts;
+        }
+        return null;
+      };
+      // Last-resort fallback for models unknown to the table.
+      const GENERIC_EFFORTS = ['off', 'low', 'high', 'max'];
+
       const effortChips = [];
-      if (reasoning) {
-        if (reasoning.defaultEffort === undefined) {
-          effortChips.push({ key: 'provider-default', effort: undefined, label: t('providerDefault') });
-        }
-        for (const level of reasoning.efforts) {
-          effortChips.push({ key: `effort:${level.id}`, effort: level.id, label: level.name });
-        }
+      const effortLevels = reasoning
+        ? reasoning.efforts
+        : (matchEfforts(currentModel ?? {}) ?? GENERIC_EFFORTS).map((id) => ({
+            id,
+            name: id.charAt(0).toUpperCase() + id.slice(1),
+          }));
+      if (!reasoning || reasoning.defaultEffort === undefined) {
+        effortChips.push({ key: 'provider-default', effort: undefined, label: t('providerDefault') });
+      }
+      for (const level of effortLevels) {
+        effortChips.push({ key: `effort:${level.id}`, effort: level.id, label: level.name });
       }
 
       const busy = state.pending !== null;
