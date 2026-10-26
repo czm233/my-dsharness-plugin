@@ -393,17 +393,6 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { style: rowStyle, 'data-composer-effort-chips': true },
-        // DEBUG MARKER 1.3.5 — visible proof of which code build the renderer
-        // is actually running. Remove once the layout is confirmed.
-        h('span', {
-          key: 'debug-version-marker',
-          style: {
-            fontSize: 9, lineHeight: '12px', padding: '0 4px', flex: 'none',
-            border: '1px solid currentColor', borderRadius: 4, opacity: 0.55,
-            color: 'var(--dsw-alias-state-business-primary, #4f9cf9)',
-          },
-          title: 'composer-effort-chips build marker',
-        }, '1.3.8'),
         effortChips.length > 0 &&
           h(
             'div',
@@ -466,57 +455,25 @@ window.__ModuleLoader__.load({
             '  width: 176px;',
             '  flex: none;',
             '}',
-            // Reorder the composer trailing row: the shipped model selector
-            // seat moves to the LEFT of our slot cluster (chips + channel/
-            // model pickers), so our controls own the spot next to Send.
-            // Exact class names from this app build (ModelSelect module
-            // htuFrW_*; InputBar module JZLxKW_*), plus substring fallbacks.
-            '.JZLxKW_standardControls, [class*="standardControls"] {',
-            '  display: flex;',
-            '  align-items: center;',
-            '}',
-            '.JZLxKW_standardControls > .htuFrW_root,',
-            '.JZLxKW_standardControls > *:has(button.htuFrW_trigger),',
-            '[class*="standardControls"] > *:has(span[class*="triggerEffort"]),',
-            '[class*="standardControls"] > *:has(button[class*="triggerEffort"]),',
-            '[class*="standardControls"] > button:has([class*="triggerEffort"]) {',
-            '  order: -1;',
-            '}',
-            // Container-agnostic variant: whatever element DIRECTLY parents
-            // the shipped model-select root, pull that child (the root or its
-            // wrapper) in front of its siblings. Works even when the parent
-            // class name doesn't match the patterns above.
-            '*:has(> .htuFrW_root) > *:has(.htuFrW_root) {',
-            '  order: -1 !important;',
-            '}',
-            // Row flip: the composer row directly parents our entries and
-            // contains the shipped model seat somewhere below. Reversing the
+            // Layout: the composer row directly parents our entries and also
+            // contains the shipped model seat somewhere below. Reversing that
             // row renders [ours..., shipped seat] as [shipped seat, ...ours]
-            // — exactly the target layout — independent of class names.
+            // — the shipped selector ends up leftmost and our cluster owns
+            // the spot next to Send — independent of hashed class names.
             '*:has(> [data-composer-effort-chips]):has(.htuFrW_root) {',
             '  flex-direction: row-reverse;',
-            '}',
-            // DEBUG 1: badge turns RED iff this stylesheet is live at all.
-            '[data-composer-effort-chips] > span:first-child {',
-            '  color: #ff3b30 !important;',
-            '  border-color: #ff3b30 !important;',
-            '}',
-            // DEBUG 2: orange outline on the shipped model trigger root, so a
-            // screenshot shows exactly which element the rules matched.
-            '.htuFrW_root {',
-            '  outline: 2px solid #ff9500 !important;',
-            '  outline-offset: 2px;',
             '}',
           ].join('\n');
           document.head.appendChild(style);
           return () => style.remove();
         });
-        // JS fallback for the visual reorder: find the shipped model-select
-        // root, climb from it to the child of the COMMON ancestor that also
-        // contains our row, and physically move that wrapper in front of our
-        // cluster. The official node stays attached to its parent the whole
-        // time (only repositioned), so React insert/remove using it as a
-        // reference keeps working. Idempotent: no-op once it is in front.
+        // JS fallback for the visual reorder — only active when the CSS row
+        // flip above is NOT (e.g. :has() unavailable): find the shipped
+        // model-select root, climb from it to the child of the COMMON
+        // ancestor that also contains our row, and physically move that
+        // wrapper in front of our cluster. The official node stays attached
+        // to its parent the whole time (only repositioned), so React
+        // insert/remove using it as a reference keeps working. Idempotent.
         ctx.effect(() => {
           if (typeof document === 'undefined') return undefined;
           let timer = 0;
@@ -536,6 +493,8 @@ window.__ModuleLoader__.load({
                 }
                 const row = a.parentElement;
                 if (!row || !row.contains(ours)) continue;
+                // CSS owns the reorder whenever the flip is in effect.
+                if (getComputedStyle(row).flexDirection === 'row-reverse') return;
                 // Direct child of the row that contains our cluster.
                 let target = ours;
                 while (target.parentElement !== row) target = target.parentElement;
@@ -543,10 +502,6 @@ window.__ModuleLoader__.load({
                 // Only act while the shipped seat sits AFTER our cluster.
                 if (!(target.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING)) continue;
                 row.insertBefore(a, target);
-                // Green flash: visible proof the mover fired this build.
-                const prev = a.style.outline;
-                a.style.outline = '2px solid #2ecc40';
-                setTimeout(() => { a.style.outline = prev; }, 1200);
                 return;
               }
             } catch (error) {
