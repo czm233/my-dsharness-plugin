@@ -466,7 +466,10 @@ window.__ModuleLoader__.load({
               {
                 name: 'conversation.input.right',
                 id: 'composer-effort-chips',
-                order: 10,
+                // Highest order in the right slot = rightmost in the row,
+                // i.e. immediately left of the shipped model selector / send
+                // button; channel/model pickers (order 11) sit to their left.
+                order: 20,
                 inject: (sessionId) => {
                   const directory = models.directoryFor(sessionId);
                   const available = sessions.subagentAddress(sessionId) === undefined;
