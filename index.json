@@ -47,6 +47,7 @@
       "repository": { "url": "https://github.com/czm233/my-dsharness-plugin", "directory": "composer-effort-chips" },
       "metadata": { "category": "interface", "keywords": ["dsh", "reasoning-effort", "composer"] },
       "versions": [
+        { "version": "1.2.2", "publishTimestamp": 1793043000, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "7a570e842f87fcf0733838ec59c85ac11a97717f", "path": "composer-effort-chips" } },
         { "version": "1.2.1", "publishTimestamp": 1793042400, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "e56640cc1321693fe9674572a7a33730c56fdf59", "path": "composer-effort-chips" } },
         { "version": "1.15.1", "publishTimestamp": 1793043064, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065", "path": "turn-cost" } },
         { "version": "1.2.0", "publishTimestamp": 1793041800, "source": { "type": "git", "url": "https://github.com/czm233/my-dsharness-plugin", "commit": "d3b87929d6362fbc908c7d8ea0d5a82c3f42e1bb", "path": "composer-effort-chips" } },
