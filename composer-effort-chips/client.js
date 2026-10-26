@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
             color: 'var(--dsw-alias-state-business-primary, #4f9cf9)',
           },
           title: 'composer-effort-chips build marker',
-        }, '1.3.6'),
+        }, '1.3.7'),
         effortChips.length > 0 &&
           h(
             'div',
@@ -482,6 +482,13 @@ window.__ModuleLoader__.load({
             '[class*="standardControls"] > button:has([class*="triggerEffort"]) {',
             '  order: -1;',
             '}',
+            // Container-agnostic variant: whatever element DIRECTLY parents
+            // the shipped model-select root, pull that child (the root or its
+            // wrapper) in front of its siblings. Works even when the parent
+            // class name doesn't match the patterns above.
+            '*:has(> .htuFrW_root) > *:has(.htuFrW_root) {',
+            '  order: -1 !important;',
+            '}',
             // DEBUG 1: badge turns RED iff this stylesheet is live at all.
             '[data-composer-effort-chips] > span:first-child {',
             '  color: #ff3b30 !important;',
@@ -496,6 +503,44 @@ window.__ModuleLoader__.load({
           ].join('\n');
           document.head.appendChild(style);
           return () => style.remove();
+        });
+        // JS fallback for the visual reorder: locate the shipped model-select
+        // root (.htuFrW_root) and, if it sits to the RIGHT of our cluster
+        // inside the same flex parent, physically move it in front. CSS
+        // `order` remains the preferred mechanism; this only fires when the
+        // DOM order still has the shipped trigger after our row. Idempotent:
+        // once it is in front, the check is a no-op.
+        ctx.effect(() => {
+          if (typeof document === 'undefined') return undefined;
+          let timer = 0;
+          const reconcile = () => {
+            timer = 0;
+            try {
+              const root = document.querySelector('.htuFrW_root');
+              const ours = document.querySelector('[data-composer-effort-chips]');
+              const parent = root?.parentElement;
+              if (!root || !ours || !parent || !parent.contains(ours)) return;
+              // If `ours` follows `root` in document order, layout is correct.
+              if (root.compareDocumentPosition(ours) & Node.DOCUMENT_POSITION_FOLLOWING) return;
+              // Walk `ours` up to the direct child of `parent` that contains it.
+              let target = ours;
+              while (target.parentElement !== parent) target = target.parentElement;
+              if (target === root) return;
+              parent.insertBefore(root, target);
+            } catch (error) {
+              console.error('[composer-effort-chips] seat reorder failed:', error);
+            }
+          };
+          const schedule = () => {
+            if (timer === 0) timer = setTimeout(reconcile, 60);
+          };
+          schedule();
+          const observer = new MutationObserver(schedule);
+          observer.observe(document.body, { childList: true, subtree: true });
+          return () => {
+            observer.disconnect();
+            if (timer !== 0) clearTimeout(timer);
+          };
         });
         const t = ctx.locale.bind('composerEffortChips');
         ctx.inject(['slots', 'modelDirectories', 'sessions'], (scope) => {
