@@ -425,21 +425,38 @@ window.__ModuleLoader__.load({
       }
 
       // Inline seat: portal the pill immediately left of the shipped usage pill
-      // inside the actions row. Without that anchor, fall back to a dedicated row.
+      // inside the actions row. The tail DOM can be rebuilt at any moment (ESC
+      // mid-turn, status flips, virtualized re-renders), so keep re-anchoring
+      // via a MutationObserver instead of inserting the seat exactly once.
       const anchorRef = useRef(null)
       const [slot, setSlot] = useState(null)
       useLayoutEffect(() => {
-        const cell = anchorRef.current?.closest('[data-turn-tail]')
-        const shipped = cell?.querySelector('button[aria-haspopup=\'dialog\']:not([data-turn-cost-trigger])')
-        if (shipped === undefined || shipped === null || shipped.parentElement === null) {
-          setSlot('fallback')
-          return undefined
+        const seat = document.createElement('span')
+        seat.dataset.turnCostSeat = ''
+        seat.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;height:calc(28px + var(--dsh-content-font-delta, 0px));vertical-align:middle;'
+        let settled = false
+        const attach = () => {
+          const cell = anchorRef.current?.closest('[data-turn-tail]') ?? null
+          const shipped = cell?.querySelector('button[aria-haspopup=\'dialog\']:not([data-turn-cost-trigger])')
+          if (shipped && shipped.parentElement) {
+            // Re-insert whenever the seat is no longer exactly in position;
+            // identical re-inserts are cheap no-ops for the browser.
+            if (seat.parentElement !== shipped.parentElement || seat.nextElementSibling !== shipped) {
+              shipped.parentElement.insertBefore(seat, shipped)
+            }
+            setSlot(prev => (prev === seat ? prev : seat))
+            settled = true
+          } else {
+            setSlot(prev => (prev === 'fallback' ? prev : 'fallback'))
+          }
         }
-        const span = document.createElement('span')
-        span.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;height:calc(28px + var(--dsh-content-font-delta, 0px));vertical-align:middle;'
-        shipped.parentElement.insertBefore(span, shipped)
-        setSlot(span)
-        return () => { span.remove() }
+        attach()
+        const observer = new MutationObserver(attach)
+        observer.observe(document.body, { childList: true, subtree: true })
+        return () => {
+          observer.disconnect()
+          seat.remove()
+        }
       }, [])
 
       if (slot === 'fallback') {
