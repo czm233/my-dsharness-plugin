@@ -95,9 +95,9 @@ window.__ModuleLoader__.load({
       overflowY: 'auto',
       padding: 4,
       borderRadius: 10,
-      border: '1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.3))',
-      background: 'var(--dsw-alias-bg-overlay, #fff)',
-      color: 'var(--dsw-alias-label-primary, #1f1f1f)',
+      border: '1px solid rgba(255,255,255,0.12)',
+      background: '#343439',
+      color: '#e8e8ea',
       boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
       display: 'flex',
       flexDirection: 'column',
@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
     };
     const menuItemActive = {
       ...menuItemBase,
-      background: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.25))',
+      background: 'rgba(255,255,255,0.14)',
       fontWeight: 600,
     };
 
