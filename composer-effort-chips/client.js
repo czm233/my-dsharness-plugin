@@ -95,8 +95,9 @@ window.__ModuleLoader__.load({
       overflowY: 'auto',
       padding: 4,
       borderRadius: 10,
-      border: '1px solid var(--dsw-alias-border-secondary, rgba(128,128,128,0.3))',
-      background: 'var(--dsw-alias-bg-surface-raised, #fff)',
+      border: '1px solid var(--dsw-alias-border-l1, rgba(128,128,128,0.3))',
+      background: 'var(--dsw-alias-bg-overlay, #fff)',
+      color: 'var(--dsw-alias-label-primary, #1f1f1f)',
       boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
       display: 'flex',
       flexDirection: 'column',
@@ -115,7 +116,7 @@ window.__ModuleLoader__.load({
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       background: 'transparent',
-      color: 'var(--dsw-alias-label-primary, inherit)',
+      color: 'inherit',
     };
     const menuItemActive = {
       ...menuItemBase,
