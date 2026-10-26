@@ -1,0 +1,3 @@
+- insert:
+    - id: composer-usage-plus
+      name: '@local/composer-usage-plus'

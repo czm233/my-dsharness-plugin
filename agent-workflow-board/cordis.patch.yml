@@ -1,0 +1,7 @@
+# Host half of the Agent Workflow Board: registers the client-visible
+# `agentWorkflowBoard` session projection, folded from committed session events
+# (todo/write, tool/call, tool/result). The Client half reads that projection
+# through the shared Session store; there is no custom transport.
+- insert:
+    - id: agent-workflow-board
+      name: '@local/agent-workflow-board'

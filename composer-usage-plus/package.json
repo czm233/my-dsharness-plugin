@@ -1,0 +1,32 @@
+{
+  "name": "@local/composer-usage-plus",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Composer usage pill showing the estimated session cost; click for a per-model breakdown of input/output/cache tokens, unit prices, and amounts.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

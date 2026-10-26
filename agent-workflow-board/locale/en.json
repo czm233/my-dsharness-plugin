@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Flow Canvas",
+    "description": "Draw workflows with Main, Work, Router, End, and Hook nodes; drag system- and user-level agents onto the canvas. Canvases persist in DSH internal storage and can bind to sessions as a fixed spec."
+  }
+}

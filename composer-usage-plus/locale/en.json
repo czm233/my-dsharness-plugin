@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Composer Usage Breakdown",
+    "description": "Shows the estimated session cost below the composer; click for a table of input/output/cache tokens, unit prices, and amounts, priced per current model."
+  }
+}

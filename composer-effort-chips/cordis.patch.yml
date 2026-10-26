@@ -1,0 +1,3 @@
+- insert:
+    - id: composer-effort-chips
+      name: '@local/composer-effort-chips'
