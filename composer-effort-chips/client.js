@@ -403,7 +403,7 @@ window.__ModuleLoader__.load({
             color: 'var(--dsw-alias-state-business-primary, #4f9cf9)',
           },
           title: 'composer-effort-chips build marker',
-        }, '1.3.5'),
+        }, '1.3.6'),
         effortChips.length > 0 &&
           h(
             'div',
@@ -460,6 +460,8 @@ window.__ModuleLoader__.load({
           style.dataset.plugin = '@local/composer-effort-chips';
           style.dataset.pluginCss = 'frozen-model-trigger';
           style.textContent = [
+            // Freeze the shipped model trigger's width so effort-name changes
+            // don't push the effort chips row around.
             'button:has([class*="triggerEffort"]) {',
             '  width: 176px;',
             '  flex: none;',
@@ -467,14 +469,29 @@ window.__ModuleLoader__.load({
             // Reorder the composer trailing row: the shipped model selector
             // seat moves to the LEFT of our slot cluster (chips + channel/
             // model pickers), so our controls own the spot next to Send.
-            // Pure visual reorder — nothing is removed or unmounted.
-            '[class*="standardControls"] {',
+            // Exact class names from this app build (ModelSelect module
+            // htuFrW_*; InputBar module JZLxKW_*), plus substring fallbacks.
+            '.JZLxKW_standardControls, [class*="standardControls"] {',
             '  display: flex;',
             '  align-items: center;',
             '}',
-            '[class*="standardControls"] > *:has(button [class*="triggerEffort"]),',
+            '.JZLxKW_standardControls > .htuFrW_root,',
+            '.JZLxKW_standardControls > *:has(button.htuFrW_trigger),',
+            '[class*="standardControls"] > *:has(span[class*="triggerEffort"]),',
+            '[class*="standardControls"] > *:has(button[class*="triggerEffort"]),',
             '[class*="standardControls"] > button:has([class*="triggerEffort"]) {',
             '  order: -1;',
+            '}',
+            // DEBUG 1: badge turns RED iff this stylesheet is live at all.
+            '[data-composer-effort-chips] > span:first-child {',
+            '  color: #ff3b30 !important;',
+            '  border-color: #ff3b30 !important;',
+            '}',
+            // DEBUG 2: orange outline on the shipped model trigger root, so a
+            // screenshot shows exactly which element the rules matched.
+            '.htuFrW_root {',
+            '  outline: 2px solid #ff9500 !important;',
+            '  outline-offset: 2px;',
             '}',
           ].join('\n');
           document.head.appendChild(style);
