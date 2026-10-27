@@ -537,6 +537,17 @@ window.__ModuleLoader__.load({
               hidePopover();
             }
           });
+          // 兜底:焦点不在输入框上(如刚点过✓)时,胶囊内按 Enter/Escape 也生效。
+          popover.addEventListener('keydown', (event) => {
+            if (event.target === popoverInput) return; // 输入框自己已处理
+            if (event.key === 'Enter' && !event.isComposing) {
+              event.preventDefault();
+              confirmPopover();
+            } else if (event.key === 'Escape') {
+              event.stopPropagation();
+              hidePopover();
+            }
+          });
 
           // 点弹窗/批注卡/面板以外的地方收起弹窗与面板。
           const onDocDown = (event) => {
