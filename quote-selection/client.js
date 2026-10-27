@@ -503,11 +503,12 @@ window.__ModuleLoader__.load({
           const confirmPopover = () => {
             const comment = popoverInput.value;
             const quote = popoverPreview.textContent;
+            const target = editingIndex; // hidePopover 会重置 editingIndex,先存下来
             hidePopover();
             hide();
             if (!quote) return;
-            if (editingIndex >= 0 && editingIndex < store.length) {
-              store[editingIndex] = { quote, comment };
+            if (target >= 0 && target < store.length) {
+              store[target] = { quote, comment };
             } else {
               store.push({ quote, comment });
             }
