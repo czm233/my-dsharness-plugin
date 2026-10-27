@@ -21,6 +21,7 @@
 10. [时间线比对:commit 时间 vs 应用重启时间](#10-时间线比对commit-时间-vs-应用重启时间)
 11. [不要在全盘目录上跑宽 grep](#11-不要在全盘目录上跑宽-grep)
 12. [DSH 升级后 CSS-module 哈希会变,布局规则会失效——重挖即可](#12-dsh-升级后-css-module-哈希会变布局规则会失效重挖即可)
+13. [悬浮面板在 display:none 时量高必为 0——先显示再定位](#13-悬浮面板在-displaynone-时量高必为-0先显示再定位)
 
 ---
 
@@ -243,6 +244,27 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 ```
 
 从输出里拿到新的 `<hash>_root`,替换 `client.js` 样式表和 JS mover 里的 `.htuFrW_root` 即可。
+
+---
+
+## 13. 悬浮面板在 display:none 时量高必为 0——先显示再定位
+
+**日期**:2026-10-27 · **涉及**:quote-selection 0.4.2→0.4.3
+
+**现象**:点批注胶囊展开列表面板,面板从输入框**正下方**弹开,超出屏幕底边。
+
+**根因**:定位逻辑是 `top = 锚点.top - panel.offsetHeight - 8`,但量高时面板还是
+`display: none`,`offsetHeight === 0`,于是 top ≈ 锚点正下方,显示时整个面板向下展开。
+输入框本来就贴着屏幕底,向下必然超屏。
+
+**解法**:`quote-selection/client.js` 的 renderPanel——三步顺序不可颠倒:
+1. 先按锚点上方可用空间给面板**限高**(`maxHeight = 锚点.top - 16`);
+2. 再 `display: block` 让它参与布局;
+3. 最后量 `offsetHeight` 算 `top` 并 clamp 到 ≥ 8px。
+要求"永远朝上展开"的面板都必须走这个顺序,不能在隐藏状态下量尺寸。
+
+**教训**:凡是"量完再摆"的浮层,测量前先确认它可见;不可见的元素所有几何值都是 0,
+按 0 摆位等于"默认往锚点下方怼"。
 
 ---
 
