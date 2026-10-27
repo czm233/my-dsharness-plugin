@@ -178,20 +178,20 @@ window.__ModuleLoader__.load({
             `#${CARD_ID} .dsh-quote-clear:hover { background: rgba(255,255,255,0.08); color: #e8e8ea; }`,
             // 批注列表面板(悬浮,不进输入框)
             `#${PANEL_ID} {`,
-            '  width: 340px; max-height: 260px; overflow-y: auto;',
-            '  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 8px;',
-            '  color: #e8e8ea; background: #2a2a2e; box-shadow: 0 12px 32px rgba(0,0,0,0.35);',
+            '  width: 380px; max-height: 300px; overflow-y: auto;',
+            '  border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 4px 14px;',
+            '  color: #e8e8ea; background: #1f1f23; box-shadow: 0 16px 40px rgba(0,0,0,0.45);',
             '  font-size: 12px; line-height: 18px; user-select: text;',
             '}',
-            `#${PANEL_ID} .dsh-quote-item { padding: 6px 8px; border-radius: 8px; }`,
-            `#${PANEL_ID} .dsh-quote-item + .dsh-quote-item { margin-top: 2px; }`,
-            `#${PANEL_ID} .dsh-quote-item:hover { background: rgba(255,255,255,0.06); }`,
-            `#${PANEL_ID} .dsh-quote-line { display: flex; align-items: flex-start; gap: 6px; }`,
+            `#${PANEL_ID} .dsh-quote-item { padding: 10px 0; }`,
+            `#${PANEL_ID} .dsh-quote-item + .dsh-quote-item { border-top: 1px solid rgba(255,255,255,0.07); }`,
+            `#${PANEL_ID} .dsh-quote-line { display: flex; align-items: center; gap: 8px; }`,
             `#${PANEL_ID} .dsh-quote-body { flex: 1; min-width: 0; }`,
-            `#${PANEL_ID} .dsh-quote-head { color: #9a9aa2; margin-bottom: 2px; }`,
-            `#${PANEL_ID} .dsh-quote-tools { display: flex; gap: 2px; flex: none; }`,
-            `#${PANEL_ID} .dsh-quote-excerpt { color: #9a9aa2; word-break: break-word; }`,
-            `#${PANEL_ID} .dsh-quote-comment { margin-top: 2px; color: #e8e8ea; }`,
+            `#${PANEL_ID} .dsh-quote-head { color: #8f8f97; margin-bottom: 2px; }`,
+            `#${PANEL_ID} .dsh-quote-excerpt { color: #e8e8ea; white-space: pre-wrap; word-break: break-word; }`,
+            `#${PANEL_ID} .dsh-quote-comment-label { color: #8f8f97; margin-top: 6px; }`,
+            `#${PANEL_ID} .dsh-quote-comment { color: #e8e8ea; white-space: pre-wrap; word-break: break-word; }`,
+            `#${PANEL_ID} .dsh-quote-tools { display: flex; gap: 4px; flex: none; }`,
             `#${PANEL_ID} .dsh-quote-remove {`,
             '  appearance: none; border: none; background: transparent; color: #8a8a92;',
             '  cursor: pointer; font-size: 12px; padding: 0 4px; border-radius: 6px; flex: none;',
@@ -345,14 +345,20 @@ window.__ModuleLoader__.load({
               body.className = 'dsh-quote-body';
               const head = document.createElement('div');
               head.className = 'dsh-quote-head';
-              head.textContent = `${index + 1}.`;
+              head.textContent = `${index + 1}. 选中文字：`;
               const ex = document.createElement('div');
               ex.className = 'dsh-quote-excerpt';
               ex.textContent = item.quote;
-              const cm = document.createElement('div');
-              cm.className = 'dsh-quote-comment';
-              cm.textContent = item.comment || '(无批注文字)';
-              body.append(head, ex, cm);
+              body.append(head, ex);
+              if (item.comment) {
+                const label = document.createElement('div');
+                label.className = 'dsh-quote-comment-label';
+                label.textContent = '批注：';
+                const cm = document.createElement('div');
+                cm.className = 'dsh-quote-comment';
+                cm.textContent = item.comment;
+                body.append(label, cm);
+              }
               const tools = document.createElement('div');
               tools.className = 'dsh-quote-tools';
               const edit = document.createElement('button');
