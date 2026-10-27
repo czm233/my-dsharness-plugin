@@ -188,6 +188,8 @@ window.__ModuleLoader__.load({
             `#${PANEL_ID} .dsh-quote-item:hover { background: rgba(255,255,255,0.06); }`,
             `#${PANEL_ID} .dsh-quote-line { display: flex; align-items: flex-start; gap: 6px; }`,
             `#${PANEL_ID} .dsh-quote-body { flex: 1; min-width: 0; }`,
+            `#${PANEL_ID} .dsh-quote-head { color: #9a9aa2; margin-bottom: 2px; }`,
+            `#${PANEL_ID} .dsh-quote-tools { display: flex; gap: 2px; flex: none; }`,
             `#${PANEL_ID} .dsh-quote-excerpt { color: #9a9aa2; word-break: break-word; }`,
             `#${PANEL_ID} .dsh-quote-comment { margin-top: 2px; color: #e8e8ea; }`,
             `#${PANEL_ID} .dsh-quote-remove {`,
@@ -270,6 +272,7 @@ window.__ModuleLoader__.load({
           let currentRect = null;
           let timer = 0;
           let lastInjectAt = 0;
+          let editingIndex = -1; // >=0 时弹窗处于「修改」模式
 
           const hide = () => {
             currentText = null;
@@ -280,6 +283,7 @@ window.__ModuleLoader__.load({
             popover.style.display = 'none';
             popoverInput.value = '';
             popoverPreview.textContent = '';
+            editingIndex = -1;
           };
 
           // ---- 批注卡:持续锚定在输入框卡片第一行 ----
@@ -302,18 +306,14 @@ window.__ModuleLoader__.load({
           };
 
           const renderCard = () => {
-            const first = store[0];
-            const excerpt = first.quote.split('\n')[0] || '';
             card.innerHTML = '';
             const dot = document.createElement('span');
             dot.className = 'dsh-quote-dot';
             dot.textContent = '❝';
             const summary = document.createElement('span');
             summary.className = 'dsh-quote-summary';
-            summary.textContent = store.length > 1
-              ? t.chip(store.length)
-              : (excerpt.length > 60 ? `${excerpt.slice(0, 60)}…` : excerpt);
-            summary.title = first.quote;
+            summary.textContent = t.chip(store.length);
+            summary.title = store.map((item) => item.quote).join('\n---\n');
             const clear = document.createElement('button');
             clear.type = 'button';
             clear.className = 'dsh-quote-clear';
@@ -343,17 +343,32 @@ window.__ModuleLoader__.load({
               line.className = 'dsh-quote-line';
               const body = document.createElement('div');
               body.className = 'dsh-quote-body';
+              const head = document.createElement('div');
+              head.className = 'dsh-quote-head';
+              head.textContent = `${index + 1}.`;
               const ex = document.createElement('div');
               ex.className = 'dsh-quote-excerpt';
               ex.textContent = item.quote;
               const cm = document.createElement('div');
               cm.className = 'dsh-quote-comment';
-              cm.textContent = item.comment ? `〔批注：${item.comment}〕` : '(无批注文字)';
-              body.append(ex, cm);
+              cm.textContent = item.comment || '(无批注文字)';
+              body.append(head, ex, cm);
+              const tools = document.createElement('div');
+              tools.className = 'dsh-quote-tools';
+              const edit = document.createElement('button');
+              edit.type = 'button';
+              edit.className = 'dsh-quote-remove';
+              edit.textContent = '✎';
+              edit.title = '修改';
+              edit.addEventListener('click', (event) => {
+                event.stopPropagation();
+                editingIndex = index;
+                openPopoverFor(item);
+              });
               const remove = document.createElement('button');
               remove.type = 'button';
               remove.className = 'dsh-quote-remove';
-              remove.textContent = '✕';
+              remove.textContent = '🗑';
               remove.title = t.remove;
               remove.addEventListener('click', (event) => {
                 event.stopPropagation();
@@ -367,7 +382,8 @@ window.__ModuleLoader__.load({
                   renderPanel();
                 }
               });
-              line.append(body, remove);
+              tools.append(edit, remove);
+              line.append(body, tools);
               row.appendChild(line);
               panel.appendChild(row);
             });
@@ -446,26 +462,41 @@ window.__ModuleLoader__.load({
             timer = setTimeout(show, 150);
           };
 
-          // ---- 引用 → 批注弹窗(优先贴选区上方,兜底贴输入框) ----
-          const openPopover = () => {
-            if (!findComposer()) return;
-            popoverPreview.textContent = currentText || '';
-            popover.style.display = 'flex';
+          // ---- 引用 → 批注弹窗(新增贴选区上方;修改贴输入框上方) ----
+          const placePopover = (anchorRect) => {
             const width = popover.offsetWidth || 440;
             const height = popover.offsetHeight || 140;
             const margin = 8;
-            let anchor = currentRect;
+            let anchor = anchorRect;
             if (!anchor || (anchor.top === 0 && anchor.left === 0)) {
               anchor = findComposerCard()?.getBoundingClientRect()
                 || findComposer().el.getBoundingClientRect();
             }
             let left = anchor.left + anchor.width / 2 - width / 2;
             left = Math.min(Math.max(left, margin), window.innerWidth - width - margin);
-            // 默认弹在选区上方;顶部放不下就挪到选区下方。
+            // 默认弹在锚点上方;顶部放不下就挪到下方。
             let top = anchor.top - height - margin;
             if (top < margin) top = anchor.bottom + margin;
             popover.style.left = `${Math.round(left)}px`;
             popover.style.top = `${Math.round(Math.max(margin, top))}px`;
+          };
+
+          const openPopover = () => {
+            if (!findComposer()) return;
+            popoverPreview.textContent = currentText || '';
+            popoverInput.value = '';
+            popover.style.display = 'flex';
+            placePopover(currentRect);
+            popoverInput.focus();
+          };
+
+          // 面板「修改」入口:回填引用与批注,确认后原地更新。
+          const openPopoverFor = (item) => {
+            if (!findComposer()) return;
+            popoverPreview.textContent = item.quote;
+            popoverInput.value = item.comment || '';
+            popover.style.display = 'flex';
+            placePopover(findComposerCard()?.getBoundingClientRect());
             popoverInput.focus();
           };
 
@@ -475,9 +506,14 @@ window.__ModuleLoader__.load({
             hidePopover();
             hide();
             if (!quote) return;
-            store.push({ quote, comment });
+            if (editingIndex >= 0 && editingIndex < store.length) {
+              store[editingIndex] = { quote, comment };
+            } else {
+              store.push({ quote, comment });
+            }
             renderCard();
             ensureAnchor();
+            if (panelOpen) renderPanel();
           };
 
           button.addEventListener('mousedown', (event) => event.preventDefault());
