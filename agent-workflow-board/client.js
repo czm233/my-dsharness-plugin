@@ -1,5 +1,5 @@
 /**
- * Client half of the Agent Workflow Board — 流程画布 (M1).
+ * Client half of the Agent Workflow Board — 流程画布.
  *
  * Registers a session-top tab (the `conversation.view` slot, the same seat as
  * 对话 / 轨迹). Visual language follows the workflow-lite board: a collapsible
@@ -8,9 +8,11 @@
  *
  * Canvas model: start (主会话, exactly one) → work / router / hook → end.
  * Agents (system- and user-level presets) come live from the Host half's
- * /api/agent-canvas/agents route and can be dragged onto the canvas as work
+ * /api/agent-canvas routes and can be dragged onto the canvas as work
  * nodes. Canvases persist through /api/agent-canvas routes into DSH internal
- * storage. M2: session binding, spec injection, live node progress.
+ * storage. M2: session binding, spec injection, live node progress, autosave,
+ * undo/redo. Now also: zoom (Ctrl+wheel anchor zoom + corner widget + fit),
+ * one-click layered auto-layout, beforeunload dirty guard.
  */
 
 window.__ModuleLoader__.load({
@@ -132,6 +134,12 @@ window.__ModuleLoader__.load({
       menuDuplicate: '复制节点',
       menuDelete: '删除节点',
       pickerTitle: '创建节点',
+      zoomIn: '放大（Ctrl+滚轮）',
+      zoomOut: '缩小（Ctrl+滚轮）',
+      zoomReset: '重置缩放到 100%',
+      zoomFit: '适应内容',
+      zoomFitShort: '适应',
+      layoutBtn: '整理布局',
     }
 
     const en = {
@@ -230,6 +238,12 @@ window.__ModuleLoader__.load({
       menuDuplicate: 'Duplicate node',
       menuDelete: 'Delete node',
       pickerTitle: 'Create node',
+      zoomIn: 'Zoom in (Ctrl+wheel)',
+      zoomOut: 'Zoom out (Ctrl+wheel)',
+      zoomReset: 'Reset zoom to 100%',
+      zoomFit: 'Fit content',
+      zoomFitShort: 'Fit',
+      layoutBtn: 'Tidy layout',
     }
 
     const CSS = [
@@ -290,7 +304,9 @@ window.__ModuleLoader__.load({
       '.awbc-viewport.space .awbc-node{cursor:grab}',
       '.awbc-viewport.panning,.awbc-viewport.panning .awbc-plane,.awbc-viewport.panning .awbc-node{cursor:grabbing}',
       '.awbc-marquee{position:absolute;border:1px dashed var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);pointer-events:none;z-index:4}',
-      '.awbc-plane{position:relative;user-select:none}',
+      // transform-origin 0 0：scale 以平面左上角为基准，pan 仍是屏幕像素位移，
+      // 「screen = pan + world * zoom」这条换算式全文件依赖它，别动。
+      '.awbc-plane{position:relative;user-select:none;transform-origin:0 0}',
       '.awbc-edge-layer{position:absolute;top:0;left:0;width:4000px;height:4000px;pointer-events:none;overflow:visible}',
       '.awbc-edge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1.6}',
       '.awbc-edge.hot{stroke:var(--dsw-alias-brand-primary);stroke-width:2}',
@@ -361,6 +377,10 @@ window.__ModuleLoader__.load({
       '.awbc-status{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:3px 12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:11px;white-space:nowrap;overflow:hidden}',
       '.awbc-legend{display:inline-flex;align-items:center;gap:5px}',
       '.awbc-swatch{display:inline-block;width:16px;height:0;border-top:2px solid var(--dsw-alias-label-tertiary)}',
+      // --- zoom widget（视口右下角悬浮控件）---
+      '.awbc-zoom{position:absolute;right:12px;bottom:12px;z-index:6;display:flex;align-items:center;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.15)}',
+      '.awbc-zoom button{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:16px;padding:2px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
+      '.awbc-zoom button:hover{background:var(--dsw-alias-bg-layer-2)}',
       // --- overlays ---
       '.awbc-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}',
       '.awbc-empty-inner{max-width:420px;padding:14px 18px;border:1px dashed var(--dsw-alias-border-l2);border-radius:12px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-1);text-align:center}',
@@ -588,7 +608,7 @@ window.__ModuleLoader__.load({
     // working document (including unsaved edits), its save snapshot, and the
     // pan offset live here at module scope — switching 对话 ⇄ 流程画布 keeps
     // the workbench exactly as it was left.
-    const WORKBENCH = { doc: null, savedSnap: '', pan: null }
+    const WORKBENCH = { doc: null, savedSnap: '', pan: null, zoom: null }
 
     function CanvasPage(props) {
       const safeProps = props && typeof props === 'object' ? props : {}
@@ -623,6 +643,9 @@ window.__ModuleLoader__.load({
       // panning reads as moving the canvas itself. Panning happens while
       // SPACE is held; without it, blank-canvas drag is a selection marquee.
       const [pan, setPan] = React.useState(() => (WORKBENCH.pan ? WORKBENCH.pan : { x: 0, y: 0 }))
+      // 画布缩放：transform = translate(pan) scale(zoom)，pan 保持屏幕像素。
+      // 「screen = pan + world * zoom」，所有屏幕→平面换算都要除以 zoom。
+      const [zoom, setZoom] = React.useState(() => (WORKBENCH.zoom ? WORKBENCH.zoom : 1))
       const [spaceHeld, setSpaceHeld] = React.useState(false)
       const [multiIds, setMultiIds] = React.useState([])
       const [marquee, setMarquee] = React.useState(null)
@@ -650,7 +673,89 @@ window.__ModuleLoader__.load({
         WORKBENCH.doc = doc
         WORKBENCH.savedSnap = savedSnapRef.current
         WORKBENCH.pan = pan
-      }, [doc, pan])
+        WORKBENCH.zoom = zoom
+      }, [doc, pan, zoom])
+
+      // --- 画布缩放 ---------------------------------------------------------
+      const ZOOM_MIN = 0.25
+      const ZOOM_MAX = 2.5
+      const zoomRef = React.useRef(zoom)
+      zoomRef.current = zoom
+
+      // 以（屏幕坐标）锚点为中心缩放：锚点的世界坐标在缩放前后保持不动。
+      const zoomAt = React.useCallback((anchorX, anchorY, factor) => {
+        const viewport = viewportRef.current
+        const rect = viewport ? viewport.getBoundingClientRect() : null
+        const screenX = rect ? anchorX - rect.left : anchorX
+        const screenY = rect ? anchorY - rect.top : anchorY
+        const prev = zoomRef.current
+        const next = clamp(prev * factor, ZOOM_MIN, ZOOM_MAX)
+        if (next === prev) return
+        zoomRef.current = next
+        setZoom(next)
+        setPan(p => ({ x: screenX - ((screenX - p.x) / prev) * next, y: screenY - ((screenY - p.y) / prev) * next }))
+      }, [])
+
+      const zoomStep = React.useCallback(
+        factor => {
+          const viewport = viewportRef.current
+          const rect = viewport ? viewport.getBoundingClientRect() : null
+          zoomAt(rect ? rect.left + rect.width / 2 : 0, rect ? rect.top + rect.height / 2 : 0, factor)
+        },
+        [zoomAt],
+      )
+
+      const zoomReset = React.useCallback(() => zoomStep(1 / zoomRef.current), [zoomStep])
+
+      // 适应内容：框住全部节点，缩放上限 1.5（单节点不放大到满屏）。
+      const fitView = React.useCallback(() => {
+        const viewport = viewportRef.current
+        const rect = viewport ? viewport.getBoundingClientRect() : null
+        if (!rect) return
+        if (doc.nodes.length === 0) {
+          zoomRef.current = 1
+          setZoom(1)
+          setPan({ x: 0, y: 0 })
+          return
+        }
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+        for (const n of doc.nodes) {
+          minX = Math.min(minX, n.x)
+          minY = Math.min(minY, n.y)
+          maxX = Math.max(maxX, n.x + NODE_W)
+          maxY = Math.max(maxY, n.y + NODE_H)
+        }
+        const pad = 56
+        const next = clamp(Math.min(rect.width / (maxX - minX + pad * 2), rect.height / (maxY - minY + pad * 2)), ZOOM_MIN, 1.5)
+        zoomRef.current = next
+        setZoom(next)
+        setPan({ x: rect.width / 2 - ((minX + maxX) / 2) * next, y: rect.height / 2 - ((minY + maxY) / 2) * next })
+      }, [doc.nodes])
+
+      // Ctrl/Cmd+滚轮 = 以光标为锚缩放；Shift+滚轮 = 横向平移；普通滚轮 = 平移。
+      // React 的 onWheel 是 passive 的，preventDefault 无效，必须挂原生非 passive 监听。
+      React.useEffect(() => {
+        const viewport = viewportRef.current
+        if (!viewport) return undefined
+        const onWheel = event => {
+          const target = event.target
+          if (target && target.closest && (target.closest('.awbc-issues') || target.closest('.awbc-menu'))) return
+          if (event.ctrlKey || event.metaKey) {
+            event.preventDefault()
+            zoomAt(event.clientX, event.clientY, Math.exp(-event.deltaY * 0.0016))
+            return
+          }
+          event.preventDefault()
+          const dx = event.shiftKey ? event.deltaX || event.deltaY : event.deltaX
+          const dy = event.shiftKey ? 0 : event.deltaY
+          setPan(p => ({ x: p.x - dx, y: p.y - dy }))
+        }
+        viewport.addEventListener('wheel', onWheel, { passive: false })
+        return () => viewport.removeEventListener('wheel', onWheel)
+      }, [zoomAt])
 
       // M2.3/M2.4：节点状态 = 投影亮灯（subagent 派发）+ canvas_report 上报（主会话自己走节点）。
       const board = useProjection ? useProjection('agentWorkflowBoard') : undefined
@@ -887,6 +992,19 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(timer)
       }, [doc, dirty, persistDoc, t])
 
+      // 未保存内容防丢兜底：还有未落盘变更时，关闭/重载窗口前挂原生确认。
+      // 自动保存把窗口缩到 1.8s 防抖内，这里只挡真正的意外退出。
+      React.useEffect(() => {
+        if (!dirty) return undefined
+        const handler = event => {
+          event.preventDefault()
+          event.returnValue = ''
+          return ''
+        }
+        window.addEventListener('beforeunload', handler)
+        return () => window.removeEventListener('beforeunload', handler)
+      }, [dirty])
+
       // --- 撤销/重做 -------------------------------------------------------
       // doc 变更进栈：连续变更 700ms 内合并为一步（拖动逐帧、输入逐键不会刷爆栈）。
       const HISTORY_COALESCE_MS = 700
@@ -999,6 +1117,11 @@ window.__ModuleLoader__.load({
               return prev
             }
             const count = prev.nodes.length + 1
+            // Default: near the middle of the currently visible area (zoom-aware).
+            const viewport = viewportRef.current
+            const rect = viewport ? viewport.getBoundingClientRect() : null
+            const centerX = rect ? (rect.width / 2 - pan.x) / zoomRef.current : 380
+            const centerY = rect ? (rect.height / 2 - pan.y) / zoomRef.current : 260
             const node = {
               id: uid('n'),
               type,
@@ -1009,9 +1132,8 @@ window.__ModuleLoader__.load({
               exec: 'subagent',
               hookKind: '',
               note: '',
-              // Default: near the middle of the currently visible area.
-              x: planeX != null ? planeX : Math.round(-pan.x + 380 + (Math.random() - 0.5) * 160),
-              y: planeY != null ? planeY : Math.round(-pan.y + 260 + (Math.random() - 0.5) * 160),
+              x: planeX != null ? planeX : Math.round(centerX + (Math.random() - 0.5) * 160),
+              y: planeY != null ? planeY : Math.round(centerY + (Math.random() - 0.5) * 160),
               ...extra,
             }
             return { ...prev, nodes: prev.nodes.concat([node]) }
@@ -1037,8 +1159,8 @@ window.__ModuleLoader__.load({
           if (!viewport) return
           const rect = viewport.getBoundingClientRect()
           if (upEvent.clientX < rect.left || upEvent.clientX > rect.right || upEvent.clientY < rect.top || upEvent.clientY > rect.bottom) return
-          const planeX = upEvent.clientX - rect.left - pan.x - NODE_W / 2
-          const planeY = upEvent.clientY - rect.top - pan.y - NODE_H / 2
+          const planeX = (upEvent.clientX - rect.left - pan.x) / zoomRef.current - NODE_W / 2
+          const planeY = (upEvent.clientY - rect.top - pan.y) / zoomRef.current - NODE_H / 2
           addNode(payload.type, payload.extra, planeX, planeY)
         }
         window.addEventListener('pointermove', onMove)
@@ -1068,11 +1190,14 @@ window.__ModuleLoader__.load({
           const dx = moveEvent.clientX - drag.startX
           const dy = moveEvent.clientY - drag.startY
           if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true
+          // 屏幕位移 ÷ zoom = 平面位移（缩放后拖动不漂移）。
+          const wx = dx / zoomRef.current
+          const wy = dy / zoomRef.current
           setDoc(prev => ({
             ...prev,
             nodes: prev.nodes.map(item => {
               const origin = origins.get(item.id)
-              return origin ? { ...item, x: origin.x + dx, y: origin.y + dy } : item
+              return origin ? { ...item, x: origin.x + wx, y: origin.y + wy } : item
             }),
           }))
         }
@@ -1098,8 +1223,8 @@ window.__ModuleLoader__.load({
         const viewport = viewportRef.current
         const rect = viewport ? viewport.getBoundingClientRect() : null
         const toPlane = (clientX, clientY) => ({
-          cx: rect ? clientX - rect.left - pan.x : clientX,
-          cy: rect ? clientY - rect.top - pan.y : clientY,
+          cx: rect ? (clientX - rect.left - pan.x) / zoomRef.current : clientX,
+          cy: rect ? (clientY - rect.top - pan.y) / zoomRef.current : clientY,
         })
         const start = toPlane(event.clientX, event.clientY)
         setLinkDrag({ fromId: fromNode.id, cx: start.cx, cy: start.cy })
@@ -1349,6 +1474,75 @@ window.__ModuleLoader__.load({
           ...prev,
           edges: prev.edges.map(edge => (edge.id === edgeId ? { ...edge, [field]: value } : edge)),
         }))
+      }
+
+      // --- 一键整理布局：从主会话分层（BFS 最长层），孤岛接在末尾，层内竖排 ----
+      const autoLayout = () => {
+        setDoc(prev => {
+          if (prev.nodes.length === 0) return prev
+          const ids = new Set(prev.nodes.map(node => node.id))
+          const outs = new Map()
+          const ins = new Map()
+          for (const edge of prev.edges) {
+            if (!ids.has(edge.from) || !ids.has(edge.to)) continue
+            if (!outs.has(edge.from)) outs.set(edge.from, [])
+            outs.get(edge.from).push(edge.to)
+            if (!ins.has(edge.to)) ins.set(edge.to, [])
+            ins.get(edge.to).push(edge.from)
+          }
+          const layer = new Map()
+          const order = []
+          let maxLayer = 0
+          const visit = (rootId, baseLayer) => {
+            if (layer.has(rootId)) return
+            layer.set(rootId, baseLayer)
+            maxLayer = Math.max(maxLayer, baseLayer)
+            const queue = [rootId]
+            while (queue.length > 0) {
+              const id = queue.shift()
+              order.push(id)
+              for (const to of outs.get(id) || []) {
+                if (layer.has(to)) continue
+                layer.set(to, layer.get(id) + 1)
+                maxLayer = Math.max(maxLayer, layer.get(to))
+                queue.push(to)
+              }
+            }
+          }
+          const start = prev.nodes.find(node => node.type === 'start')
+          if (start) visit(start.id, 0)
+          // 孤岛：先把「没有未访问父节点」的节点当种子（层号顺延到最后层之后，
+          // 避免和主流图重叠），剩下成环的从任意未访问节点强行起步。
+          const hasUnvisitedParent = node => (ins.get(node.id) || []).some(id => !layer.has(id))
+          for (;;) {
+            const seed = prev.nodes.find(node => !layer.has(node.id) && !hasUnvisitedParent(node))
+            if (seed) {
+              visit(seed.id, start ? maxLayer + 2 : 0)
+              continue
+            }
+            const rest = prev.nodes.find(node => !layer.has(node.id))
+            if (rest) {
+              visit(rest.id, start ? maxLayer + 2 : 0)
+              continue
+            }
+            break
+          }
+          const GAP_X = NODE_W + 140
+          const GAP_Y = NODE_H + 96
+          const byLayer = new Map()
+          for (const id of order) {
+            const l = layer.get(id) || 0
+            if (!byLayer.has(l)) byLayer.set(l, [])
+            byLayer.get(l).push(id)
+          }
+          const pos = new Map()
+          for (const [l, layerIds] of byLayer) {
+            layerIds.forEach((id, i) => {
+              pos.set(id, { x: 160 + l * GAP_X, y: 200 + i * GAP_Y })
+            })
+          }
+          return { ...prev, nodes: prev.nodes.map(node => (pos.has(node.id) ? { ...node, ...pos.get(node.id) } : node)) }
+        })
       }
 
       const doImport = () => {
@@ -1757,6 +1951,7 @@ window.__ModuleLoader__.load({
         h('span', { key: 'spacer', className: 'awbc-spacer' }),
         h('button', { type: 'button', key: 'undo', className: 'awbc-btn', title: 'Ctrl/Cmd+Z', disabled: !canUndo, onClick: undo }, '↶ ' + t('undo')),
         h('button', { type: 'button', key: 'redo', className: 'awbc-btn', title: 'Ctrl/Cmd+Shift+Z', disabled: !canRedo, onClick: redo }, '↷ ' + t('redo')),
+        h('button', { type: 'button', key: 'layout', className: 'awbc-btn', title: t('layoutBtn'), disabled: doc.nodes.length === 0, onClick: autoLayout }, '⊞ ' + t('layoutBtn')),
         sessionId
           ? h(
               'select',
@@ -1821,7 +2016,7 @@ window.__ModuleLoader__.load({
               {
                 className: 'awbc-viewport' + (spaceHeld ? ' space' : ''),
                 ref: viewportRef,
-                style: { backgroundPosition: pan.x + 'px ' + pan.y + 'px' },
+                style: { backgroundPosition: pan.x + 'px ' + pan.y + 'px', backgroundSize: 22 * zoom + 'px ' + 22 * zoom + 'px' },
                 // Right-click on blank canvas: the create-node picker at the
                 // cursor (no auto-link). Node right-clicks stop propagation,
                 // so their own menu wins.
@@ -1832,8 +2027,8 @@ window.__ModuleLoader__.load({
                   setLinkMenu({
                     screenX: event.clientX,
                     screenY: event.clientY,
-                    x: rect ? event.clientX - rect.left - pan.x : event.clientX,
-                    y: rect ? event.clientY - rect.top - pan.y : event.clientY,
+                    x: rect ? (event.clientX - rect.left - pan.x) / zoomRef.current : event.clientX,
+                    y: rect ? (event.clientY - rect.top - pan.y) / zoomRef.current : event.clientY,
                     fromId: null,
                   })
                 },
@@ -1864,7 +2059,7 @@ window.__ModuleLoader__.load({
                     return
                   }
                   if (connectMode) {
-                    if (tryChangeSelection('')) return
+                    if (!tryChangeSelection('')) return
                     setSelectedId('')
                     setMultiIds([])
                     return
@@ -1874,8 +2069,8 @@ window.__ModuleLoader__.load({
                   const viewport = viewportRef.current
                   const rect = viewport ? viewport.getBoundingClientRect() : null
                   const toPlane = (clientX, clientY) => ({
-                    x: rect ? clientX - rect.left - pan.x : clientX,
-                    y: rect ? clientY - rect.top - pan.y : clientY,
+                    x: rect ? (clientX - rect.left - pan.x) / zoomRef.current : clientX,
+                    y: rect ? (clientY - rect.top - pan.y) / zoomRef.current : clientY,
                   })
                   const start = toPlane(event.clientX, event.clientY)
                   setSelectedId('')
@@ -1909,7 +2104,7 @@ window.__ModuleLoader__.load({
               },
               h('div', {
                 className: 'awbc-plane',
-                style: { transform: 'translate(' + pan.x + 'px, ' + pan.y + 'px)' },
+                style: { transform: 'translate(' + pan.x + 'px, ' + pan.y + 'px) scale(' + zoom + ')' },
               },
                 edgesLayer,
                 nodesLayer,
@@ -1926,6 +2121,14 @@ window.__ModuleLoader__.load({
                       },
                     })
                   : null,
+              ),
+              h(
+                'div',
+                { className: 'awbc-zoom', key: 'zoomctl' },
+                h('button', { type: 'button', title: t('zoomOut'), onClick: () => zoomStep(1 / 1.2) }, '−'),
+                h('button', { type: 'button', title: t('zoomReset'), onClick: zoomReset, style: { minWidth: 40 } }, Math.round(zoom * 100) + '%'),
+                h('button', { type: 'button', title: t('zoomIn'), onClick: () => zoomStep(1.2) }, '+'),
+                h('button', { type: 'button', title: t('zoomFit'), onClick: fitView }, `⛶ ${t('zoomFitShort')}`),
               ),
               doc.nodes.length === 0 ? h('div', { className: 'awbc-empty', key: 'empty' }, h('div', { className: 'awbc-empty-inner' }, t('palSub'))) : null,
               connectMode && connectSource ? h('div', { className: 'awbc-empty', key: 'connect-hint' }, h('div', { className: 'awbc-empty-inner' }, `${t('connecting')}: ${t('connectFinish')} → ${(nodeById(connectSource) || {}).label || ''}`)) : null,

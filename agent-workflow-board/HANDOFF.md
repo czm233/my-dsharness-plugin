@@ -1,7 +1,8 @@
-# 流程画布插件 — 交接文档（M1 已完成 / M2、M3 待办）
+# 流程画布插件 — 交接文档（M1+M2 代码完成待验收 / v2.1.0 已加缩放+布局）
 
 > 写给下一个会话：本文件是 `@local/agent-workflow-board`（流程画布）插件的状态与计划。
-> M1 已完成并验收。M2 是下一步。动手前先读完「铁律」和「M1 现状」。
+> M1、M2 代码全部完成（M2 待端到端验收）；v2.1.0 加了缩放/整理布局/beforeunload。
+> 动手前先读完「铁律」和「M1 现状」「2.5 v2.1.0 新增」。
 
 ---
 
@@ -46,6 +47,17 @@
 - 存储路由：`POST /api/agent-canvas/rpc`，action=`list/get/put/delete/agents`；agents 实时来自 `agentPresets.list()`（系统级 standard/ptc/minimal/cordis + 用户级）
 - 工作台缓存：切标签不丢未保存内容（模块级 WORKBENCH 镜像 doc/savedSnap/pan）
 - 画布配色：`#0e1116` 底 + `#333b47` 点阵（workflow-lite 同款近黑）
+
+## 2.5 v2.1.0 新增（2026-10-27 本轮，待页面验收）
+
+- **画布缩放**：`transform = translate(pan) scale(zoom)`，铁律「screen = pan + world * zoom」——所有屏幕→平面换算（面板拖放落点、节点拖动位移、连线橡皮筋、框选、右键菜单落点、新建节点默认落点）都除以 zoom（`zoomRef.current`）。点阵背景 `backgroundSize` 随 zoom 缩放，`backgroundPosition` 仍是 pan
+  - Ctrl/Cmd+滚轮 = 以光标为锚缩放（0.25×–2.5×）；Shift+滚轮 = 横向平移；普通滚轮 = 平移
+  - **滚轮必须挂原生非 passive 监听**（viewportRef + addEventListener passive:false），React 的 onWheel 是 passive 的 preventDefault 无效
+  - 右下角缩放控件：− / 百分比(点按回100%) / + / ⛶适应内容（fit 上限 1.5，框住全部节点）
+  - zoom 进 WORKBENCH 镜像（切标签保留）；滚轮事件在 `.awbc-issues` / `.awbc-menu` 上不劫持
+- **一键整理布局**（工具栏「⊞ 整理布局」）：从主会话 BFS 分层（最长层），层内按 BFS 序竖排；孤岛种子层号 = maxLayer+2（与主流隔离），成环孤岛从任意未访问节点强行起步；无主会话时第一块孤岛从层 0 开始。单次 setDoc = 一步撤销历史
+- **beforeunload 防丢兜底**：dirty 时挂原生确认（自动保存把窗口缩到 1.8s 防抖内，只挡意外退出）
+- **顺手修 bug**：connect 模式点空白时 `tryChangeSelection('')` 条件写反（`if (tryChangeSelection('')) return`），名称锁定会被绕过 → 改为 `if (!tryChangeSelection('')) return`
 
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
@@ -105,16 +117,16 @@
 
 ## 4. M3 及以后（池子，按需捞）
 
-- **硬约束**：`tools/pre-execute` 拦截不在当前节点允许范围内的 subagent 派发（画布从"规范"升级为"围栏"）
+- **硬约束**：`tools/pre-execute` 拦截不在当前节点允许范围内的 subagent 派发（画布从"规范"升级为"围栏"）——下一轮首选
 - **钩子节点生效**：session-start（`agent/created` 或首条消息注入）/ before-dispatch（`tools/pre-execute` 提示注入）/ session-end（`agent/turn-stopping` 或结束时汇总），动作=提示词注入（不做副作用执行）
-- **画布缩放**：Ctrl+滚轮 zoom（transform 已支持，加 scale 即可）+ 缩放控件/适应内容按钮
-- **小地图 / 自动布局**（elkjs，workflow-lite 已依赖可参考）
+- ~~画布缩放~~（已提前落地，见 2.5）
+- **小地图 / 自动布局**（elkjs，workflow-lite 已依赖可参考；简单分层布局已在 2.5 落地，elkjs 精排可再议）
 - **撤销/重做**（已提前进 M2.7）
 - **版本管理与 .wflite 式导出**（参考 workflow-lite：版本对比、打包导出、导出成 Skill）
 - **agent 来源分级标注**（`agentPresets.compositionInventory()` 区分系统/用户）
 - **多选批量操作增强**：框选后右键组菜单、对齐分布
 - **判断分支可视化状态**（选中哪条分支亮哪条）
-- **未保存内容防丢**：beforeunload 提示 / 草稿自动落盘（自动保存进 M2.6 后此项大幅缩水，只剩 beforeunload 兜底提示可做可不做）
+- ~~未保存内容防丢~~（beforeunload 兜底已在 2.5 落地，此项完结）
 
 ## 5. 关键参考（新会话直接看）
 
