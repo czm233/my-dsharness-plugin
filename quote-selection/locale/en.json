@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Quote Selection",
+    "description": "Select any text inside a chat bubble and a Quote button floats up; clicking it inserts the passage as a Markdown blockquote into the composer."
+  },
+  "button": "Quote"
+}
