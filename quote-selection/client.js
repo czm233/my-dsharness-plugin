@@ -1,15 +1,19 @@
 // quote-selection — Codex 式划词引用:
-// 1) 在聊天气泡里选中文字 → 浮出「引用」按钮;
-// 2) 点击弹出小批注框(可选填想法),确认后以「> 引用 + 〔批注:…〕」插入输入框;
-// 3) 输入框上方悬浮「N 条批注」胶囊,点击展开批注列表;正文里的批注被手动删掉时计数自动回落。
+// 1) 气泡里划词 → 「引用」按钮 → 弹出可选批注框;
+// 2) 确认后,引用作为「批注卡」挂在输入框卡片(JZLxKW_card,column flex)的顶部第一行,
+//    像放了张图片的附件;正文完全不动,从卡片下方开始输入;
+// 3) 点发送(或 Enter)的瞬间,在 capture 阶段把「> 引用 + 〔批注〕」同步注入正文,随消息发出;
+// 4) 批注卡可点开列表面板,逐条删除;发送后自动清空。
 window.__ModuleLoader__.load({
   id: '@local/quote-selection',
   factory(require) {
-    const BUTTON_ID = 'dsh-quote-selection-button';
-    const CHIP_ID = 'dsh-quote-annotation-chip';
+    const CARD_ID = 'dsh-quote-annotation-card';
     const PANEL_ID = 'dsh-quote-annotation-panel';
     const POPOVER_ID = 'dsh-quote-comment-popover';
-    const MARK_RE = /〔批注：([\s\S]*?)〕/g;
+    const BUTTON_ID = 'dsh-quote-selection-button';
+    // 2026-10-27 构建的哈希类名(升级会变,见 PITFALLS #12;均带启发式兜底)。
+    const COMPOSER_CARD_CLASS = 'JZLxKW_card';
+    const SEND_BUTTON_CLASS = 'JZLxKW_primary';
 
     function isVisible(el) {
       if (!el) return false;
@@ -17,7 +21,6 @@ window.__ModuleLoader__.load({
       return el.offsetParent !== null || getComputedStyle(el).position === 'fixed';
     }
 
-    // 当前页面里可见的输入框(Lexical contenteditable 根,或兜底 textarea)。
     function findComposer() {
       const editors = document.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"]');
       for (let i = editors.length - 1; i >= 0; i -= 1) {
@@ -30,27 +33,33 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    function composerText() {
+    // 输入框的外层卡片容器:优先哈希类名,兜底用「圆角 + flex 容器」启发式。
+    function findComposerCard() {
       const composer = findComposer();
-      return composer ? (composer.kind === 'textarea' ? composer.el.value : composer.el.textContent) || '' : '';
+      if (!composer) return null;
+      const byClass = composer.el.closest(`.${COMPOSER_CARD_CLASS}`);
+      if (byClass) return byClass;
+      let el = composer.el.parentElement;
+      for (let hops = 0; el && hops < 8; hops += 1, el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (parseFloat(cs.borderRadius) >= 8 && cs.display.includes('flex')) return el;
+      }
+      return composer.el.parentElement;
     }
 
-    // 从输入框正文里解析批注:取每个批注标记及其前面的一段被引用文字。
-    function parseAnnotations() {
-      const text = composerText();
-      const items = [];
-      MARK_RE.lastIndex = 0;
-      let match;
-      while ((match = MARK_RE.exec(text)) !== null) {
-        const before = text.slice(Math.max(0, match.index - 160), match.index);
-        const quoteLines = before.split('\n').filter((line) => line.trim() !== '');
-        const excerpt = (quoteLines[quoteLines.length - 1] || '').replace(/^>\s?/, '').trim();
-        items.push({
-          comment: match[1].trim(),
-          excerpt: excerpt || '(引用文字)',
-        });
+    // 发送按钮:卡片容器内的圆形主按钮(哈希类名优先,兜底找最右边的圆形按钮)。
+    function findSendButton(card) {
+      if (!card) return null;
+      const byClass = card.querySelector(`.${SEND_BUTTON_CLASS}`);
+      if (byClass && isVisible(byClass)) return byClass;
+      let best = null;
+      for (const button of card.querySelectorAll('button')) {
+        if (!isVisible(button)) continue;
+        const cs = getComputedStyle(button);
+        if (parseFloat(cs.borderRadius) < 12) continue;
+        if (!best || button.getBoundingClientRect().left > best.getBoundingClientRect().left) best = button;
       }
-      return items;
+      return best;
     }
 
     // 选区是否可引用:非空、有实际文字、不在输入框/可编辑区域内。
@@ -66,17 +75,17 @@ window.__ModuleLoader__.load({
       for (const el of [startEl, focusEl]) {
         if (!el) continue;
         if (el.closest('[data-lexical-editor], textarea, input, [contenteditable="true"], [contenteditable=""]')) return null;
-        if (el.closest(`#${BUTTON_ID}, #${CHIP_ID}, #${PANEL_ID}, #${POPOVER_ID}`)) return null;
+        if (el.closest(`#${BUTTON_ID}, #${CARD_ID}, #${PANEL_ID}, #${POPOVER_ID}`)) return null;
       }
       return { text, rect: sel.getRangeAt(0).getBoundingClientRect() };
     }
 
-    function buildPayload(quote, comment) {
+    function quoteBlock(quote, comment) {
       const lines = quote.replace(/\r\n?/g, '\n').split('\n');
       while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
       let out = lines.map((line) => `> ${line}`).join('\n');
       if (comment && comment.trim()) out += `\n〔批注：${comment.trim()}〕`;
-      return out + '\n\n';
+      return out;
     }
 
     // 把文本插入输入框光标处(Lexical 走合成粘贴,textarea 走原生 setter)。
@@ -120,34 +129,47 @@ window.__ModuleLoader__.load({
         ctx.effect(() => {
           if (typeof document === 'undefined') return undefined;
           const t = {
-            button: '引用', placeholder: '添加可选批注…', confirm: '确认', cancel: '取消', empty: '输入框里还没有批注',
+            button: '引用', placeholder: '添加可选批注…', confirm: '确认', cancel: '取消',
+            chip: (n) => `${n} 条批注`, remove: '删除',
           };
-          const chipLabel = (n) => `${n} 条批注`;
 
           const css = [
-            `#${BUTTON_ID}, #${CHIP_ID}, #${PANEL_ID}, #${POPOVER_ID} {`,
+            `#${BUTTON_ID}, #${CARD_ID}, #${PANEL_ID}, #${POPOVER_ID} {`,
             '  position: fixed; z-index: 2147483000; box-sizing: border-box;',
-            '  font-family: inherit; user-select: none;',
+            '  font-family: inherit;',
             '}',
             `#${BUTTON_ID} {`,
             '  appearance: none; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;',
             '  padding: 4px 12px; font-size: 12px; line-height: 18px; cursor: pointer;',
             '  color: #e8e8ea; background: #343439; box-shadow: 0 6px 18px rgba(0,0,0,0.22);',
+            '  user-select: none;',
             '}',
             `#${BUTTON_ID}:hover { background: #3f3f46; }`,
-            // 输入框上方的批注胶囊
-            `#${CHIP_ID} {`,
-            '  display: flex; align-items: center; gap: 6px;',
+            // 输入框内部的批注卡(附件样式)
+            `#${CARD_ID} {`,
+            '  position: static;',
+            '  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;',
+            '  margin: 0 12px;',
             '  border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;',
-            '  padding: 4px 10px; font-size: 12px; line-height: 18px; cursor: pointer;',
-            '  color: #cfcfd4; background: rgba(52,52,57,0.92); backdrop-filter: blur(6px);',
-            '  box-shadow: 0 4px 14px rgba(0,0,0,0.25);',
+            '  padding: 5px 8px 5px 10px; font-size: 12px; line-height: 18px;',
+            '  color: #cfcfd4; background: rgba(255,255,255,0.04);',
+            '  user-select: none;',
             '}',
-            `#${CHIP_ID}:hover { background: rgba(63,63,70,0.95); }`,
-            `#${CHIP_ID} .dsh-quote-dot {`,
-            '  width: 6px; height: 6px; border-radius: 999px; background: #4c8bf5; flex: none;',
+            `#${CARD_ID} .dsh-quote-dot {`,
+            '  width: 14px; height: 14px; border-radius: 4px; flex: none;',
+            '  background: rgba(76,139,245,0.25); color: #7aa7f8; font-size: 10px; line-height: 14px;',
+            '  text-align: center;',
             '}',
-            // 批注列表面板
+            `#${CARD_ID} .dsh-quote-summary {`,
+            '  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;',
+            '  color: #cfcfd4;',
+            '}',
+            `#${CARD_ID} .dsh-quote-clear {`,
+            '  appearance: none; border: none; background: transparent; color: #8a8a92;',
+            '  cursor: pointer; font-size: 12px; padding: 2px 6px; border-radius: 6px; flex: none;',
+            '}',
+            `#${CARD_ID} .dsh-quote-clear:hover { background: rgba(255,255,255,0.08); color: #e8e8ea; }`,
+            // 批注列表面板(悬浮,不进输入框)
             `#${PANEL_ID} {`,
             '  width: 340px; max-height: 260px; overflow-y: auto;',
             '  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 8px;',
@@ -157,15 +179,21 @@ window.__ModuleLoader__.load({
             `#${PANEL_ID} .dsh-quote-item { padding: 6px 8px; border-radius: 8px; }`,
             `#${PANEL_ID} .dsh-quote-item + .dsh-quote-item { margin-top: 2px; }`,
             `#${PANEL_ID} .dsh-quote-item:hover { background: rgba(255,255,255,0.06); }`,
-            `#${PANEL_ID} .dsh-quote-excerpt { color: #9a9aa2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }`,
+            `#${PANEL_ID} .dsh-quote-line { display: flex; align-items: flex-start; gap: 6px; }`,
+            `#${PANEL_ID} .dsh-quote-body { flex: 1; min-width: 0; }`,
+            `#${PANEL_ID} .dsh-quote-excerpt { color: #9a9aa2; word-break: break-word; }`,
             `#${PANEL_ID} .dsh-quote-comment { margin-top: 2px; color: #e8e8ea; }`,
-            `#${PANEL_ID} .dsh-quote-empty { color: #9a9aa2; padding: 6px 8px; }`,
+            `#${PANEL_ID} .dsh-quote-remove {`,
+            '  appearance: none; border: none; background: transparent; color: #8a8a92;',
+            '  cursor: pointer; font-size: 12px; padding: 0 4px; border-radius: 6px; flex: none;',
+            '}',
+            `#${PANEL_ID} .dsh-quote-remove:hover { color: #f28b82; }`,
             // 批注弹窗(引用确认框)
             `#${POPOVER_ID} {`,
             '  width: min(440px, calc(100vw - 32px));',
             '  border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 10px;',
             '  color: #e8e8ea; background: #2f2f34; box-shadow: 0 16px 40px rgba(0,0,0,0.4);',
-            '  display: flex; flex-direction: column; gap: 8px;',
+            '  display: flex; flex-direction: column; gap: 8px; z-index: 2147483001;',
             '}',
             `#${POPOVER_ID} .dsh-quote-preview {`,
             '  max-height: 96px; overflow-y: auto; padding: 8px 10px;',
@@ -201,14 +229,13 @@ window.__ModuleLoader__.load({
           button.style.display = 'none';
           document.body.appendChild(button);
 
-          // ---- 批注胶囊 + 列表面板 ----
-          const chip = document.createElement('button');
-          chip.type = 'button';
-          chip.id = CHIP_ID;
-          chip.style.display = 'none';
-          chip.innerHTML = '<span class="dsh-quote-dot"></span><span class="dsh-quote-count"></span>';
-          document.body.appendChild(chip);
+          // ---- 批注卡(插入输入框卡片顶行) ----
+          const card = document.createElement('div');
+          card.id = CARD_ID;
+          card.style.display = 'none';
+          document.body.appendChild(card); // 平时寄存在 body,ensureAnchor 时再搬进输入框
 
+          // ---- 批注列表面板 ----
           const panel = document.createElement('div');
           panel.id = PANEL_ID;
           panel.style.display = 'none';
@@ -230,8 +257,11 @@ window.__ModuleLoader__.load({
           const popoverInput = popover.querySelector('.dsh-quote-input');
           const popoverPreview = popover.querySelector('.dsh-quote-preview');
 
+          // 批注仓库:确认一条存一条;发送瞬间统一注入正文后清空。
+          const store = [];
           let currentText = null;
           let timer = 0;
+          let lastInjectAt = 0;
 
           const hide = () => {
             currentText = null;
@@ -242,52 +272,145 @@ window.__ModuleLoader__.load({
             popoverInput.value = '';
             popoverPreview.textContent = '';
           };
-          const hideChipUi = () => {
-            panel.style.display = 'none';
-          };
 
-          // ---- 胶囊:计数 + 定位 + 列表 ----
+          // ---- 批注卡:持续锚定在输入框卡片第一行 ----
           let panelOpen = false;
-          const refreshChip = () => {
-            const items = parseAnnotations();
-            const composer = findComposer();
-            if (!composer || items.length === 0) {
-              chip.style.display = 'none';
-              hideChipUi();
-              panelOpen = false;
+          const ensureAnchor = () => {
+            const composerCard = findComposerCard();
+            if (!composerCard || store.length === 0) {
+              if (card.style.display !== 'none') {
+                card.style.display = 'none';
+                document.body.appendChild(card); // 撤回寄存
+                panelOpen = false;
+                panel.style.display = 'none';
+              }
               return;
             }
-            chip.querySelector('.dsh-quote-count').textContent = chipLabel(items.length);
-            chip.style.display = 'flex';
-            const rect = composer.el.getBoundingClientRect();
-            chip.style.left = `${Math.round(rect.left + 12)}px`;
-            chip.style.top = `${Math.round(rect.top - 30)}px`;
-            if (panelOpen) {
-              panel.innerHTML = '';
-              for (const item of items) {
-                const row = document.createElement('div');
-                row.className = 'dsh-quote-item';
-                const ex = document.createElement('div');
-                ex.className = 'dsh-quote-excerpt';
-                ex.textContent = item.excerpt;
-                const cm = document.createElement('div');
-                cm.className = 'dsh-quote-comment';
-                cm.textContent = item.comment ? `〔${item.comment}〕` : '(无批注文字)';
-                row.append(ex, cm);
-                panel.appendChild(row);
-              }
-              const prect = chip.getBoundingClientRect();
-              panel.style.left = `${Math.round(prect.left)}px`;
-              panel.style.top = `${Math.max(8, Math.round(prect.top - panel.offsetHeight - 8))}px`;
-              panel.style.display = 'block';
+            if (card.parentElement !== composerCard || composerCard.firstElementChild !== card) {
+              composerCard.insertBefore(card, composerCard.firstChild);
             }
+            if (card.style.display === 'none') card.style.display = 'flex';
           };
 
-          chip.addEventListener('click', () => {
+          const renderCard = () => {
+            const first = store[0];
+            const excerpt = first.quote.split('\n')[0] || '';
+            card.innerHTML = '';
+            const dot = document.createElement('span');
+            dot.className = 'dsh-quote-dot';
+            dot.textContent = '❝';
+            const summary = document.createElement('span');
+            summary.className = 'dsh-quote-summary';
+            summary.textContent = store.length > 1
+              ? t.chip(store.length)
+              : (excerpt.length > 60 ? `${excerpt.slice(0, 60)}…` : excerpt);
+            summary.title = first.quote;
+            const clear = document.createElement('button');
+            clear.type = 'button';
+            clear.className = 'dsh-quote-clear';
+            clear.textContent = '✕';
+            clear.title = '移除全部批注';
+            clear.addEventListener('click', (event) => {
+              event.stopPropagation();
+              store.length = 0;
+              renderCard();
+              ensureAnchor();
+              panelOpen = false;
+              panel.style.display = 'none';
+            });
+            card.append(dot, summary, clear);
+          };
+
+          const renderPanel = () => {
+            if (!panelOpen || store.length === 0) {
+              panel.style.display = 'none';
+              return;
+            }
+            panel.innerHTML = '';
+            store.forEach((item, index) => {
+              const row = document.createElement('div');
+              row.className = 'dsh-quote-item';
+              const line = document.createElement('div');
+              line.className = 'dsh-quote-line';
+              const body = document.createElement('div');
+              body.className = 'dsh-quote-body';
+              const ex = document.createElement('div');
+              ex.className = 'dsh-quote-excerpt';
+              ex.textContent = item.quote;
+              const cm = document.createElement('div');
+              cm.className = 'dsh-quote-comment';
+              cm.textContent = item.comment ? `〔批注：${item.comment}〕` : '(无批注文字)';
+              body.append(ex, cm);
+              const remove = document.createElement('button');
+              remove.type = 'button';
+              remove.className = 'dsh-quote-remove';
+              remove.textContent = '✕';
+              remove.title = t.remove;
+              remove.addEventListener('click', (event) => {
+                event.stopPropagation();
+                store.splice(index, 1);
+                renderCard();
+                ensureAnchor();
+                if (store.length === 0) {
+                  panelOpen = false;
+                  panel.style.display = 'none';
+                } else {
+                  renderPanel();
+                }
+              });
+              line.append(body, remove);
+              row.appendChild(line);
+              panel.appendChild(row);
+            });
+            const cardRect = card.getBoundingClientRect();
+            panel.style.left = `${Math.round(cardRect.left)}px`;
+            panel.style.top = `${Math.max(8, Math.round(cardRect.top - panel.offsetHeight - 8))}px`;
+            panel.style.display = 'block';
+          };
+
+          card.addEventListener('click', () => {
             panelOpen = !panelOpen;
-            if (!panelOpen) hideChipUi();
-            else refreshChip();
+            if (panelOpen) renderPanel();
+            else panel.style.display = 'none';
           });
+
+          // ---- 发送拦截:capture 阶段同步注入,再放行原生发送 ----
+          const flushBeforeSend = () => {
+            if (store.length === 0) return false;
+            const now = Date.now();
+            if (now - lastInjectAt < 200) return false; // 防同一次发送双触发
+            lastInjectAt = now;
+            const payload = store.map((item) => quoteBlock(item.quote, item.comment)).join('\n\n') + '\n\n';
+            try {
+              if (!insertIntoComposer(payload)) return false;
+            } catch (error) {
+              console.error('[quote-selection] flush failed:', error);
+              return false;
+            }
+            store.length = 0;
+            renderCard();
+            ensureAnchor();
+            panelOpen = false;
+            panel.style.display = 'none';
+            return true;
+          };
+          const tryFlush = () => {
+            try { flushBeforeSend(); } catch (error) { console.error(error); }
+          };
+
+          document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+            const target = event.target;
+            if (!(target instanceof Element) || !target.closest('[data-lexical-editor], textarea')) return;
+            tryFlush();
+          }, true);
+          document.addEventListener('click', (event) => {
+            const target = event.target;
+            if (!(target instanceof Element)) return;
+            const composerCard = findComposerCard();
+            const send = findSendButton(composerCard);
+            if (send && (send === target || send.contains(target))) tryFlush();
+          }, true);
 
           // ---- 划词检测 ----
           const show = () => {
@@ -315,11 +438,10 @@ window.__ModuleLoader__.load({
 
           // ---- 引用 → 批注弹窗 ----
           const openPopover = () => {
-            const composer = findComposer();
-            if (!composer) return;
+            if (!findComposer()) return;
             popoverPreview.textContent = currentText || '';
             popover.style.display = 'flex';
-            const rect = composer.el.getBoundingClientRect();
+            const rect = findComposerCard()?.getBoundingClientRect() || findComposer().el.getBoundingClientRect();
             const width = popover.offsetWidth || 440;
             let left = rect.left + rect.width / 2 - width / 2;
             left = Math.min(Math.max(left, 8), window.innerWidth - width - 8);
@@ -334,13 +456,9 @@ window.__ModuleLoader__.load({
             hidePopover();
             hide();
             if (!quote) return;
-            try {
-              if (!insertIntoComposer(buildPayload(quote, comment))) {
-                console.warn('[quote-selection] no composer found');
-              }
-            } catch (error) {
-              console.error('[quote-selection] insert failed:', error);
-            }
+            store.push({ quote, comment });
+            renderCard();
+            ensureAnchor();
           };
 
           button.addEventListener('mousedown', (event) => event.preventDefault());
@@ -361,32 +479,35 @@ window.__ModuleLoader__.load({
             }
           });
 
-          // 点击弹窗/胶囊/面板以外的地方收起。
+          // 点弹窗/批注卡/面板以外的地方收起弹窗与面板。
           const onDocDown = (event) => {
             const target = event.target;
             if (!(target instanceof Element)) return;
-            if (target.closest(`#${POPOVER_ID}, #${CHIP_ID}, #${PANEL_ID}, #${BUTTON_ID}`)) return;
+            if (target.closest(`#${POPOVER_ID}, #${CARD_ID}, #${PANEL_ID}, #${BUTTON_ID}`)) return;
             hidePopover();
             panelOpen = false;
-            hideChipUi();
+            panel.style.display = 'none';
           };
           document.addEventListener('mousedown', onDocDown, true);
 
           document.addEventListener('selectionchange', schedule);
-          window.addEventListener('scroll', () => { hide(); hideChipUi(); panelOpen = false; }, true);
+          window.addEventListener('scroll', hide, true);
           window.addEventListener('resize', hide);
 
-          // 胶囊计数与位置持续纠位(输入框高度/位置随时会变)。
-          const anchorTimer = setInterval(refreshChip, 500);
-          refreshChip();
+          // 持续纠位:宿主随时重建输入框 DOM(见 PITFALLS #2/#6)。
+          const anchorTimer = setInterval(ensureAnchor, 500);
+          const observer = new MutationObserver(ensureAnchor);
+          observer.observe(document.body, { childList: true, subtree: true });
+          ensureAnchor();
 
           return () => {
             clearInterval(anchorTimer);
+            observer.disconnect();
             document.removeEventListener('selectionchange', schedule);
             document.removeEventListener('mousedown', onDocDown, true);
             if (timer !== 0) clearTimeout(timer);
             button.remove();
-            chip.remove();
+            card.remove();
             panel.remove();
             popover.remove();
             style.remove();
