@@ -1,5 +1,5 @@
 /**
- * Host half of the Agent Workflow Board (M1: canvas storage + agent roster).
+ * Host half of the Agent Workflow Board (流程画布).
  *
  * One authenticated POST route on the shared connection fetch bridge serves
  * the whole editor API — the exact shape workflow-lite proves works on this
@@ -15,14 +15,23 @@
  *     { action: 'bind', sessionId, canvasId }   -> { binding: {canvasId,boundAt} }
  *     { action: 'unbind', sessionId }           -> { ok: true }
  *     { action: 'getBinding', sessionId }       -> { binding } | { binding: null }
+ *     { action: 'getStatus', id }               -> { status: {label: {status,note,updatedAt}} }
  *
  * Canvases persist as JSON documents under the DSH internal storage area
  * (~/.dsh/storages/agent-workflow-board/), never inside project directories.
  * The agent roster comes live from the agentPresets service, so the palette
  * always reflects the installed system- and user-level presets.
  *
- * M2 will add the `agentWorkflowBoard` session projection (dispatch/tool
- * event folding) for live node progress on the canvas.
+ * Session integration (M2/M3):
+ *   - agent/created       → bound sessions get the compiled execution spec
+ *                           (compileSpec, re-read each prompt assembly).
+ *   - sessionProjections  → agentWorkflowBoard projection folds subagent
+ *                           tool/call + tool/result into node lanes.
+ *   - tools.register      → canvas_report lets the main session report node
+ *                           progress; status.json also feeds the M3 fence.
+ *   - tools/pre-execute   → the fence: denies subagent dispatch when the
+ *                           canvas' current running node is not a dispatch
+ *                           work node. Deny text teaches the way back.
  */
 
 import { promises as fsp } from 'node:fs'
@@ -170,8 +179,12 @@ function compileSpec(doc) {
   }
   const labelOf = node => (node && node.label ? String(node.label) : String(node.id))
   const lines = [`本会话按流程画布「${(doc && doc.name) || '未命名'}」执行。严格按以下节点顺序推进：`]
-  order.forEach((node, index) => {
-    const n = index + 1
+  let step = 0
+  for (const node of order) {
+    // 钩子节点是时机动作不是流程步骤：不占步骤号，末尾时机段统一注入。
+    if (node.type === 'hook') continue
+    step += 1
+    const n = step
     const outsOfNode = outs.get(node.id) || []
     if (node.type === 'start') {
       lines.push(`${n}. 【主会话】${labelOf(node)}：入口，由你（主会话）自己理解并启动流程，不要派子 agent。`)
@@ -187,15 +200,60 @@ function compileSpec(doc) {
       lines.push(`${n}. 【判断】${labelOf(node)}：${node.description || '按条件选择分支'}。可选分支：${branches}。由你根据判断说明选择唯一一条分支继续，其余分支不执行。`)
     } else if (node.type === 'end') {
       lines.push(`${n}. 【结束】${labelOf(node)}：${node.description || '流程收尾'}。到达此节点表示流程完成：回到主会话向用户汇报整体结果。`)
-    } else if (node.type === 'hook') {
-      lines.push(`${n}. 【钩子】${labelOf(node)}：${node.note || '关键时机动作'}（提示性节点，不阻塞推进）。`)
     } else {
       lines.push(`${n}. ${labelOf(node)}`)
     }
-  })
+  }
   lines.push('执行约束：只能沿图中连出的边推进；一个工作节点完成后再进入下一节点；判断节点只走一条分支；到达结束节点即向用户汇报并停止。')
   lines.push('进度上报：用 canvas_report 工具上报进度——进入一个节点时 status="running" 并填该节点的名称（label，与上面【】中的名称完全一致）；完成后 status="done"；失败时 status="error" 并在 note 说明原因。画布上会实时亮灯。')
+  // 钩子节点（M3 生效）：不占流程步骤号，按触发时机单独成段注入提示词。
+  // 钩子取自全量节点——它是时机动作不是流程步骤，不接线（孤岛）也生效。
+  const hooks = nodes.filter(node => node.type === 'hook')
+  if (hooks.length > 0) {
+    lines.push('时机动作（钩子节点，提示性——到对应时机先完成动作再继续，不改变流程走向）：')
+    for (const hook of hooks) {
+      const kindText = hook.hookKind === 'session-start'
+        ? '会话开始时（进入第一个流程节点之前）先完成'
+        : hook.hookKind === 'before-dispatch'
+          ? '每次派发子 agent 之前先核对'
+          : hook.hookKind === 'session-end'
+            ? '向用户做最终收尾汇报之前先完成'
+            : ''
+      const note = hook.note || hook.label || '关键时机动作'
+      lines.push(kindText ? `- ${kindText}「${labelOf(hook)}」：${note}` : `- 「${labelOf(hook)}」（未设触发时机）：${note}`)
+    }
+  }
   return lines.join('\n')
+}
+
+// --- M3 硬约束围栏（tools/pre-execute） -------------------------------------
+// 从 status.json 取该画布最近上报的 running 节点作为「当前节点」：
+//   工作节点(派发型) → 放行；主会话/判断/结束/主会话自己做 的工作节点 → deny。
+// 只在能确凿知道当前节点时拦截；任何异常一律放行（宁漏勿误伤）。
+// deny 会变成工具结果 "Error: <reason>"，模型能看到原因并自我纠正。
+
+function pickRunningLabel(statusEntry) {
+  if (!statusEntry || typeof statusEntry !== 'object') return ''
+  let best = ''
+  let bestAt = 0
+  for (const [label, value] of Object.entries(statusEntry)) {
+    if (!value || typeof value !== 'object' || value.status !== 'running') continue
+    const at = Number(value.updatedAt) || 0
+    if (at >= bestAt) {
+      bestAt = at
+      best = label
+    }
+  }
+  return best
+}
+
+function fenceReasonFor(node) {
+  const label = node.label || node.id
+  if (node.type === 'start') return `流程画布围栏：当前节点是「${label}」（主会话入口），按画布规则流程由你自己启动，此处不派子 agent。`
+  if (node.type === 'work') return `流程画布围栏：当前工作节点「${label}」的执行方式是「主会话自己做」，不允许派子 agent，请你自己完成该节点的任务。`
+  if (node.type === 'router') return `流程画布围栏：当前节点是「${label}」（判断），判断由你自己完成——按判断说明选一条分支，用 canvas_report 上报进度并推进到下一个工作节点后再派发。`
+  if (node.type === 'end') return `流程画布围栏：当前节点是「${label}」（结束），流程应在此收尾并向用户汇报，不再派发子 agent。`
+  return `流程画布围栏：当前节点是「${label}」，此处不在允许派发的节点上，请先推进流程。`
 }
 
 /** Minimal structural normalization; the client owns the full schema. */
@@ -395,6 +453,35 @@ export function apply(ctx) {
     }
   } catch {
     /* canvas_report is best-effort */
+  }
+
+  // M3 硬约束围栏：已绑定画布的会话在「当前节点不允许派发」时拦截 subagent。
+  // waterfall 语义：放行必须 return next()（透传给审批等后续监听），
+  // 只有 deny 才短路；围栏自身任何异常都放行，绝不阻断正常执行。
+  try {
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      try {
+        if (!exec || exec.name !== 'subagent' || typeof next !== 'function') return next()
+        const agent = exec.agent
+        const sessionId = agent ? String(agent.id || '') : ''
+        const binding = sessionId ? readBindingsSync()[sessionId] : null
+        const canvasId = binding && binding.canvasId ? sanitizeId(binding.canvasId) : ''
+        if (!canvasId) return next()
+        const statusEntry = (await readStatus())[canvasId]
+        const runningLabel = pickRunningLabel(statusEntry)
+        if (!runningLabel) return next()
+        const canvas = await readCanvas(canvasId)
+        const nodes = Array.isArray(canvas && canvas.nodes) ? canvas.nodes : []
+        const current = nodes.find(node => node && String(node.label || '').trim() === runningLabel)
+        if (!current) return next()
+        if (current.type === 'work' && current.exec !== 'lead') return next()
+        return { kind: 'deny', reason: fenceReasonFor(current) }
+      } catch {
+        return next()
+      }
+    })
+  } catch {
+    /* fence is best-effort */
   }
 
   ctx.inject(['connection'], connectionCtx => {

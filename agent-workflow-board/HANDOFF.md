@@ -1,8 +1,9 @@
-# 流程画布插件 — 交接文档（M1+M2 代码完成待验收 / v2.1.0 已加缩放+布局）
+# 流程画布插件 — 交接文档（M1+M2 代码完成待验收 / v2.2.0 围栏+钩子生效）
 
 > 写给下一个会话：本文件是 `@local/agent-workflow-board`（流程画布）插件的状态与计划。
-> M1、M2 代码全部完成（M2 待端到端验收）；v2.1.0 加了缩放/整理布局/beforeunload。
-> 动手前先读完「铁律」和「M1 现状」「2.5 v2.1.0 新增」。
+> M1、M2 代码全部完成（M2 待端到端验收）；v2.1.0 缩放/整理布局/beforeunload；
+> v2.2.0 硬约束围栏 + 钩子节点按时机注入。
+> 动手前先读完「铁律」「M1 现状」「2.5 v2.1.0」「2.6 v2.2.0」。
 
 ---
 
@@ -11,8 +12,8 @@
 - **唯一地址（canonical）**：`/Users/czm/githubProject/my-dsharness-plugin/agent-workflow-board/`
   - default-workspace 里的旧副本已删除，不要在别处新建副本再改（曾因两份副本不同步浪费一轮排查）
 - **安装方式**：`plugin_manager` → `remove_bundle: @local/agent-workflow-board` → `install_bundle, target=上面的目录`（profile 里是 link 安装，remove+install 强制重新组合）
-- **文件结构**：`host.js`（Host 半：存储路由 + agent 名册）、`client.js`（Client 半：全部 UI）、`cordis.patch.yml`（insert 一行）、`locale/zh.json`+`en.json`（展示元数据）、`icon.svg`
-- **画布存储位置（用户选定：内部存储）**：`~/.dsh/storages/agent-workflow-board/canvas-<id>.json`
+- **文件结构**：`host.js`（Host 半：存储路由 + agent 名册 + 规范编译 + 投影 + canvas_report + 围栏）、`client.js`（Client 半：全部 UI）、`cordis.patch.yml`（insert 一行）、`locale/zh.json`+`en.json`（展示元数据）、`icon.svg`
+- **画布存储位置（用户选定：内部存储）**：`~/.dsh/storages/agent-workflow-board/canvas-<id>.json`（另有 `bindings.json`、`status.json`）
 - **Client 入口**：`conversation.view` 槽位，id=`agent-canvas`，order=15（会话顶部标签「流程画布」，在「工作流」之前）
 
 ---
@@ -30,6 +31,7 @@
 9. **端口圆心钉在 `top:26px`**（26 + 半径 5 + 节点边框 1 = 32px = NODE_H/2 = 连线终点），不要改回 `top:50%`（节点实际高度可变，会偏上/偏下）。
 10. **插件只有一个副本**，改代码就改 my-dsharness-plugin 这份。
 11. `cordis_inspect_query` 的 `input` 参数当前有 bug（传了就报 "must be an object"），只能无参调用；调试前端行为用「DEBUG 角标」模式（window 捕获阶段 pointerdown 计数 + 画布上实时读数，本会话用它一步定位过 bug）。
+12. **waterfall 事件（如 `tools/pre-execute`）放行必须 `return next()`**，直接返回默认决定会短路链上后续监听（审批 ask 等）；只有要拦截时才返回自己的决定不调 next。
 
 ## 2. M1 现状（全部已验收）
 
@@ -58,6 +60,18 @@
 - **一键整理布局**（工具栏「⊞ 整理布局」）：从主会话 BFS 分层（最长层），层内按 BFS 序竖排；孤岛种子层号 = maxLayer+2（与主流隔离），成环孤岛从任意未访问节点强行起步；无主会话时第一块孤岛从层 0 开始。单次 setDoc = 一步撤销历史
 - **beforeunload 防丢兜底**：dirty 时挂原生确认（自动保存把窗口缩到 1.8s 防抖内，只挡意外退出）
 - **顺手修 bug**：connect 模式点空白时 `tryChangeSelection('')` 条件写反（`if (tryChangeSelection('')) return`），名称锁定会被绕过 → 改为 `if (!tryChangeSelection('')) return`
+
+## 2.6 v2.2.0 新增（2026-10-27 本轮，待端到端验收）
+
+- **硬约束围栏**（`tools/pre-execute`，waterfall）：已绑定画布的会话派发 subagent 时，从 `status.json` 取该画布**最近上报的 running 节点**当「当前节点」——工作节点(exec=subagent)放行；主会话/判断/结束/主会话自己做(exec=lead)的工作节点一律 `{kind:'deny', reason}`，reason 会变成工具结果 `Error: <reason>`，模型能看到并自我纠正
+  - **waterfall 铁律：放行必须 `return next()`**，绝不能直接 `return {kind:'allow'}`（会短路后面的审批 ask 链）；只有 deny 才短路
+  - 围栏自身任何异常都 `return next()` 放行（宁漏勿误伤）；未绑定/无 running 上报/节点 label 对不上 → 放行
+  - API 出处（app.asar `@deepseek-ai/dsh-tools/lib/index.js` 的 `prepareExecution`）：`ctx.waterfall(carrier,'tools/pre-execute',exec,()=>({kind:'allow'}))`；决定形状 `{kind:'allow'|'deny'(reason,info?)|'cancel'|'ask'}`；`exec.name/.arguments/.agent/.parent`，`exec.agent.id` = sessionId
+  - 已知局限：若核心审批监听在链上位于我们之前且不调 next（先 ask 后短路），围栏会被绕过——未观察到此情况，真遇到再考虑 `tools/execute` 兜底
+- **钩子节点生效**（提示注入，不做副作用）：compileSpec 里钩子不占流程步骤号，末尾单独「时机动作」段按 hookKind 注入：session-start=进入第一个节点前先完成 / before-dispatch=每次派发子 agent 前先核对 / session-end=最终收尾汇报前先完成
+  - **钩子取自全量节点**：不接线（孤岛）也生效——它是时机动作不是流程步骤（单测覆盖）
+  - client 徽章 `hookPreviewBadge` 改为「按时机注入提示词」，descHook 同步
+- 单测：compileSpec 钩子段（步骤号不重复、孤岛钩子在内、未设时机兜底文案）、pickRunningLabel（取最新 running）、fenceReasonFor 文案
 
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
@@ -117,16 +131,14 @@
 
 ## 4. M3 及以后（池子，按需捞）
 
-- **硬约束**：`tools/pre-execute` 拦截不在当前节点允许范围内的 subagent 派发（画布从"规范"升级为"围栏"）——下一轮首选
-- **钩子节点生效**：session-start（`agent/created` 或首条消息注入）/ before-dispatch（`tools/pre-execute` 提示注入）/ session-end（`agent/turn-stopping` 或结束时汇总），动作=提示词注入（不做副作用执行）
-- ~~画布缩放~~（已提前落地，见 2.5）
-- **小地图 / 自动布局**（elkjs，workflow-lite 已依赖可参考；简单分层布局已在 2.5 落地，elkjs 精排可再议）
+- ~~硬约束围栏~~（v2.2.0 已落地，见 2.6；可选增强：拦截时校验派发的 agent preset 与节点绑定一致、`tools/execute` 兜底）
+- ~~钩子节点生效~~（v2.2.0 已落地：session-start/before-dispatch/session-end 提示注入）
+- **小地图**（简单分层布局已在 2.5 落地，elkjs 精排/小地图可再议）
 - **撤销/重做**（已提前进 M2.7）
 - **版本管理与 .wflite 式导出**（参考 workflow-lite：版本对比、打包导出、导出成 Skill）
 - **agent 来源分级标注**（`agentPresets.compositionInventory()` 区分系统/用户）
 - **多选批量操作增强**：框选后右键组菜单、对齐分布
 - **判断分支可视化状态**（选中哪条分支亮哪条）
-- ~~未保存内容防丢~~（beforeunload 兜底已在 2.5 落地，此项完结）
 
 ## 5. 关键参考（新会话直接看）
 
