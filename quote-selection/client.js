@@ -152,10 +152,11 @@ window.__ModuleLoader__.load({
             '  user-select: none;',
             '}',
             `#${BUTTON_ID}:hover { background: #3f3f46; }`,
-            // 输入框内部的批注卡(附件样式)
+            // 输入框内部的批注卡(附件样式;内容自适应宽度,不占满整行)
             `#${CARD_ID} {`,
             '  position: static;',
             '  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;',
+            '  align-self: flex-start; width: fit-content; max-width: calc(100% - 24px);',
             '  margin: 0 12px;',
             '  border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;',
             '  padding: 5px 8px 5px 10px; font-size: 12px; line-height: 18px;',
