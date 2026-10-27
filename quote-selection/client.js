@@ -253,6 +253,9 @@ window.__ModuleLoader__.load({
           let timer = 0;
           let lastInjectAt = 0;
           let editingIndex = -1; // >=0 时弹窗处于「修改」模式
+          // 弹窗打开瞬间的引用原文快照。不能依赖 currentText:点「引用」会清空
+          // 选区,selectionchange 随后把 currentText 清 null,确认时就没内容了。
+          let pendingQuote = null;
 
           const hide = () => {
             currentText = null;
@@ -263,6 +266,7 @@ window.__ModuleLoader__.load({
             popover.style.display = 'none';
             popoverInput.value = '';
             editingIndex = -1;
+            pendingQuote = null;
           };
 
           // ---- 批注卡:持续锚定在输入框卡片第一行 ----
@@ -487,6 +491,7 @@ window.__ModuleLoader__.load({
           // 面板「修改」入口:回填批注文字,确认后原地更新。
           const openPopoverFor = (item) => {
             if (!findComposer()) return;
+            pendingQuote = item.quote; // 修改模式确认时仍从原条目取,这里保持一致
             popoverInput.value = item.comment || '';
             popover.style.display = 'flex';
             placePopover(findComposerCard()?.getBoundingClientRect());
@@ -496,8 +501,8 @@ window.__ModuleLoader__.load({
           const confirmPopover = () => {
             const comment = popoverInput.value;
             const target = editingIndex; // hidePopover 会重置 editingIndex,先存下来
-            // 引用原文不进弹窗:新增取划词文本,修改取原条目。
-            const quote = target >= 0 && target < store.length ? store[target].quote : currentText;
+            // 引用原文不进弹窗:新增取打开瞬间的快照,修改取原条目。
+            const quote = target >= 0 && target < store.length ? store[target].quote : pendingQuote;
             hidePopover();
             hide();
             if (!quote) return;
@@ -514,6 +519,7 @@ window.__ModuleLoader__.load({
           button.addEventListener('mousedown', (event) => event.preventDefault());
           button.addEventListener('click', () => {
             if (!currentText) return;
+            pendingQuote = currentText; // 打开瞬间快照,选区清空不影响
             window.getSelection()?.removeAllRanges();
             openPopover();
           });
