@@ -267,11 +267,13 @@ window.__ModuleLoader__.load({
           // 批注仓库:确认一条存一条;发送瞬间统一注入正文后清空。
           const store = [];
           let currentText = null;
+          let currentRect = null;
           let timer = 0;
           let lastInjectAt = 0;
 
           const hide = () => {
             currentText = null;
+            currentRect = null;
             button.style.display = 'none';
           };
           const hidePopover = () => {
@@ -428,6 +430,7 @@ window.__ModuleLoader__.load({
               return;
             }
             currentText = found.text;
+            currentRect = found.rect;
             const margin = 8;
             const width = Math.max(button.offsetWidth, 60);
             let left = found.rect.left + found.rect.width / 2 - width / 2;
@@ -443,17 +446,26 @@ window.__ModuleLoader__.load({
             timer = setTimeout(show, 150);
           };
 
-          // ---- 引用 → 批注弹窗 ----
+          // ---- 引用 → 批注弹窗(优先贴选区上方,兜底贴输入框) ----
           const openPopover = () => {
             if (!findComposer()) return;
             popoverPreview.textContent = currentText || '';
             popover.style.display = 'flex';
-            const rect = findComposerCard()?.getBoundingClientRect() || findComposer().el.getBoundingClientRect();
             const width = popover.offsetWidth || 440;
-            let left = rect.left + rect.width / 2 - width / 2;
-            left = Math.min(Math.max(left, 8), window.innerWidth - width - 8);
+            const height = popover.offsetHeight || 140;
+            const margin = 8;
+            let anchor = currentRect;
+            if (!anchor || (anchor.top === 0 && anchor.left === 0)) {
+              anchor = findComposerCard()?.getBoundingClientRect()
+                || findComposer().el.getBoundingClientRect();
+            }
+            let left = anchor.left + anchor.width / 2 - width / 2;
+            left = Math.min(Math.max(left, margin), window.innerWidth - width - margin);
+            // 默认弹在选区上方;顶部放不下就挪到选区下方。
+            let top = anchor.top - height - margin;
+            if (top < margin) top = anchor.bottom + margin;
             popover.style.left = `${Math.round(left)}px`;
-            popover.style.top = `${Math.round(Math.max(8, rect.top - popover.offsetHeight - 12))}px`;
+            popover.style.top = `${Math.round(Math.max(margin, top))}px`;
             popoverInput.focus();
           };
 
