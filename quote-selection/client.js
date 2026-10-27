@@ -80,14 +80,6 @@ window.__ModuleLoader__.load({
       return { text, rect: sel.getRangeAt(0).getBoundingClientRect() };
     }
 
-    function quoteBlock(quote, comment) {
-      const lines = quote.replace(/\r\n?/g, '\n').split('\n');
-      while (lines.length > 0 && !lines[lines.length - 1].trim()) lines.pop();
-      let out = lines.map((line) => `> ${line}`).join('\n');
-      if (comment && comment.trim()) out += `\n〔批注：${comment.trim()}〕`;
-      return out;
-    }
-
     // 把文本插入输入框光标处(Lexical 走合成粘贴,textarea 走原生 setter)。
     // leadingNewline:光标前已有文字时先补一个换行,避免引用块和正文粘在一行。
     function insertIntoComposer(text, leadingNewline = false) {
@@ -410,12 +402,19 @@ window.__ModuleLoader__.load({
           });
 
           // ---- 发送拦截:capture 阶段同步注入,再放行原生发送 ----
+          // 注入用紧凑单行摘要(类似 Codex 的气泡观感):被引文字本就在上方
+          // 历史里,给模型一个可定位的片段 + 批注即可,不整段展开。
+          const compactBlock = (item, index) => {
+            const q = item.quote.replace(/\s+/g, ' ').trim();
+            const excerpt = q.length > 16 ? `${q.slice(0, 16)}…` : q;
+            return `〔引用批注 ${index + 1}「${excerpt}」${item.comment ? `：${item.comment}` : ''}〕`;
+          };
           const flushBeforeSend = () => {
             if (store.length === 0) return false;
             const now = Date.now();
             if (now - lastInjectAt < 200) return false; // 防同一次发送双触发
             lastInjectAt = now;
-            const payload = store.map((item) => quoteBlock(item.quote, item.comment)).join('\n\n') + '\n\n';
+            const payload = store.map(compactBlock).join('\n') + '\n';
             try {
               if (!insertIntoComposer(payload, true)) return false;
             } catch (error) {
