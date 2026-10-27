@@ -190,27 +190,25 @@ window.__ModuleLoader__.load({
             '  cursor: pointer; font-size: 12px; padding: 0 4px; border-radius: 6px; flex: none;',
             '}',
             `#${PANEL_ID} .dsh-quote-remove:hover { color: #f28b82; }`,
-            // 批注弹窗(引用确认框)
+            // 批注弹窗(一行式胶囊:input + 圆形✓,失焦即取消)
             `#${POPOVER_ID} {`,
-            '  width: min(440px, calc(100vw - 32px));',
-            '  border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 10px;',
-            '  color: #e8e8ea; background: #2f2f34; box-shadow: 0 16px 40px rgba(0,0,0,0.4);',
-            '  display: flex; flex-direction: column; gap: 8px; z-index: 2147483001;',
+            '  width: min(360px, calc(100vw - 32px));',
+            '  border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; padding: 4px 5px 4px 14px;',
+            '  color: #e8e8ea; background: #2a2a2e; box-shadow: 0 16px 40px rgba(0,0,0,0.4);',
+            '  align-items: center; gap: 8px; z-index: 2147483001;',
             '}',
-            `#${POPOVER_ID} textarea {`,
-            '  resize: none; height: 44px; padding: 8px 10px; font-size: 13px; line-height: 18px;',
-            '  border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);',
-            '  background: rgba(255,255,255,0.04); color: #e8e8ea; outline: none; font-family: inherit;',
+            `#${POPOVER_ID} input {`,
+            '  flex: 1; min-width: 0; height: 28px; border: none; outline: none;',
+            '  background: transparent; color: #e8e8ea; font-size: 13px; line-height: 28px;',
+            '  font-family: inherit;',
             '}',
-            `#${POPOVER_ID} textarea::placeholder { color: #8a8a92; }`,
-            `#${POPOVER_ID} textarea:focus { border-color: rgba(76,139,245,0.6); }`,
-            `#${POPOVER_ID} .dsh-quote-actions { display: flex; justify-content: flex-end; gap: 8px; }`,
-            `#${POPOVER_ID} button {`,
-            '  appearance: none; border: none; border-radius: 8px; padding: 4px 14px;',
-            '  font-size: 12px; line-height: 20px; cursor: pointer;',
+            `#${POPOVER_ID} input::placeholder { color: #8a8a92; }`,
+            `#${POPOVER_ID} .dsh-quote-confirm {`,
+            '  appearance: none; border: none; cursor: pointer; flex: none;',
+            '  width: 28px; height: 28px; border-radius: 999px;',
+            '  background: #4c8bf5; color: #fff; font-size: 14px; line-height: 28px;',
             '}',
-            `#${POPOVER_ID} .dsh-quote-cancel { background: rgba(255,255,255,0.08); color: #cfcfd4; }`,
-            `#${POPOVER_ID} .dsh-quote-confirm { background: #4c8bf5; color: #fff; font-weight: 600; }`,
+            `#${POPOVER_ID} .dsh-quote-confirm:hover { background: #5d97f6; }`,
           ].join('\n');
           const style = document.createElement('style');
           style.dataset.plugin = '@local/quote-selection';
@@ -242,11 +240,8 @@ window.__ModuleLoader__.load({
           popover.id = POPOVER_ID;
           popover.style.display = 'none';
           popover.innerHTML = [
-            '<textarea class="dsh-quote-input"></textarea>',
-            '<div class="dsh-quote-actions">',
-            `  <button type="button" class="dsh-quote-cancel">${t.cancel}</button>`,
-            `  <button type="button" class="dsh-quote-confirm">${t.confirm}</button>`,
-            '</div>',
+            '<input class="dsh-quote-input" />',
+            '<button type="button" class="dsh-quote-confirm" title="确认">✓</button>',
           ].join('\n');
           document.body.appendChild(popover);
           const popoverInput = popover.querySelector('.dsh-quote-input');
@@ -522,8 +517,17 @@ window.__ModuleLoader__.load({
             window.getSelection()?.removeAllRanges();
             openPopover();
           });
-          popover.querySelector('.dsh-quote-cancel').addEventListener('click', hidePopover);
+          // ✓ 按钮:用 mousedown 阻止焦点离开输入框,click 时确认。
+          popover.querySelector('.dsh-quote-confirm').addEventListener('mousedown', (event) => event.preventDefault());
           popover.querySelector('.dsh-quote-confirm').addEventListener('click', confirmPopover);
+          // 失焦且焦点没落在弹窗内 → 视为取消。
+          popoverInput.addEventListener('blur', () => {
+            setTimeout(() => {
+              if (popover.style.display === 'none') return;
+              if (popover.contains(document.activeElement)) return;
+              hidePopover();
+            }, 0);
+          });
           popoverInput.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
               event.preventDefault();
