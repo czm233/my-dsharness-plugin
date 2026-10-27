@@ -292,6 +292,16 @@
       },
       "versions": [
         {
+          "version": "0.3.1",
+          "publishTimestamp": 1793113800,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "4841e4030f1ba7597695615836437541188d2308",
+            "path": "quote-selection"
+          }
+        },
+        {
           "version": "0.3.0",
           "publishTimestamp": 1793111400,
           "source": {

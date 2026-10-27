@@ -89,10 +89,17 @@ window.__ModuleLoader__.load({
     }
 
     // 把文本插入输入框光标处(Lexical 走合成粘贴,textarea 走原生 setter)。
-    function insertIntoComposer(text) {
+    // leadingNewline:光标前已有文字时先补一个换行,避免引用块和正文粘在一行。
+    function insertIntoComposer(text, leadingNewline = false) {
       const composer = findComposer();
       if (!composer) return false;
       const el = composer.el;
+      if (leadingNewline) {
+        const current = (composer.kind === 'textarea' ? el.value : el.textContent) || '';
+        const caret = composer.kind === 'textarea' ? (el.selectionStart ?? current.length) : current.length;
+        const before = current.slice(0, caret);
+        if (before.length > 0 && !before.endsWith('\n')) text = `\n${text}`;
+      }
       if (composer.kind === 'textarea') {
         const start = el.selectionStart ?? el.value.length;
         const end = el.selectionEnd ?? start;
@@ -382,7 +389,7 @@ window.__ModuleLoader__.load({
             lastInjectAt = now;
             const payload = store.map((item) => quoteBlock(item.quote, item.comment)).join('\n\n') + '\n\n';
             try {
-              if (!insertIntoComposer(payload)) return false;
+              if (!insertIntoComposer(payload, true)) return false;
             } catch (error) {
               console.error('[quote-selection] flush failed:', error);
               return false;
