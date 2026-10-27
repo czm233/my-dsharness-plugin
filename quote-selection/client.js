@@ -197,12 +197,6 @@ window.__ModuleLoader__.load({
             '  color: #e8e8ea; background: #2f2f34; box-shadow: 0 16px 40px rgba(0,0,0,0.4);',
             '  display: flex; flex-direction: column; gap: 8px; z-index: 2147483001;',
             '}',
-            `#${POPOVER_ID} .dsh-quote-preview {`,
-            '  max-height: 96px; overflow-y: auto; padding: 8px 10px;',
-            '  border-radius: 8px; background: rgba(255,255,255,0.05); color: #b8b8c0;',
-            '  font-size: 12px; line-height: 18px; white-space: pre-wrap; word-break: break-word;',
-            '  user-select: text;',
-            '}',
             `#${POPOVER_ID} textarea {`,
             '  resize: none; height: 44px; padding: 8px 10px; font-size: 13px; line-height: 18px;',
             '  border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);',
@@ -248,7 +242,6 @@ window.__ModuleLoader__.load({
           popover.id = POPOVER_ID;
           popover.style.display = 'none';
           popover.innerHTML = [
-            '<div class="dsh-quote-preview"></div>',
             '<textarea class="dsh-quote-input"></textarea>',
             '<div class="dsh-quote-actions">',
             `  <button type="button" class="dsh-quote-cancel">${t.cancel}</button>`,
@@ -257,7 +250,6 @@ window.__ModuleLoader__.load({
           ].join('\n');
           document.body.appendChild(popover);
           const popoverInput = popover.querySelector('.dsh-quote-input');
-          const popoverPreview = popover.querySelector('.dsh-quote-preview');
 
           // 批注仓库:确认一条存一条;发送瞬间统一注入正文后清空。
           const store = [];
@@ -275,7 +267,6 @@ window.__ModuleLoader__.load({
           const hidePopover = () => {
             popover.style.display = 'none';
             popoverInput.value = '';
-            popoverPreview.textContent = '';
             editingIndex = -1;
           };
 
@@ -492,17 +483,15 @@ window.__ModuleLoader__.load({
 
           const openPopover = () => {
             if (!findComposer()) return;
-            popoverPreview.textContent = currentText || '';
             popoverInput.value = '';
             popover.style.display = 'flex';
             placePopover(currentRect);
             popoverInput.focus();
           };
 
-          // 面板「修改」入口:回填引用与批注,确认后原地更新。
+          // 面板「修改」入口:回填批注文字,确认后原地更新。
           const openPopoverFor = (item) => {
             if (!findComposer()) return;
-            popoverPreview.textContent = item.quote;
             popoverInput.value = item.comment || '';
             popover.style.display = 'flex';
             placePopover(findComposerCard()?.getBoundingClientRect());
@@ -511,8 +500,9 @@ window.__ModuleLoader__.load({
 
           const confirmPopover = () => {
             const comment = popoverInput.value;
-            const quote = popoverPreview.textContent;
             const target = editingIndex; // hidePopover 会重置 editingIndex,先存下来
+            // 引用原文不进弹窗:新增取划词文本,修改取原条目。
+            const quote = target >= 0 && target < store.length ? store[target].quote : currentText;
             hidePopover();
             hide();
             if (!quote) return;
