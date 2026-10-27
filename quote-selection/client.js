@@ -393,10 +393,13 @@ window.__ModuleLoader__.load({
               row.appendChild(line);
               panel.appendChild(row);
             });
+            // 先按卡片上方可用空间限高,再显示、量实际高度、贴上方定位。
+            // (先 display 再量高度会量到 0,导致面板往下展开超出屏幕。)
             const cardRect = card.getBoundingClientRect();
+            panel.style.maxHeight = `${Math.max(120, Math.round(cardRect.top - 16))}px`;
+            panel.style.display = 'block';
             panel.style.left = `${Math.round(cardRect.left)}px`;
             panel.style.top = `${Math.max(8, Math.round(cardRect.top - panel.offsetHeight - 8))}px`;
-            panel.style.display = 'block';
           };
 
           card.addEventListener('click', () => {
