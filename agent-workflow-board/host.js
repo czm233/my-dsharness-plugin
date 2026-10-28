@@ -11,7 +11,7 @@
  *     { action: 'get', id }                 -> { canvas } | { error: 'not-found' } 404
  *     { action: 'put', canvas }             -> { canvas }
  *     { action: 'delete', id }              -> { ok: true }
- *     { action: 'agents' }                  -> { agents: [{id,name,description,order}] }
+ *     { action: 'agents' }                  -> { agents: [{id,name,description}] }（画布角色库）
  *     { action: 'bind', sessionId, canvasId }   -> { binding: {canvasId,boundAt} }
  *     { action: 'unbind', sessionId }           -> { ok: true }
  *     { action: 'getBinding', sessionId }       -> { binding } | { binding: null }
@@ -20,8 +20,10 @@
  *
  * Canvases persist as JSON documents under the DSH internal storage area
  * (~/.dsh/storages/agent-workflow-board/), never inside project directories.
- * The agent roster comes live from the agentPresets service, so the palette
- * always reflects the installed system- and user-level presets.
+ * The agent roster is the board's private role library under agents/ — one
+ * Markdown file per role (frontmatter + persona body), unlimited count, and
+ * deliberately NOT agentPresets: presets are global session modes, and
+ * registering a role there would pollute the new-session mode picker.
  *
  * Session integration (M2/M3):
  *   - agent/created       → bound sessions get the compiled execution spec
@@ -36,11 +38,11 @@
  */
 
 import { promises as fsp } from 'node:fs'
-import { readFileSync as fspSyncRead } from 'node:fs'
+import { readFileSync as fspSyncRead, readdirSync as fspSyncReaddir } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const fspSync = { readFile: fspSyncRead }
+const fspSync = { readFile: fspSyncRead, readdir: fspSyncReaddir }
 
 const ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
 const MAX_DOC_BYTES = 512 * 1024
@@ -168,6 +170,7 @@ const TYPE_NAMES = { start: '主会话', work: '工作', router: '判断', end: 
 function compileSpec(doc) {
   const nodes = Array.isArray(doc && doc.nodes) ? doc.nodes : []
   const edges = Array.isArray(doc && doc.edges) ? doc.edges : []
+  const rosterById = new Map(readRosterSync().map(agent => [agent.id, agent]))
   const byId = new Map(nodes.map(node => [node.id, node]))
   const start = nodes.find(node => node.type === 'start')
   if (!start) return ''
@@ -205,7 +208,15 @@ function compileSpec(doc) {
       lines.push(`${n}. 【主会话】${labelOf(node)}：入口，由你（主会话）自己理解并启动流程，不要派子 agent。`)
     } else if (node.type === 'work') {
       const exec = node.exec === 'lead' ? '由你（主会话）自己做' : '派一个子 agent 执行'
-      const agentNote = node.agent ? `，子 agent 使用 agent preset「${node.agent}」` : ''
+      const role = node.agent ? rosterById.get(node.agent) : null
+      let agentNote = ''
+      if (role && role.prompt) {
+        agentNote = `，子 agent 使用角色「${role.name}」执行，派发提示词开头原样附上角色人设：\n【角色人设·${role.name}】\n${role.prompt.slice(0, 4000)}\n【人设结束】`
+      } else if (role) {
+        agentNote = `，子 agent 使用角色「${role.name}」执行`
+      } else if (node.agent) {
+        agentNote = `，子 agent 使用 agent preset「${node.agent}」`
+      }
       const promptNote = node.prompt ? `任务说明：${node.prompt}` : '（节点未写任务说明，按节点名称理解）'
       lines.push(`${n}. 【工作】${labelOf(node)}：${exec}${agentNote}。${promptNote}`)
     } else if (node.type === 'router') {
@@ -304,24 +315,63 @@ async function listCanvases() {
   return canvases
 }
 
-async function listAgents(ctx) {
+// --- v2.6.0 角色库：画布私有 agent 名册 -------------------------------------
+// 角色与「会话模式」（agentPresets）分家：模式是全局户口（DSH 出厂四件套，
+// 注册即上新建会话的模式单）；角色是画布户口——一个角色一个 Markdown 文件，
+// 存 ~/.dsh/storages/agent-workflow-board/agents/<id>.md，数量不限、不进模式单。
+// 格式照 Claude Code 的 .claude/agents：YAML 头（name/description）+ Markdown
+// 正文（人设提示词，compileSpec 在派发时原样附给子 agent）。
+function rosterDir() {
+  return path.join(storageDir(), 'agents')
+}
+
+function parseAgentFile(id, text) {
+  const trimmed = String(text || '')
+  let name = ''
+  let description = ''
+  let body = trimmed
+  if (trimmed.startsWith('---')) {
+    const end = trimmed.indexOf('\n---', 3)
+    if (end !== -1) {
+      const head = trimmed.slice(3, end)
+      body = trimmed.slice(end + 4).replace(/^\s*\n/, '')
+      for (const line of head.split('\n')) {
+        const match = /^([a-zA-Z][a-zA-Z0-9_-]*):\s*(.*)$/.exec(line.trim())
+        if (!match) continue
+        if (match[1] === 'name') name = match[2].trim().slice(0, 80)
+        if (match[1] === 'description') description = match[2].trim().slice(0, 200)
+      }
+    }
+  }
+  return { id, name: name || id, description, prompt: body.trim().slice(0, 8000) }
+}
+
+function readRosterSync() {
+  let names = []
   try {
-    // ctx.get() answers undefined for a missing service; raw property access
-    // on a cordis context can throw, so never touch ctx.agentPresets directly.
-    const presets = typeof ctx.get === 'function' ? ctx.get('agentPresets') : undefined
-    if (!presets || typeof presets.list !== 'function') return []
-    const roster = await presets.list()
-    const agents = (Array.isArray(roster) ? roster : []).map(preset => ({
-      id: String((preset && preset.id) || ''),
-      name: String((preset && preset.name) || '') || String((preset && preset.id) || ''),
-      description: String((preset && preset.description) || ''),
-      order: Number(preset && preset.order) || 0,
-    }))
-    agents.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-    return agents
+    names = fspSync.readdir(rosterDir())
   } catch {
     return []
   }
+  const agents = []
+  for (const name of names) {
+    const match = /^([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})\.md$/.exec(name)
+    if (!match) continue
+    try {
+      const text = fspSync.readFile(path.join(rosterDir(), name), 'utf8')
+      agents.push(parseAgentFile(match[1], text))
+    } catch {
+      /* skip unreadable entries */
+    }
+    if (agents.length >= 100) break
+  }
+  agents.sort((a, b) => a.id.localeCompare(b.id))
+  return agents
+}
+
+function listAgents() {
+  // 客户端只要展示字段；人设正文留在宿主侧给 compileSpec 用。
+  return Promise.resolve(readRosterSync().map(agent => ({ id: agent.id, name: agent.name, description: agent.description })))
 }
 
 // NOTE: `connection` is deliberately NOT a module-level inject. On a
@@ -513,7 +563,7 @@ export function apply(ctx) {
             const action = body && typeof body === 'object' ? body.action : ''
             try {
               if (action === 'list') return json({ canvases: await listCanvases() })
-              if (action === 'agents') return json({ agents: await listAgents(ctx) })
+              if (action === 'agents') return json({ agents: await listAgents() })
               if (action === 'get') {
                 const id = sanitizeId(body.id)
                 if (!id) return json({ error: 'missing-id' }, 400)

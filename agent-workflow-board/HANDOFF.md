@@ -123,6 +123,31 @@
   - 实时重编逻辑保留：specMode 激活时随 doc 防抖 500ms 重编
   - 清理：`.awbc-rtabs/.awbc-rtab` 样式与 `tabProps/tabSpec` locale 键退役，新增 `.awbc-spec-head`；`specBtn` locale 键回归
 
+## 2.12 v2.5.2 新增（2026-10-28 本轮，待页面验收）
+
+- **Agent 名册 B 方案（用户拍板）**：默认只显示用户级 agent，出厂四件套（standard/ptc/minimal/cordis）收进「显示系统预设」开关
+  - 背景：用户在画布名册里看到四个不认识的官方预设，误以为异常——它们是 DSH 会话模式（agentPresets 同账双消费：会话模式 + 节点 agent），缺的是来源区分不是数据
+  - host.js `listAgents` 给每项加 `source: 'system' | 'user'`：已知出厂 id 集合 `SHIPPED_PRESET_IDS` 标记（compositionInventory() 暂无来源字段；官方新增出厂预设时扩展该集合）
+  - client：名册默认渲染「Agent（我的）」；开关按钮「显示系统预设 / 隐藏系统预设」，打开后出现「官方模式（DSH 出厂）」分组，卡片与下拉项带「官方 · 」前缀
+  - 节点编辑面板执行 agent 下拉同规则过滤；守卫：已绑定但被过滤掉的值（旧画布）仍追加进选项，避免显示空白
+  - 开关状态存 `localStorage['awbc.showSystemAgents']`（默认隐藏）；localStorage 不可用时退化为本次生效
+  - 兼容：source 字段缺失按 user 处理（不过滤），旧 host 数据不炸
+  - **最终形态（用户追加拍板）**：名册不再提供「显示系统预设」开关——系统预设入口整个去掉，名册永远只有用户级（标题固定「Agent（我的）」）；showSystemAgents/toggle 及相关 locale 键已退役；节点下拉同规则（守卫保留：旧画布绑定了已不显示的值仍追加进选项）；`SHIPPED_PRESET_IDS`/source 标记保留（数据层留着，以后要做「官方模式」独立页再说）
+- **左右面板可拖拽调宽（用户需求）**：名册与编辑面板初始同宽 292px，各带 6px 拖拽条
+  - CSS：`.awbc-palette` 初始 232→292（与 editor 对齐）；新增 `.awbc-resizer`（col-resize，hover 显色；`.collapsed + .awbc-resizer` 隐藏）
+  - client：`paletteW/editorW` 状态（clamp 200–460px），`startPanelResize` 沿用 marquee 的 window 监听模式（pointerdown 记起点、move 按方向加减、up 落 localStorage `awbc.paletteW/editorW`）
+  - inline `flexBasis` 只在名册展开时给（折叠态 34px 走类样式，避免内联覆盖）；拖拽条 key 固定，不参与框选手势
+
+## 2.13 v2.6.0 改版（2026-10-28 本轮，待页面验收）：Agent 名册与「会话模式」分家
+
+- **背景**：用户把 UIUX 做成 agentPreset bundle 后发现它出现在「新建会话模式单」里——预设是全局户口，注册即上模式单；而用户要的是「固定的画布角色」（数量不限、不进模式单）。业界同款约定：Claude Code `.claude/agents/*.md`、Cursor `.cursor/agents/*.md`。DSH 砍掉 `~/.agent-presets/` 目录制后这个生态位空缺，本插件自己补上。
+- **角色库**：`~/.dsh/storages/agent-workflow-board/agents/<id>.md`，一个角色一个文件：YAML 头（name ≤80 / description ≤200）+ Markdown 正文（人设 ≤8000 字）。数量上限 100。id 规则同画布（`[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}`）。
+- **host.js**：`readRosterSync()`/`parseAgentFile()`/`listAgents()` 全同步实现（fspSync 补了 readdir）；rpc `agents` 只回展示字段（id/name/description），人设正文留在宿主侧。**不再读 agentPresets**——模式不进画布名册（用户拍板：系统预设完全去掉，2.5.2 的 SHIPPED_PRESET_IDS/source 标记随之中间态退役）。
+- **compileSpec**：工作节点绑定角色时，派发说明附「角色人设」段（人设 ≤4000 字原样注入，标注【角色人设·名】…【人设结束】）；角色库没命中的旧值（如曾经的 preset id）回落旧文案 `agent preset「id」`。
+- **client 零改动**：名册 UI 照旧渲染 agents 列表（2.5.2 的「Agent（我的）」标题、下拉过滤与守卫全部兼容）。
+- **迁移**：首任角色 `agents/uiux.md` 已建（人设=原 uiux 预设 persona 原文）；用户在 GUI 卸载 `@local/dsh-uiux-agent-preset` bundle 后模式单恢复四件套，仓库里 `uiux-agent-preset/` 脚手架目录随后删除。
+- **已知边界**：角色派发是提示词语义（人设注入派发词），工具面继承执行会话——「按角色裁剪工具」属于 A 档派发校验的后续硬化项。
+
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
 **目标**：用户把画布绑定到会话后，agent 按图执行，画布实时显示进度。

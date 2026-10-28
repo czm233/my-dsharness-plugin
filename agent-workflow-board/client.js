@@ -58,6 +58,7 @@ window.__ModuleLoader__.load({
       palSub: '拖到画布上，或点击放置',
       secElements: '元素',
       secAgents: 'Agent（系统级 / 用户级）',
+      secAgentsMine: 'Agent（我的）',
       secDocs: '我的画布',
       agentsLoading: '加载中…',
       agentsEmpty: '暂无可用 agent preset',
@@ -174,6 +175,7 @@ window.__ModuleLoader__.load({
       palSub: 'Drag onto the canvas, or click to place',
       secElements: 'Elements',
       secAgents: 'Agents (system / user)',
+      secAgentsMine: 'Agents (mine)',
       secDocs: 'My canvases',
       agentsLoading: 'Loading…',
       agentsEmpty: 'No agent presets available',
@@ -313,7 +315,7 @@ window.__ModuleLoader__.load({
       // --- body layout ---
       '.awbc-body{flex:1 1 auto;display:flex;min-height:0}',
       // --- palette ---
-      '.awbc-palette{flex:0 0 232px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}',
+      '.awbc-palette{flex:0 0 292px;min-width:0;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}',
       '.awbc-palette.collapsed{flex-basis:34px}',
       '.awbc-pal-head{display:flex;align-items:baseline;gap:6px;padding:10px 12px 6px}',
       '.awbc-pal-title{font-weight:600;font-size:12px}',
@@ -322,6 +324,11 @@ window.__ModuleLoader__.load({
       '.awbc-pal-collapse:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}',
       '.awbc-pal-scroll{flex:1 1 auto;min-height:0;overflow:auto;padding:0 8px 10px;display:flex;flex-direction:column;gap:4px}',
       '.awbc-palette.collapsed .awbc-pal-scroll{display:none}',
+      // --- 面板拖拽调宽 ---
+      '.awbc-resizer{flex:0 0 8px;cursor:col-resize;background:transparent;position:relative;z-index:5}',
+      '.awbc-resizer:hover{background:var(--dsw-alias-border-l1)}',
+      '.awbc-resizer.active{background:var(--dsw-alias-brand-primary)}',
+      '.awbc-palette.collapsed + .awbc-resizer{display:none}',
       '.awbc-sec{margin:8px 4px 0;color:var(--dsw-alias-label-tertiary);font-size:11px}',
       '.awbc-card{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:8px;cursor:grab;user-select:none;touch-action:none}',
       '.awbc-card:hover{background:var(--dsw-alias-bg-layer-2)}',
@@ -774,6 +781,50 @@ window.__ModuleLoader__.load({
       const [connectSource, setConnectSource] = React.useState('')
       const [agents, setAgents] = React.useState([])
       const [agentsState, setAgentsState] = React.useState('loading')
+      // v2.5.2 面板宽度：左右两栏都可拖拽调宽；初始同宽 292px，拖完的选择记 localStorage
+      const [paletteW, setPaletteW] = React.useState(() => {
+        try {
+          const value = Number(window.localStorage.getItem('awbc.paletteW'))
+          return value >= 200 && value <= 460 ? value : 292
+        } catch {
+          return 292
+        }
+      })
+      const [editorW, setEditorW] = React.useState(() => {
+        try {
+          const value = Number(window.localStorage.getItem('awbc.editorW'))
+          return value >= 200 && value <= 460 ? value : 292
+        } catch {
+          return 292
+        }
+      })
+      const [resizing, setResizing] = React.useState('')
+      const startPanelResize = (side, startWidth) => event => {
+        event.preventDefault()
+        setResizing(side)
+        const startX = event.clientX
+        let latest = startWidth
+        const applyWidth = side === 'palette' ? setPaletteW : setEditorW
+        const onMove = moveEvent => {
+          const delta = moveEvent.clientX - startX
+          latest = Math.max(200, Math.min(460, side === 'palette' ? startWidth + delta : startWidth - delta))
+          applyWidth(latest)
+        }
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+          setResizing('')
+          try {
+            window.localStorage.setItem(side === 'palette' ? 'awbc.paletteW' : 'awbc.editorW', String(latest))
+          } catch {
+            /* 只影响本次会话 */
+          }
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+      }
       const [issues, setIssues] = React.useState(null)
       // 问题列表已展示时随文档编辑实时刷新，修正名称后错误立即消失。
       React.useEffect(() => {
@@ -1775,10 +1826,18 @@ window.__ModuleLoader__.load({
       }
       const selected = doc.nodes.find(node => node.id === selectedId) || null
 
-      const agentOptions = agents.map(agent => ({
+      // v2.5.2 B 方案名册：只列用户级 agent（出厂模式是会话模式，不进名册；用户拍板完全去掉）
+      const userAgents = agents.filter(agent => agent.source !== 'system')
+      const agentLabel = agent => (agent.name && agent.name !== agent.id ? `${agent.name} (${agent.id})` : agent.id)
+      const agentOptions = userAgents.map(agent => ({
         value: agent.id,
-        label: agent.name && agent.name !== agent.id ? `${agent.name} (${agent.id})` : agent.id,
+        label: agentLabel(agent),
       }))
+      // 守卫：旧画布绑定了被过滤掉的 agent 时，下拉里仍要能看到当前值（selected 可能为 null，先判空）
+      if (selected && selected.agent && !agentOptions.some(option => option.value === selected.agent)) {
+        const hidden = agents.find(agent => agent.id === selected.agent)
+        agentOptions.push({ value: selected.agent, label: hidden ? agentLabel(hidden) : selected.agent })
+      }
 
       const paletteCards = ['start', 'work', 'router', 'end', 'hook'].map(type => ({
         key: 'type-' + type,
@@ -1788,13 +1847,32 @@ window.__ModuleLoader__.load({
         extra: {},
       }))
 
-      const agentCards = agents.map(agent => ({
+      const agentCard = agent => ({
         key: 'agent-' + agent.id,
         type: 'work',
         title: agent.name && agent.name !== agent.id ? agent.name : agent.id,
         desc: agent.description || agent.id,
         extra: { agent: agent.id, label: agent.name && agent.name !== agent.id ? agent.name : agent.id },
-      }))
+      })
+      const userAgentCards = userAgents.map(agentCard)
+      const renderAgentCard = card =>
+        h(
+          'div',
+          {
+            key: card.key,
+            className: 'awbc-card',
+            title: card.desc,
+            onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title }),
+            onClick: () => addNode(card.type, card.extra),
+          },
+          h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
+          h(
+            'div',
+            { className: 'awbc-card-main' },
+            h('div', { className: 'awbc-card-title' }, card.title),
+            h('div', { className: 'awbc-card-desc' }, card.desc),
+          ),
+        )
 
       const edgesLayer = h(
         'svg',
@@ -2061,13 +2139,13 @@ window.__ModuleLoader__.load({
       )
       const editorPanel = h(
         'div',
-        { className: 'awbc-editor' },
+        { className: 'awbc-editor', style: { flexBasis: editorW + 'px' } },
         specMode ? specPanel : editorBody,
       )
 
       const palette = h(
         'div',
-        { className: 'awbc-palette' + (palOpen ? '' : ' collapsed') },
+        { className: 'awbc-palette' + (palOpen ? '' : ' collapsed'), style: palOpen ? { flexBasis: paletteW + 'px' } : undefined },
         h(
           'div',
           { className: 'awbc-pal-head' },
@@ -2098,31 +2176,13 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          h('div', { className: 'awbc-sec' }, t('secAgents')),
+          h('div', { className: 'awbc-sec' }, t('secAgentsMine')),
           agentsState === 'loading' ? h('div', { className: 'awbc-hint' }, t('agentsLoading')) : null,
           agentsState.indexOf('failed') === 0
             ? h('div', { className: 'awbc-hint' }, t('agentsFailed') + (agentsState.length > 7 ? `（${agentsState.slice(8)}）` : ''))
             : null,
           agentsState === 'ready' && agents.length === 0 ? h('div', { className: 'awbc-hint' }, t('agentsEmpty')) : null,
-          agentCards.map(card =>
-            h(
-              'div',
-              {
-                key: card.key,
-                className: 'awbc-card',
-                title: card.desc,
-                onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title }),
-                onClick: () => addNode(card.type, card.extra),
-              },
-              h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
-              h(
-                'div',
-                { className: 'awbc-card-main' },
-                h('div', { className: 'awbc-card-title' }, card.title),
-                h('div', { className: 'awbc-card-desc' }, card.desc),
-              ),
-            ),
-          ),
+          userAgentCards.map(renderAgentCard),
           h('button', { type: 'button', className: 'awbc-btn', style: { alignSelf: 'flex-start' }, onClick: refreshAgents }, t('refresh')),
           h('div', { className: 'awbc-sec' }, t('secDocs')),
           docsList.length === 0 ? h('div', { className: 'awbc-hint' }, t('docsEmpty')) : null,
@@ -2225,6 +2285,7 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'awbc-body' },
           palette,
+          palOpen ? h('div', { className: 'awbc-resizer' + (resizing === 'palette' ? ' active' : ''), key: 'pal-resizer', title: '拖动调整宽度', onPointerDown: startPanelResize('palette', paletteW) }) : null,
           h(
             'div',
             { className: 'awbc-stage' },
@@ -2366,6 +2427,7 @@ window.__ModuleLoader__.load({
               h('span', { key: 'legend-normal', className: 'awbc-legend' }, h('span', { className: 'awbc-swatch' }), t('legendNormal')),
             ),
           ),
+          h('div', { className: 'awbc-resizer' + (resizing === 'editor' ? ' active' : ''), key: 'editor-resizer', title: '拖动调整宽度', onPointerDown: startPanelResize('editor', editorW) }),
           editorPanel,
         ),
         ghost

@@ -93,7 +93,7 @@
 
 | 插件 | 版本 | 说明 |
 |---|---|---|
-| agent-workflow-board | 2.5.1 | 流程画布;2.5.1 规范预览回归按钮+按需查看(详见其目录内 HANDOFF.md) |
+| agent-workflow-board | 2.6.0 | 流程画布;2.6.0 Agent 名册改为插件私有角色库(agents/*.md,与「会话模式」分家,详见其目录内 HANDOFF.md §2.13) |
 | composer-usage-plus | 1.0.1 | 用量明细;1.0.1 修复额度进度条显示"剩余"而非"已用" |
 | composer-effort-chips | 1.3.9 | 推理力度切换;1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
 | turn-cost | 1.15.1 | 单轮成本;1.15.1 修复 ESC 中断后金额 pill 跑偏 |

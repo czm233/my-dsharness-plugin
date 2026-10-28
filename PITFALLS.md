@@ -24,6 +24,10 @@
 13. [悬浮面板在 display:none 时量高必为 0——先显示再定位](#13-悬浮面板在-displaynone-时量高必为-0先显示再定位)
 14. [两个 AI 会话并行写同一插件必撞车——动手前先查最近 commit 时间](#14-两个-ai-会话并行写同一插件必撞车动手前先查最近-commit-时间)
 15. [原生 select 的弹层是系统菜单,CSS 管不到——要完全自控就换自绘组件](#15-原生-select-的弹层是系统菜单css-管不到要完全自控就换自绘组件)
+16. [agentPresets 是「会话模式」的户口本——画布私有角色别去上这个户口](#16-agentpresets-是会话模式的户口本画布私有角色别去上这个户口)
+17. [canvas_report recorded:false ≠ 工具坏了——先查 bindings 有没有写进去](#17-canvas_report-recordedfalse--工具坏了先查-bindings-有没有写进去)
+18. [渲染路径上的守卫,先想第一帧的 null——node --check 查不出运行时空指针](#18-渲染路径上的守卫先想第一帧的-nullnode---check-查不出运行时空指针)
+19. [flex 面板拖不窄:min-width:auto 在顶——「一侧好一侧坏」先查两侧默认值差异](#19-flex-面板拖不窄min-widthauto-在顶一侧好一侧坏先查两侧默认值差异)
 
 ---
 
@@ -313,6 +317,62 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 
 **教训**:表单原生控件(input/select/原生日历)的"展开态"都不完全受 CSS 管;
 设计稿要求统一观感时,第一天就上自绘组件,别在原生控件上做样式修补。
+
+---
+
+## 16. agentPresets 是「会话模式」的户口本——画布私有角色别去上这个户口
+
+**日期**:2026-10-28 · **涉及**:agent-workflow-board 2.5.1→2.6.0 · **也涉及**:自建 uiux 预设 bundle(已废弃)
+
+**现象**:把 UIUX 角色按官方文档做成 `@deepseek-ai/dsh-agent-preset` 声明行、用 bundle 装进 profile 后,画布 Agent 名册能看见它了——但「新建会话」的模式选择器里也多出一行「UIUX 审查」。用户炸毛:我加的是画布角色,怎么变成全局会话模式了?
+
+**根因**:DSH 的 agentPresets 是**同账双消费**:新建会话的模式选择器和画布 Agent 名册读的是同一个注册表,注册预设=上全局户口,模式单必然出现,且注册表没有「隐藏」字段。DSH 砍掉 `~/.agent-presets/` 目录制后,「固定的私有角色」这个生态位没有原生替代(Agent Team 队员是会话级临时的)。业界同款是 Claude Code `.claude/agents/*.md` / Cursor `.cursor/agents/*.md` 的文件夹约定。
+
+**解法**(v2.6.0):画布自建角色库,彻底不读 agentPresets——`~/.dsh/storages/agent-workflow-board/agents/<id>.md`,一个角色一个文件(YAML 头 name/description + Markdown 人设正文),host `readRosterSync()` 直读文件夹,compileSpec 派发时把人设原样附给子 agent。加角色=丢文件+名册点「刷新」,零安装零模式污染;卸载预设 bundle 模式单即复原。
+
+**教训**:给插件选数据源前先问一句「这份户籍还喂给谁」。DSH 里「模式」和「角色」不是一个量级:模式 4 个、全局;角色应无限、私有。判断依据不是「数据能不能读到」,而是「读它会不会带来别处的副作用」。
+
+---
+
+## 17. canvas_report recorded:false ≠ 工具坏了——先查 bindings 有没有写进去
+
+**日期**:2026-10-28 · **涉及**:agent-workflow-board M2.4/M3 围栏验证
+
+**现象**:两轮实验里 canvas_report 上报一律报错 `tool "canvas_report" returned invalid output: "value.recorded" must be true`,一度以为是上报通道坏了;顺带用户在 UI 上「点了绑定」但 bindings.json 一直是 `{}`。
+
+**根因**:该工具的语义是「绑定画布的会话才上报」:execute 里查 `bindings.json[sessionId]`,查不到直接 `return {recorded:false}`,而输出 schema 声明 `recorded: {const:true}`——未绑定时宿主返回 false,校验层把它表现成工具报错,「正常拒绝」和「真故障」长得一模一样。另外用户点「我的画布」列表项只是**打开编辑器**,不是绑定;真正的绑定入口是工具栏「在此会话使用」下拉,两者极易混操作(绑定是否静默失败待专项排查)。
+
+**解法**:先 `cat ~/.dsh/storages/agent-workflow-board/bindings.json` 看 sessionId→canvasId 在不在;不在就先解决绑定(或临时手写该文件验证通道,实测手写后六次上报全通过、围栏拦截/放行全部正常)。
+
+**教训**:给输出 schema 写 `const:true` 之前想清楚「拒绝态」怎么表达;排查这类工具先分清三层——工具逻辑、输出校验、前置状态(绑定)。
+
+---
+
+## 18. 渲染路径上的守卫,先想第一帧的 null——node --check 查不出运行时空指针
+
+**日期**:2026-10-28 · **涉及**:agent-workflow-board 2.5.2(当轮即修)
+
+**现象**:给「执行 agent」下拉加了个守卫(旧画布绑了被过滤的 agent 时仍显示当前值),语法检查通过,用户重装后**整个流程画布标签页黑屏**。
+
+**根因**:守卫直接读 `selected.agent`,而 `selected = doc.nodes.find(...) || null` 在**未选中任何节点时是 null**——首次打开画布必踩 `null.agent`,组件整树崩溃,标签页只剩底色。`node --check` 只查语法,运行时空指针查不出。
+
+**解法**:`if (selected && selected.agent && ...)`。守卫自己先被守卫。
+
+**教训**:任何进渲染路径的新逻辑,按「第一帧最空状态」(null/空数组/加载中)先脑内跑一遍再交付;涉及 `.find() || null` 的变量,读它的属性前必须判空。
+
+---
+
+## 19. flex 面板拖不窄:min-width:auto 在顶——「一侧好一侧坏」先查两侧默认值差异
+
+**日期**:2026-10-28 · **涉及**:agent-workflow-board 2.5.2 面板拖宽
+
+**现象**:左右两个面板各加了一条拖拽调宽条,右栏拖宽拖窄都顺滑,左栏纹丝不动;两边用的是同一个拖拽函数。
+
+**根因**:flex item 默认 `min-width:auto`,内容的最小内在宽度会顶住面板不让缩小;右栏 `.awbc-editor` 自带 `overflow:auto`(flex 规范里 overflow 非 visible 的 item 自动最小尺寸归零)天然免疫,左栏 `.awbc-palette` 没有——同一个函数,两种命运。
+
+**解法**:可调宽的 flex 面板显式 `min-width:0`(左栏补上后即可拖窄;另配 200–460px clamp + localStorage 记忆宽度)。
+
+**教训**:「一侧好一侧坏」的 bug,先 diff 两侧容器的 CSS 默认值(overflow/min-width/display),再怀疑自己的 JS;flex 布局里 overflow:auto 不只是滚动开关,还是最小尺寸开关。
 
 ---
 
