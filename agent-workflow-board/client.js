@@ -159,9 +159,11 @@ window.__ModuleLoader__.load({
       zoomFit: '适应内容',
       zoomFitShort: '适应',
       layoutBtn: '整理布局',
+      tabProps: '属性',
+      tabSpec: '规范',
       specBtn: '规范预览',
       specTitle: '执行规范预览（发给模型的原文）',
-      specHint: '绑定会话后，这段文字在每次模型请求组装时由 Host 动态注入系统提示词（实时重编，执行中改图只影响后续节点）。当前展示的是本画布此刻的编译结果。',
+      specHint: '绑定会话后，这段文字在每次模型请求组装时由 Host 动态注入系统提示词（实时重编，执行中改图只影响后续节点）。随编辑自动刷新。',
       specEmpty: '当前画布没有主会话入口，编译结果为空——绑定后也不会注入任何内容。',
       specCopy: '复制',
       specCopied: '已复制',
@@ -275,9 +277,10 @@ window.__ModuleLoader__.load({
       zoomFit: 'Fit content',
       zoomFitShort: 'Fit',
       layoutBtn: 'Tidy layout',
-      specBtn: 'Spec preview',
+      tabProps: 'Properties',
+      tabSpec: 'Spec',
       specTitle: 'Execution spec preview (verbatim text sent to the model)',
-      specHint: 'When bound to a session, the Host injects this text into the system prompt on every model-request assembly (recompiled live; mid-run edits only affect later nodes). Shown here: this canvas as compiled right now.',
+      specHint: 'When bound to a session, the Host injects this text into the system prompt on every model-request assembly (recompiled live; mid-run edits only affect later nodes). Refreshes as you edit.',
       specEmpty: 'This canvas has no Main entry, so the compiled spec is empty — nothing would be injected.',
       specCopy: 'Copy',
       specCopied: 'Copied',
@@ -425,8 +428,13 @@ window.__ModuleLoader__.load({
       '.awbc-zoom{position:absolute;right:12px;bottom:12px;z-index:6;display:flex;align-items:center;padding:2px;border:1px solid var(--dsw-alias-border-l2);border-radius:8px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.15)}',
       '.awbc-zoom button{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:16px;padding:2px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
       '.awbc-zoom button:hover{background:var(--dsw-alias-bg-layer-2)}',
-      // --- spec preview dialog ---
-      '.awbc-specpre{max-height:380px;overflow:auto;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px 12px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}',
+      // --- spec preview（右栏「规范」标签页，常驻实时） ---
+      '.awbc-rtabs{display:flex;align-items:center;gap:4px}',
+      '.awbc-rtab{flex:0 0 auto;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;padding:2px 12px;border-radius:999px;cursor:pointer}',
+      '.awbc-rtab:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.awbc-rtab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)}',
+      '.awbc-spec{flex:1 1 0;display:flex;flex-direction:column;gap:6px;min-height:0}',
+      '.awbc-specpre{flex:1 1 auto;min-height:0;overflow:auto;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px 12px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}',
       '.awbc-speclabel{color:var(--dsw-alias-label-tertiary);font-size:11px}',
       // --- overlays ---
       '.awbc-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}',
@@ -683,22 +691,32 @@ window.__ModuleLoader__.load({
       const [importOpen, setImportOpen] = React.useState(false)
       const [importText, setImportText] = React.useState('')
       const [importError, setImportError] = React.useState('')
-      // 规范预览：loading | ready | error；每次打开都重新编译一次。
-      const [specOpen, setSpecOpen] = React.useState(false)
+      // 规范预览：右栏「规范」标签页常驻；激活时随 doc 变更防抖 500ms 实时重编。
+      const [rightTab, setRightTab] = React.useState('props') // 'props' | 'spec'
       const [specText, setSpecText] = React.useState('')
       const [specState, setSpecState] = React.useState('loading')
       const [specCopied, setSpecCopied] = React.useState(false)
-      const openSpecPreview = React.useCallback(() => {
-        setSpecOpen(true)
+      React.useEffect(() => {
+        if (rightTab !== 'spec') return undefined
+        let alive = true
         setSpecState('loading')
-        setSpecCopied(false)
-        apiCall({ action: 'specPreview', canvas: doc })
-          .then(data => {
-            setSpecText(String((data && data.spec) || ''))
-            setSpecState('ready')
-          })
-          .catch(() => setSpecState('error'))
-      }, [doc])
+        const timer = setTimeout(() => {
+          apiCall({ action: 'specPreview', canvas: doc })
+            .then(data => {
+              if (!alive) return
+              setSpecText(String((data && data.spec) || ''))
+              setSpecState('ready')
+              setSpecCopied(false)
+            })
+            .catch(() => {
+              if (alive) setSpecState('error')
+            })
+        }, 500)
+        return () => {
+          alive = false
+          clearTimeout(timer)
+        }
+      }, [rightTab, doc])
       const copySpec = React.useCallback(() => {
         try {
           if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -1824,17 +1842,17 @@ window.__ModuleLoader__.load({
             })
         : []
 
-      const editorPanel = !selected
+      const editorBody = !selected
         ? h(
             'div',
-            { className: 'awbc-editor', key: 'editor-hint' },
+            { key: 'body-hint' },
             multiIds.length > 1
               ? h('span', { className: 'awbc-hint' }, `已选 ${multiIds.length} 个节点 · Delete 批量删除`)
               : h('span', { className: 'awbc-hint' }, t('selectNodeHint')),
           )
         : h(
             'div',
-            { className: 'awbc-editor', key: 'editor', onPointerDown: event => event.stopPropagation() },
+            { key: 'body-props', style: { display: 'flex', flexDirection: 'column', gap: 9 }, onPointerDown: event => event.stopPropagation() },
             h(
               'div',
               { className: 'awbc-field' },
@@ -1922,6 +1940,39 @@ window.__ModuleLoader__.load({
             ),
             h('button', { type: 'button', className: 'awbc-btn danger', onClick: deleteSelected }, t('deleteNode')),
           )
+
+      // 右栏 = 「属性 / 规范」双标签：规范页常驻显示编译原文，随编辑实时刷新。
+      const specPanel = h(
+        'div',
+        { className: 'awbc-spec', key: 'spec-panel' },
+        specState === 'error'
+          ? h('div', { className: 'awbc-error' }, t('specLoadFailed'))
+          : specState === 'ready' && !specText
+            ? h('div', { className: 'awbc-hint' }, t('specEmpty'))
+            : h('pre', { className: 'awbc-specpre' }, specState === 'loading' ? '…' : specText),
+        h('div', { className: 'awbc-speclabel' }, t('specHint')),
+      )
+      const editorPanel = h(
+        'div',
+        { className: 'awbc-editor' },
+        h(
+          'div',
+          { className: 'awbc-rtabs' },
+          h('button', { type: 'button', className: 'awbc-rtab' + (rightTab === 'props' ? ' active' : ''), onClick: () => setRightTab('props') }, t('tabProps')),
+          h('button', { type: 'button', className: 'awbc-rtab' + (rightTab === 'spec' ? ' active' : ''), onClick: () => setRightTab('spec') }, t('tabSpec')),
+          rightTab === 'spec'
+            ? h('button', {
+                type: 'button',
+                className: 'awbc-rtab',
+                style: { marginLeft: 'auto' },
+                title: t('specCopy'),
+                disabled: specState !== 'ready' || !specText,
+                onClick: copySpec,
+              }, specCopied ? '✓ ' + t('specCopied') : '⧉ ' + t('specCopy'))
+            : null,
+        ),
+        rightTab === 'spec' ? specPanel : editorBody,
+      )
 
       const palette = h(
         'div',
@@ -2024,7 +2075,6 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', key: 'undo', className: 'awbc-btn', title: 'Ctrl/Cmd+Z', disabled: !canUndo, onClick: undo }, '↶ ' + t('undo')),
         h('button', { type: 'button', key: 'redo', className: 'awbc-btn', title: 'Ctrl/Cmd+Shift+Z', disabled: !canRedo, onClick: redo }, '↷ ' + t('redo')),
         h('button', { type: 'button', key: 'layout', className: 'awbc-btn', title: t('layoutBtn'), disabled: doc.nodes.length === 0, onClick: autoLayout }, '⊞ ' + t('layoutBtn')),
-        h('button', { type: 'button', key: 'spec', className: 'awbc-btn', title: t('specTitle'), onClick: openSpecPreview }, '≣ ' + t('specBtn')),
         sessionId
           ? h(
               'select',
@@ -2314,30 +2364,6 @@ window.__ModuleLoader__.load({
                   { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
                   h('button', { type: 'button', className: 'awbc-btn', onClick: () => setImportOpen(false) }, t('close')),
                   h('button', { type: 'button', className: 'awbc-btn primary', onClick: doImport }, t('importConfirm')),
-                ),
-              ),
-            )
-          : null,
-        specOpen
-          ? h(
-              'div',
-              { className: 'awbc-overlay', key: 'spec', onPointerDown: event => event.stopPropagation() },
-              h(
-                'div',
-                { className: 'awbc-dialog', style: { width: 640 } },
-                h('div', { className: 'awbc-dialog-title' }, t('specTitle')),
-                h('div', { className: 'awbc-speclabel' }, t('specHint')),
-                specState === 'error'
-                  ? h('div', { className: 'awbc-error' }, t('specLoadFailed'))
-                  : specState === 'ready' && !specText
-                    ? h('div', { className: 'awbc-speclabel' }, t('specEmpty'))
-                    : h('pre', { className: 'awbc-specpre' }, specState === 'loading' ? '…' : specText),
-                h(
-                  'div',
-                  { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
-                  h('button', { type: 'button', className: 'awbc-btn', disabled: specState !== 'ready' || !specText, onClick: copySpec },
-                    specCopied ? '✓ ' + t('specCopied') : t('specCopy')),
-                  h('button', { type: 'button', className: 'awbc-btn primary', onClick: () => setSpecOpen(false) }, t('close')),
                 ),
               ),
             )
