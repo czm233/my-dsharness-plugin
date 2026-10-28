@@ -60,6 +60,7 @@
 - 本仓库根目录的 `index.json` 是 DSH 插件市场的索引文件(format 1)。
 - **新增或更新插件后必须同步更新 `index.json`**:新插件加一个条目;版本更新要在 `versions` 里追加一项,并填当时的 commit hash。
 - 本地 profile 的插件市场配置(`~/.dsh/profiles/desktop/cordis.patch.yml` 的 `plugin-market.indexes`)已包含本仓库的 raw 地址;新机器配置时记得加上。
+- **新机器(含 Windows)配置/迁移流程见 [WINDOWS-SETUP.md](WINDOWS-SETUP.md)**:公开配置走 git,密钥与用户数据走私有迁移包(`scripts/export-config.sh` 导出、`scripts/setup-windows.ps1` 导入)。
 
 ## 5. 新插件上手清单
 
@@ -93,10 +94,11 @@
 
 | 插件 | 版本 | 说明 |
 |---|---|---|
-| agent-workflow-board | 2.6.0 | 流程画布;2.6.0 Agent 名册改为插件私有角色库(agents/*.md,与「会话模式」分家,详见其目录内 HANDOFF.md §2.13) |
+| agent-workflow-board | 2.7.0 | 流程画布;2.7.0 双档角色库(项目级 agents/ 覆盖用户级)+ 启动/停止开关(中途启动即时生效,详见其目录内 HANDOFF.md §2.14-2.15) |
 | composer-usage-plus | 1.0.1 | 用量明细;1.0.1 修复额度进度条显示"剩余"而非"已用" |
 | composer-effort-chips | 1.3.9 | 推理力度切换;1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
 | turn-cost | 1.15.4 | 单轮成本;1.15.4 中断轮不显示且全程无中间态闪烁(查询期静默+空结果静默重试) |
+| quote-selection | 0.5.5 | 划词引用;已装并用(此前漏登记本表) |
 
 ---
 *规则制定于 2026-10-26,由用户口述、AI 整理。修改本文件本身也要 commit + push。*
