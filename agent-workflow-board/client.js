@@ -384,7 +384,13 @@ window.__ModuleLoader__.load({
       '.awbc-input.invalid{border-color:var(--dsw-alias-state-danger-primary,#e5484d)}',
       '.awbc-input{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:4px 8px;border-radius:6px;width:100%;box-sizing:border-box}',
       '.awbc-textarea{min-height:80px;resize:vertical}',
-      '.awbc-select{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:3px 6px;border-radius:6px;width:100%;box-sizing:border-box}',
+      // 原生 select 的系统箭头与自定义背景/圆角不搭（用户反馈「样式很奇怪」）：
+      // appearance:none 关掉原生外观，自绘中性灰箭头（明暗主题都可读），
+      // 右侧留 22px 给箭头；option 的弹层底色跟主题变量走。
+      '.awbc-select{appearance:none;-webkit-appearance:none;border:1px solid var(--dsw-alias-border-l1);background-color:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:3px 22px 3px 8px;border-radius:6px;width:100%;box-sizing:border-box;background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' fill=\'none\' stroke=\'%23888f9b\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}',
+      '.awbc-select:hover{border-color:var(--dsw-alias-border-l2)}',
+      '.awbc-select:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+      '.awbc-select option{background-color:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}',
       '.awbc-bind{width:auto;flex:0 1 auto;max-width:220px;font-size:11px}',
       '.awbc-warnbadge{align-self:flex-start;padding:1px 8px;border-radius:999px;border:1px solid var(--dsw-alias-state-warning-primary,#c78a1d);color:var(--dsw-alias-state-warning-primary,#c78a1d);font-size:10px}',
       '.awbc-edge-row{display:flex;flex-direction:column;gap:3px;padding:6px 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}',
