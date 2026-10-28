@@ -73,6 +73,23 @@
   - client 徽章 `hookPreviewBadge` 改为「按时机注入提示词」，descHook 同步
 - 单测：compileSpec 钩子段（步骤号不重复、孤岛钩子在内、未设时机兜底文案）、pickRunningLabel（取最新 running）、fenceReasonFor 文案
 
+## 2.7 v2.3.0 新增（2026-10-28 本轮，待页面验收）
+
+- **钩子时机 3 种 → 8 种**，每种对应 DSH 真实执行事件（client 的 HOOK_KINDS 改为 `{value,labelKey}` 对象数组，编辑下拉/节点副标题/normalizeDoc 校验全部改查表）：
+  | value | 时机 | DSH 事件 |
+  |---|---|---|
+  | session-start | 会话开始时 | agent/created |
+  | user-message | 收到用户消息后 | agent/inbox/claimed |
+  | before-dispatch | 每次派发前 | tools/pre-execute |
+  | after-dispatch | 每次派发完成后 | tools/post-execute |
+  | subagent-start | 子 agent 启动时 | subagent/start |
+  | subagent-end | 子 agent 结束时 | subagent/end |
+  | turn-stop | 每轮结束时 | agent/turn-stopping |
+  | session-end | 会话结束时 | agent/disposed |
+- host.js 侧 HOOK_TIMING_TEXT 映射表（8 项 + 未设兜底），单测覆盖 8+1 全部注入
+- 语义仍是「提示词注入」：8 种时机都以规范文本生效（规范常驻系统提示词，模型按措辞在对应时机执行）；真正逐事件注入（如 subagent/start 往子 agent 提示词交代要点、user-message 往消息流插提醒）是后续增强方向
+- 旧画布的三种老时机值完全兼容，无需迁移
+
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
 **目标**：用户把画布绑定到会话后，agent 按图执行，画布实时显示进度。

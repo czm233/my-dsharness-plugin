@@ -36,7 +36,21 @@ window.__ModuleLoader__.load({
       end: { glyph: '⏹' },
       hook: { glyph: '⚡' },
     }
-    const HOOK_KINDS = ['session-start', 'before-dispatch', 'session-end']
+    // 八种钩子时机，各自对应 DSH 的真实执行事件：
+    // session-start→agent/created · user-message→agent/inbox/claimed ·
+    // before-dispatch→tools/pre-execute · after-dispatch→tools/post-execute ·
+    // subagent-start→subagent/start · subagent-end→subagent/end ·
+    // turn-stop→agent/turn-stopping · session-end→agent/disposed
+    const HOOK_KINDS = [
+      { value: 'session-start', labelKey: 'hookSessionStart' },
+      { value: 'user-message', labelKey: 'hookUserMessage' },
+      { value: 'before-dispatch', labelKey: 'hookBeforeDispatch' },
+      { value: 'after-dispatch', labelKey: 'hookAfterDispatch' },
+      { value: 'subagent-start', labelKey: 'hookSubagentStart' },
+      { value: 'subagent-end', labelKey: 'hookSubagentEnd' },
+      { value: 'turn-stop', labelKey: 'hookTurnStop' },
+      { value: 'session-end', labelKey: 'hookSessionEnd' },
+    ]
 
     const zh = {
       title: '流程画布',
@@ -109,7 +123,12 @@ window.__ModuleLoader__.load({
       fieldRouterDesc: '判断说明（怎么选分支，写给主会话看）',
       fieldHookKind: '触发时机',
       hookSessionStart: '会话开始时',
+      hookUserMessage: '收到用户消息后',
       hookBeforeDispatch: '每次派发前',
+      hookAfterDispatch: '每次派发完成后',
+      hookSubagentStart: '子 agent 启动时',
+      hookSubagentEnd: '子 agent 结束时',
+      hookTurnStop: '每轮结束时',
       hookSessionEnd: '会话结束时',
       fieldHookNote: '动作说明',
       hookPreviewBadge: '按时机注入提示词',
@@ -213,7 +232,12 @@ window.__ModuleLoader__.load({
       fieldRouterDesc: 'Decision notes (how to pick a branch)',
       fieldHookKind: 'Trigger',
       hookSessionStart: 'Session start',
+      hookUserMessage: 'After user message',
       hookBeforeDispatch: 'Before each dispatch',
+      hookAfterDispatch: 'After each dispatch',
+      hookSubagentStart: 'Subagent start',
+      hookSubagentEnd: 'Subagent end',
+      hookTurnStop: 'Turn end',
       hookSessionEnd: 'Session end',
       fieldHookNote: 'Action notes',
       hookPreviewBadge: 'Injected at its trigger',
@@ -454,7 +478,7 @@ window.__ModuleLoader__.load({
           prompt: typeof node.prompt === 'string' ? node.prompt.slice(0, 4000) : '',
           agent: typeof node.agent === 'string' ? node.agent.slice(0, 120) : '',
           exec: node.exec === 'lead' ? 'lead' : 'subagent',
-          hookKind: HOOK_KINDS.indexOf(node.hookKind) >= 0 ? node.hookKind : '',
+          hookKind: HOOK_KINDS.some(kind => kind.value === node.hookKind) ? node.hookKind : '',
           note: typeof node.note === 'string' ? node.note.slice(0, 1000) : '',
           x: clamp(Number(node.x) || 0, -100000, 100000),
           y: clamp(Number(node.y) || 0, -100000, 100000),
@@ -570,7 +594,8 @@ window.__ModuleLoader__.load({
       }
       if (node.type === 'router') return node.description || t('routerHint')
       if (node.type === 'hook') {
-        const kind = node.hookKind === 'session-start' ? t('hookSessionStart') : node.hookKind === 'before-dispatch' ? t('hookBeforeDispatch') : node.hookKind === 'session-end' ? t('hookSessionEnd') : ''
+        const kindDef = HOOK_KINDS.find(kind => kind.value === node.hookKind)
+        const kind = kindDef ? t(kindDef.labelKey) : ''
         return [kind, node.note].filter(Boolean).join(' · ')
       }
       return node.description || typeDesc(t, node.type)
@@ -1828,9 +1853,7 @@ window.__ModuleLoader__.load({
                       'select',
                       { className: 'awbc-select', value: selected.hookKind, onChange: event => updateSelected('hookKind', event.target.value) },
                       h('option', { value: '' }, '—'),
-                      h('option', { value: 'session-start' }, t('hookSessionStart')),
-                      h('option', { value: 'before-dispatch' }, t('hookBeforeDispatch')),
-                      h('option', { value: 'session-end' }, t('hookSessionEnd')),
+                      HOOK_KINDS.map(kind => h('option', { key: kind.value, value: kind.value }, t(kind.labelKey))),
                     ),
                   ),
                   h(

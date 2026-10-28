@@ -142,6 +142,20 @@ function readBindingsSync() {
   }
 }
 
+// 八种钩子时机 → 注入规范时的措辞（对应 DSH 事件：agent/created、
+// agent/inbox/claimed、tools/pre-execute、tools/post-execute、subagent/start、
+// subagent/end、agent/turn-stopping、agent/disposed）。
+const HOOK_TIMING_TEXT = {
+  'session-start': '会话开始时（进入第一个流程节点之前）先完成',
+  'user-message': '收到每条用户消息后，先完成本动作再处理消息',
+  'before-dispatch': '每次派发子 agent 之前先核对',
+  'after-dispatch': '每次子 agent 派发完成、结果返回后，先按本动作评估结果再继续',
+  'subagent-start': '每个子 agent 启动时，向其交代本动作要点',
+  'subagent-end': '每个子 agent 结束时，先按本动作核对其产出再继续',
+  'turn-stop': '每轮结束收尾时，先按本动作确认进度（必要时用 canvas_report 上报）',
+  'session-end': '向用户做最终收尾汇报之前先完成',
+}
+
 /**
  * M2.2: compile a canvas document into the structured execution spec injected
  * into the bound session's system prompt. Returns '' when the canvas is not
@@ -212,13 +226,7 @@ function compileSpec(doc) {
   if (hooks.length > 0) {
     lines.push('时机动作（钩子节点，提示性——到对应时机先完成动作再继续，不改变流程走向）：')
     for (const hook of hooks) {
-      const kindText = hook.hookKind === 'session-start'
-        ? '会话开始时（进入第一个流程节点之前）先完成'
-        : hook.hookKind === 'before-dispatch'
-          ? '每次派发子 agent 之前先核对'
-          : hook.hookKind === 'session-end'
-            ? '向用户做最终收尾汇报之前先完成'
-            : ''
+      const kindText = HOOK_TIMING_TEXT[hook.hookKind] || ''
       const note = hook.note || hook.label || '关键时机动作'
       lines.push(kindText ? `- ${kindText}「${labelOf(hook)}」：${note}` : `- 「${labelOf(hook)}」（未设触发时机）：${note}`)
     }
