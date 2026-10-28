@@ -364,6 +364,10 @@ window.__ModuleLoader__.load({
               attempts: Array.isArray(value?.attempts) ? value.attempts : [],
               events: Number(value?.events ?? -1),
               matched: Number(value?.matched ?? -1),
+              // ESC-interrupted turns record no usage anywhere in the session
+              // log, so that state gets its own explanation, not the generic
+              // "no usage" failure probe.
+              interrupted: value?.interrupted === true || value?.aborted === true,
             })
           },
           (error) => {
@@ -403,20 +407,31 @@ window.__ModuleLoader__.load({
       } else {
         let label
         const lines = [
-          `状态: ${state.kind}`,
           `sessionId: ${sessionId ?? '无'}`,
           `turnNo: ${turnNo ?? '无'}`,
           `turn.status: ${status ?? '无'}`,
         ]
-        if (state.kind === 'idle') label = '¥?·无坐标'
-        else if (state.kind === 'loading') {
+        if (state.kind === 'idle') {
+          label = '¥?·无坐标'
+          lines.unshift('状态: 无坐标')
+        } else if (state.kind === 'loading') {
           label = '¥…'
-          lines.push('状态: 正在请求 Host…')
+          lines.unshift('状态: 正在请求 Host…')
         } else if (state.kind === 'error') {
           label = '¥?·失败'
-          lines.push(`错误: ${state.message}`)
+          lines.unshift(`状态: 请求失败 · ${state.message}`)
+        } else if (state.interrupted && state.attempts.length === 0) {
+          // Interrupted before any settled usage: the platform log genuinely
+          // has no token counts for this turn, so say that instead of posing
+          // it as a folding failure.
+          label = '¥—·中断无计费'
+          lines.unshift('状态: 本轮被中断(ESC),上游未返回 usage')
+          lines.push('平台日志没有这轮的 token 数,无法折算金额')
+          lines.push(`事件总数: ${state.events}`)
+          lines.push(`命中 assistant/message: ${state.matched}`)
         } else {
           label = '¥?·无用量'
+          lines.unshift('状态: 完成但未折叠到用量')
           lines.push(`事件总数: ${state.events}`)
           lines.push(`命中 assistant/message: ${state.matched}`)
           lines.push(`attempts: ${state.attempts.length}`)
@@ -476,7 +491,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log(LOG, 'apply (v6, host-folded usage)')
+        console.log(LOG, 'apply (v7, interrupted-turn state)')
 
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'turn-cost: dictionaries')
 

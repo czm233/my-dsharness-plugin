@@ -78,20 +78,30 @@ function normalizeUsage(usage, route) {
   }
 }
 
-/** One settled attempt per assistant/message; the client aggregates. Returns fold counts for diagnosis. */
+/** One settled attempt per assistant/message; the client aggregates. Returns fold counts for diagnosis.
+ * ESC-interrupted turns carry no usage at all (the upstream request is cancelled before any usage
+ * chunk arrives), so interrupted/aborted flags are folded alongside to let the client explain that
+ * state instead of presenting it as a folding failure. */
 function foldTurnAttempts(events, turn) {
   const attempts = []
   let matched = 0
+  let interrupted = false
+  let aborted = false
   for (const event of events) {
+    if (event?.type === 'turn/end') {
+      if (Number(event.data?.turn) === turn && event.data?.reason?.kind === 'aborted') aborted = true
+      continue
+    }
     if (event?.type !== 'assistant/message') continue
     const data = event.data
     if (Number(data?.turn) !== turn) continue
     matched += 1
+    if (data.interrupted === true) interrupted = true
     const usage = data.usage !== undefined ? data.usage : lastStreamUsage(data.stream)
     const attempt = normalizeUsage(usage, routeOf(data.message))
     if (attempt !== undefined) attempts.push(attempt)
   }
-  return { attempts, matched }
+  return { attempts, matched, interrupted, aborted }
 }
 
 function asRecord(value) {
@@ -131,7 +141,13 @@ export function apply(ctx) {
     const snapshot = await query.readSession(sessionId)
     const events = snapshot?.events ?? []
     const folded = foldTurnAttempts(events, turn)
-    return { attempts: folded.attempts, matched: folded.matched, events: events.length }
+    return {
+      attempts: folded.attempts,
+      matched: folded.matched,
+      events: events.length,
+      interrupted: folded.interrupted,
+      aborted: folded.aborted,
+    }
   }
 
   async function serve(request) {
