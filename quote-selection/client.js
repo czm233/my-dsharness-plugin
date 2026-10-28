@@ -15,6 +15,17 @@ window.__ModuleLoader__.load({
     const COMPOSER_CARD_CLASS = 'JZLxKW_card';
     const SEND_BUTTON_CLASS = 'JZLxKW_primary';
 
+    // 主对话区域(DSH 语义属性):只有这个容器里的选区才允许引用。
+    // 没有该属性时返回 null,调用方退回旧启发式。
+    function conversationContent() {
+      return document.querySelector('[data-conversation-content]');
+    }
+
+    // 常驻主输入框所在区域;流程画布等 tab 打开时会把它 display:none。
+    function conversationComposerRegion() {
+      return document.querySelector('[data-conversation-region="composer"]');
+    }
+
     function isVisible(el) {
       if (!el) return false;
       if (typeof el.checkVisibility === 'function') return el.checkVisibility({ checkVisibilityCSS: true });
@@ -22,6 +33,17 @@ window.__ModuleLoader__.load({
     }
 
     function findComposer() {
+      // 主输入框优先:只在 conversation region 里找,避免抓到别的插件视图里的编辑器。
+      const region = conversationComposerRegion();
+      if (region) {
+        const editors = region.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"], textarea');
+        for (const editor of editors) {
+          if (isVisible(editor)) return { kind: editor.matches('textarea') ? 'textarea' : 'lexical', el: editor };
+        }
+        // region 存在但整体不可见(如画布 tab 把它 display:none),说明当前不在
+        // 主对话视图:直接返回 null,不做全文兜底,避免抓到别的插件里的编辑器。
+        return null;
+      }
       const editors = document.querySelectorAll('[data-lexical-editor="true"][contenteditable="true"]');
       for (let i = editors.length - 1; i >= 0; i -= 1) {
         if (isVisible(editors[i])) return { kind: 'lexical', el: editors[i] };
@@ -77,6 +99,14 @@ window.__ModuleLoader__.load({
         if (el.closest('[data-lexical-editor], textarea, input, [contenteditable="true"], [contenteditable=""]')) return null;
         if (el.closest(`#${BUTTON_ID}, #${CARD_ID}, #${PANEL_ID}, #${POPOVER_ID}`)) return null;
       }
+      // 只允许主对话区域(聊天气泡/消息)触发引用,别的插件面板一律不算。
+      const chatRoot = conversationContent();
+      if (chatRoot) {
+        if (!chatRoot.contains(startEl)) return null;
+        if (focusEl && !chatRoot.contains(focusEl)) return null;
+      }
+      // 主输入框不可用(不在主对话视图,如画布 tab 打开时)也不出按钮。
+      if (!findComposer()) return null;
       return { text, rect: sel.getRangeAt(0).getBoundingClientRect() };
     }
 
