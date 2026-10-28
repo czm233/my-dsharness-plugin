@@ -387,12 +387,12 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 正常完成的 `assistant/message` 流尾有 `chunk.type='usage'` + `data.usage`;而 ESC 中断的轮(事件带 `data.interrupted: true`,`turn/end` 的 `reason.kind='aborted'`)
 **流在中途截断,usage chunk 永远不会到**——上游请求被取消,平台日志里这轮就没有任何 token 数。插件把"无数据"显示成探针失败态,误报。
 
-**解法**:Host 折叠时顺带报告 `interrupted`(消息级 `data.interrupted === true`)和 `aborted`(该轮 `turn/end` reason);客户端对"空 attempts + 中断"渲染独立的
-`¥—·中断无计费` 状态并在诊断面板里解释"中断轮上游不返回 usage,日志无 token 数",`¥?·无用量` 只留给真正的折叠失败。诊断命令:
-`zstd -dc session.v4.jsonl.zstd | python3 -c "…按 type/turn/usage 逐行打印…"`
+**解法**:Host 折叠时顺带报告 `interrupted`(消息级 `data.interrupted === true`)和 `aborted`(该轮 `turn/end` reason);客户端对"空 attempts + 中断"
+**整个 pill 都不渲染**,轮次尾部行保持 DSH 原样(1.15.2 曾做成说明性的「中断无计费」状态,用户拍板:检测到中断就别显示,零噪音)。`¥?·无用量` 探针只留给
+真正的折叠失败。诊断命令:`zstd -dc session.v4.jsonl.zstd | python3 -c "…按 type/turn/usage 逐行打印…"`
 
 **教训**:给"数据可能缺席"的场景设计状态时,先去解包一份真实日志确认缺席的**原因和形状**(有没有补偿性标记字段,如 `interrupted`),
-把"平台本来就不给"和"我折叠漏了"分成两个 UI 状态;把前者当故障显示,用户就会反复报 bug。
+把"平台本来就不给"和"我折叠漏了"分成两个 UI 状态;平台本来就不给数据的轮次,默认**不渲染插件 UI**,把界面还给平台默认,别发明解释性状态去填空。
 
 ---
 
