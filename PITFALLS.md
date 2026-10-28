@@ -28,6 +28,7 @@
 17. [canvas_report recorded:false ≠ 工具坏了——先查 bindings 有没有写进去](#17-canvas_report-recordedfalse--工具坏了先查-bindings-有没有写进去)
 18. [渲染路径上的守卫,先想第一帧的 null——node --check 查不出运行时空指针](#18-渲染路径上的守卫先想第一帧的-nullnode---check-查不出运行时空指针)
 19. [flex 面板拖不窄:min-width:auto 在顶——「一侧好一侧坏」先查两侧默认值差异](#19-flex-面板拖不窄min-widthauto-在顶一侧好一侧坏先查两侧默认值差异)
+20. [ESC 中断的轮次在会话日志里没有 usage——「中断无计费」是常态,别当诊断失败](#20-esc-中断的轮次在会话日志里没有-usage中断无计费是常态别当诊断失败)
 
 ---
 
@@ -373,6 +374,25 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 **解法**:可调宽的 flex 面板显式 `min-width:0`(左栏补上后即可拖窄;另配 200–460px clamp + localStorage 记忆宽度)。
 
 **教训**:「一侧好一侧坏」的 bug,先 diff 两侧容器的 CSS 默认值(overflow/min-width/display),再怀疑自己的 JS;flex 布局里 overflow:auto 不只是滚动开关,还是最小尺寸开关。
+
+---
+
+## 20. ESC 中断的轮次在会话日志里没有 usage——「中断无计费」是常态,别当诊断失败
+
+**日期**:2026-10-28 · **涉及**:turn-cost 1.15.1→1.15.2
+
+**现象**:回复没完按 ESC 后,金额 pill 显示 `¥?·无用量`,看着像个故障。
+
+**根因**:不是折叠逻辑坏了。解包真实会话日志(`~/.dsh/sessions/<工作区>/session-*/session.v4.jsonl.zstd`)对比发现:
+正常完成的 `assistant/message` 流尾有 `chunk.type='usage'` + `data.usage`;而 ESC 中断的轮(事件带 `data.interrupted: true`,`turn/end` 的 `reason.kind='aborted'`)
+**流在中途截断,usage chunk 永远不会到**——上游请求被取消,平台日志里这轮就没有任何 token 数。插件把"无数据"显示成探针失败态,误报。
+
+**解法**:Host 折叠时顺带报告 `interrupted`(消息级 `data.interrupted === true`)和 `aborted`(该轮 `turn/end` reason);客户端对"空 attempts + 中断"渲染独立的
+`¥—·中断无计费` 状态并在诊断面板里解释"中断轮上游不返回 usage,日志无 token 数",`¥?·无用量` 只留给真正的折叠失败。诊断命令:
+`zstd -dc session.v4.jsonl.zstd | python3 -c "…按 type/turn/usage 逐行打印…"`
+
+**教训**:给"数据可能缺席"的场景设计状态时,先去解包一份真实日志确认缺席的**原因和形状**(有没有补偿性标记字段,如 `interrupted`),
+把"平台本来就不给"和"我折叠漏了"分成两个 UI 状态;把前者当故障显示,用户就会反复报 bug。
 
 ---
 
