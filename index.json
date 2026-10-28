@@ -119,6 +119,16 @@
             "commit": "8361ecfa38a671cf3e2821d017f97aad12ed18e3",
             "path": "agent-workflow-board"
           }
+        },
+        {
+          "version": "2.3.0",
+          "publishTimestamp": 1793152997,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ab315c737b9180a01bdaf61cc09fe89ae69adfd7",
+            "path": "agent-workflow-board"
+          }
         }
       ]
     },
