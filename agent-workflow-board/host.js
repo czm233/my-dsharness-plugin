@@ -16,6 +16,7 @@
  *     { action: 'unbind', sessionId }           -> { ok: true }
  *     { action: 'getBinding', sessionId }       -> { binding } | { binding: null }
  *     { action: 'getStatus', id }               -> { status: {label: {status,note,updatedAt}} }
+ *     { action: 'specPreview', canvas }         -> { spec }  (compileSpec on the client's current doc)
  *
  * Canvases persist as JSON documents under the DSH internal storage area
  * (~/.dsh/storages/agent-workflow-board/), never inside project directories.
@@ -590,6 +591,13 @@ export function apply(ctx) {
                 if (!id) return json({ error: 'missing-id' }, 400)
                 const map = await readStatus()
                 return json({ status: map[id] || {} })
+              }
+              if (action === 'specPreview') {
+                // 画布内「规范预览」：直接编译客户端传来的当前画布（含未保存修改），
+                // 和注入用的是同一个 compileSpec —— 看到的就是模型会收到的。
+                const canvas = body && typeof body.canvas === 'object' && body.canvas ? body.canvas : null
+                if (!canvas) return json({ error: 'bad-canvas' }, 400)
+                return json({ spec: compileSpec(canvas) })
               }
               return json({ error: 'unknown-action' }, 400)
             } catch (error) {

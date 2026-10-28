@@ -93,7 +93,7 @@
 
 | 插件 | 版本 | 说明 |
 |---|---|---|
-| agent-workflow-board | 2.3.0 | 流程画布;2.3.0 钩子时机扩到8种(详见其目录内 HANDOFF.md) |
+| agent-workflow-board | 2.4.0 | 流程画布;2.4.0 规范预览(画布内看编译原文)(详见其目录内 HANDOFF.md) |
 | composer-usage-plus | 1.0.1 | 用量明细;1.0.1 修复额度进度条显示"剩余"而非"已用" |
 | composer-effort-chips | 1.3.9 | 推理力度切换;1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
 | turn-cost | 1.15.1 | 单轮成本;1.15.1 修复 ESC 中断后金额 pill 跑偏 |
