@@ -170,7 +170,7 @@ const TYPE_NAMES = { start: '主会话', work: '工作', router: '判断', end: 
 function compileSpec(doc) {
   const nodes = Array.isArray(doc && doc.nodes) ? doc.nodes : []
   const edges = Array.isArray(doc && doc.edges) ? doc.edges : []
-  const rosterById = new Map(readRosterSync().map(agent => [agent.id, agent]))
+  const rosterById = new Map(readRosterSync(doc && typeof doc.projectDir === 'string' ? doc.projectDir : '').map(agent => [agent.id, agent]))
   const byId = new Map(nodes.map(node => [node.id, node]))
   const start = nodes.find(node => node.type === 'start')
   if (!start) return ''
@@ -197,6 +197,7 @@ function compileSpec(doc) {
   }
   const labelOf = node => (node && node.label ? String(node.label) : String(node.id))
   const lines = [`本会话按流程画布「${(doc && doc.name) || '未命名'}」执行。严格按以下节点顺序推进：`]
+  lines.push('启动动作（先于一切节点）：盘点本会话现存子智能体——用你的子代理管理工具查看，仍在运行或待命的逐个停止；若无停止工具或无法停止，明确声明「既往子智能体与既往上下文一律忽略，本会话只按本流程推进」。完成后再进入第 1 个节点。')
   let step = 0
   for (const node of order) {
     // 钩子节点是时机动作不是流程步骤：不占步骤号，末尾时机段统一注入。
@@ -285,6 +286,7 @@ function normalizeStored(raw) {
     version: 1,
     id,
     name: typeof raw.name === 'string' ? raw.name.slice(0, 80) : '',
+    projectDir: typeof raw.projectDir === 'string' ? raw.projectDir.slice(0, 4096) : '',
     updatedAt: Number(raw.updatedAt) || 0,
     nodes: raw.nodes.slice(0, 200),
     edges: raw.edges.slice(0, 400),
@@ -325,6 +327,14 @@ function rosterDir() {
   return path.join(storageDir(), 'agents')
 }
 
+// v2.6.1 双档角色库：项目目录必须是绝对路径（host 只读它的 agents/ 子目录）。
+function sanitizeProjectDir(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('/') || trimmed.length > 4096) return ''
+  return trimmed
+}
+
 function parseAgentFile(id, text) {
   const trimmed = String(text || '')
   let name = ''
@@ -346,32 +356,42 @@ function parseAgentFile(id, text) {
   return { id, name: name || id, description, prompt: body.trim().slice(0, 8000) }
 }
 
-function readRosterSync() {
-  let names = []
-  try {
-    names = fspSync.readdir(rosterDir())
-  } catch {
-    return []
-  }
-  const agents = []
-  for (const name of names) {
-    const match = /^([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})\.md$/.exec(name)
-    if (!match) continue
+// v2.6.1：用户级 = storageDir()/agents；项目级 = <projectDir>/agents。
+// 后读项目级、同名覆盖（照 Claude Code 约定：项目定义高于用户定义）。
+function readRosterSync(projectDir) {
+  const project = sanitizeProjectDir(projectDir)
+  const sources = [{ dir: rosterDir(), scope: 'user' }]
+  if (project) sources.push({ dir: path.join(project, 'agents'), scope: 'project' })
+  const byId = new Map()
+  for (const source of sources) {
+    let names = []
     try {
-      const text = fspSync.readFile(path.join(rosterDir(), name), 'utf8')
-      agents.push(parseAgentFile(match[1], text))
+      names = fspSync.readdir(source.dir)
     } catch {
-      /* skip unreadable entries */
+      continue
     }
-    if (agents.length >= 100) break
+    for (const name of names) {
+      const match = /^([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})\.md$/.exec(name)
+      if (!match) continue
+      try {
+        const text = fspSync.readFile(path.join(source.dir, name), 'utf8')
+        byId.set(match[1], Object.assign(parseAgentFile(match[1], text), { scope: source.scope }))
+      } catch {
+        /* skip unreadable entries */
+      }
+      if (byId.size >= 100) break
+    }
   }
+  const agents = [...byId.values()]
   agents.sort((a, b) => a.id.localeCompare(b.id))
   return agents
 }
 
-function listAgents() {
+function listAgents(projectDir) {
   // 客户端只要展示字段；人设正文留在宿主侧给 compileSpec 用。
-  return Promise.resolve(readRosterSync().map(agent => ({ id: agent.id, name: agent.name, description: agent.description })))
+  return Promise.resolve(
+    readRosterSync(projectDir).map(agent => ({ id: agent.id, name: agent.name, description: agent.description, scope: agent.scope }))
+  )
 }
 
 // NOTE: `connection` is deliberately NOT a module-level inject. On a
@@ -425,34 +445,61 @@ const boardProjectionDefinition = {
   },
 }
 
+// --- v2.7.0 启动/停止：规范段的统一挂载口 -----------------------------------
+// section 按名字注册一次即常驻，text() 在每次 prompt 组装时**现查 bindings**：
+// 未启动/已停止/换图都只是「绑定状态变了」，text 自己返回新内容或空串，
+// 无需摘除段。specAttached 防止同一会话重复挂载；活会话查找走 agents 注册表。
+const SPEC_SECTION_NAME = 'agent-workflow-board:spec'
+const specAttached = new Set()
+
+function attachSpec(ctx, sessionId, agentLike) {
+  try {
+    if (!sessionId || specAttached.has(sessionId)) return
+    let live = agentLike || null
+    if (!live) {
+      let agents = null
+      try {
+        agents = typeof ctx.get === 'function' ? ctx.get('agents') : undefined
+      } catch {
+        agents = undefined
+      }
+      if (!agents && ctx && ctx.agents && typeof ctx.agents.get === 'function') agents = ctx.agents
+      if (!agents || typeof agents.get !== 'function') return
+      live = agents.get(sessionId)
+    }
+    if (!live || !live.ctx) return
+    const systemPrompt = live.ctx.systemPrompt
+    if (!systemPrompt || typeof systemPrompt.section !== 'function') return
+    systemPrompt.section({
+      name: SPEC_SECTION_NAME,
+      order: 500,
+      interpolate: false,
+      text: () => {
+        try {
+          const binding = readBindingsSync()[sessionId]
+          const canvasId = binding && binding.canvasId ? sanitizeId(binding.canvasId) : ''
+          if (!canvasId) return ''
+          return compileSpec(readCanvasSync(canvasId))
+        } catch {
+          return ''
+        }
+      },
+    })
+    specAttached.add(sessionId)
+  } catch {
+    /* 启动注入是增强能力，失败不影响围栏/上报 */
+  }
+}
+
 export function apply(ctx) {
-  // M2.2: 只对「创建时已绑定画布」的会话注入执行规范（与 preset 修订语义一致，
-  // 进行中的会话不追认）。规范文本在每次 prompt 组装时动态读取画布 ——
-  // 执行期间改图只影响后续派发。注册在 agent.ctx 上 = agent 级 scope，随 agent 自动清理。
+  // v2.7.0：所有会话创建时统一挂载规范段（text 现查 bindings，未启动渲染空串被丢弃）。
+  // 之后用户在画布点「启动」，bind rpc 通过 agents 注册表给活会话补挂/命中缓存——
+  // 中途启动即时生效，无需新会话；解绑=停止，text 变空即失效。
   ctx.on('agent/created', async payload => {
     try {
       const agent = payload && payload.agent
       if (!agent || !agent.ctx) return
-      const systemPrompt = agent.ctx.systemPrompt
-      if (!systemPrompt || typeof systemPrompt.section !== 'function') return
-      const sessionId = String(agent.id || '')
-      if (!sessionId) return
-      const binding = readBindingsSync()[sessionId]
-      if (!binding || !binding.canvasId) return
-      const canvasId = sanitizeId(binding.canvasId)
-      if (!canvasId) return
-      systemPrompt.section({
-        name: 'agent-workflow-board:spec',
-        order: 500,
-        interpolate: false,
-        text: () => {
-          try {
-            return compileSpec(readCanvasSync(canvasId))
-          } catch {
-            return ''
-          }
-        },
-      })
+      attachSpec(ctx, String(agent.id || ''), agent)
     } catch {
       /* never break agent creation */
     }
@@ -563,7 +610,7 @@ export function apply(ctx) {
             const action = body && typeof body === 'object' ? body.action : ''
             try {
               if (action === 'list') return json({ canvases: await listCanvases() })
-              if (action === 'agents') return json({ agents: await listAgents() })
+              if (action === 'agents') return json({ agents: await listAgents(sanitizeProjectDir(body.projectDir)) })
               if (action === 'get') {
                 const id = sanitizeId(body.id)
                 if (!id) return json({ error: 'missing-id' }, 400)
@@ -619,6 +666,7 @@ export function apply(ctx) {
                 const bindings = await readBindings()
                 bindings[sessionId] = { canvasId, boundAt: Date.now() }
                 await writeBindings(bindings)
+                attachSpec(ctx, sessionId)
                 return json({ binding: bindings[sessionId] })
               }
               if (action === 'unbind') {

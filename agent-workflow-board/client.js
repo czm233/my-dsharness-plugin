@@ -59,6 +59,11 @@ window.__ModuleLoader__.load({
       secElements: '元素',
       secAgents: 'Agent（系统级 / 用户级）',
       secAgentsMine: 'Agent（我的）',
+      scopeProject: '项目 · ',
+      scopeProjectShort: '（项目）',
+      fieldProjectDir: '项目目录（可选，项目级角色叠加）',
+      projectDirPh: '/绝对路径/到/你的项目',
+      projectDirHint: '填后名册 = 用户级 + <项目>/agents/*.md（同名项目级覆盖用户级）；留空只有用户级。改完点「刷新」。',
       secDocs: '我的画布',
       agentsLoading: '加载中…',
       agentsEmpty: '暂无可用 agent preset',
@@ -74,7 +79,9 @@ window.__ModuleLoader__.load({
       saveFailed: '保存失败',
       undo: '撤销',
       redo: '重做',
-      bindLabel: '在此会话使用',
+      switchOnLabel: '运行中',
+      switchOffLabel: '启动',
+      switchTitle: '开启后本会话按此画布流程执行（自动保存并激活围栏）；再点一次停止',
       unbound: '未绑定',
       bindSaved: '已绑定到当前会话',
       unbindSaved: '已解除绑定',
@@ -176,6 +183,11 @@ window.__ModuleLoader__.load({
       secElements: 'Elements',
       secAgents: 'Agents (system / user)',
       secAgentsMine: 'Agents (mine)',
+      scopeProject: 'Project · ',
+      scopeProjectShort: ' (project)',
+      fieldProjectDir: 'Project directory (optional, project roles)',
+      projectDirPh: '/absolute/path/to/your/project',
+      projectDirHint: 'Roster = user-level + <project>/agents/*.md (project overrides user with same id); empty = user-level only. Click Refresh after editing.',
       secDocs: 'My canvases',
       agentsLoading: 'Loading…',
       agentsEmpty: 'No agent presets available',
@@ -191,7 +203,9 @@ window.__ModuleLoader__.load({
       saveFailed: 'Save failed',
       undo: 'Undo',
       redo: 'Redo',
-      bindLabel: 'Use in this session',
+      switchOnLabel: 'RUNNING',
+      switchOffLabel: 'Start',
+      switchTitle: 'This session follows this canvas; click again to stop (auto-saves, fence armed)',
       unbound: 'Not bound',
       bindSaved: 'Bound to this session',
       unbindSaved: 'Binding removed',
@@ -419,6 +433,12 @@ window.__ModuleLoader__.load({
       '.awbc-dd-item:hover{background:var(--dsw-alias-bg-layer-2)}',
       '.awbc-dd-item.selected{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent)}',
       '.awbc-bind{width:auto;flex:0 1 auto;max-width:220px;font-size:11px}',
+      '.awbc-runswitch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:11px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      '.awbc-runswitch-track{width:28px;height:16px;border-radius:999px;background:var(--dsw-alias-bg-layer-2,#333b47);border:1px solid var(--dsw-alias-border-l1);position:relative;transition:background .15s,border-color .15s}',
+      '.awbc-runswitch-knob{position:absolute;top:1px;left:1px;width:12px;height:12px;border-radius:50%;background:var(--dsw-alias-label-primary);transition:transform .15s}',
+      '.awbc-runswitch.on{color:var(--dsw-alias-state-success-primary)}',
+      '.awbc-runswitch.on .awbc-runswitch-track{background:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary)}',
+      '.awbc-runswitch.on .awbc-runswitch-knob{transform:translateX(12px);background:var(--dsw-alias-bg-layer-1)}',
       '.awbc-warnbadge{align-self:flex-start;padding:1px 8px;border-radius:999px;border:1px solid var(--dsw-alias-state-warning-primary,#c78a1d);color:var(--dsw-alias-state-warning-primary,#c78a1d);font-size:10px}',
       '.awbc-edge-row{display:flex;flex-direction:column;gap:3px;padding:6px 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}',
       '.awbc-edge-line{display:flex;align-items:center;gap:6px}',
@@ -539,6 +559,7 @@ window.__ModuleLoader__.load({
         version: 1,
         id: typeof raw.id === 'string' ? raw.id : '',
         name: typeof raw.name === 'string' ? raw.name.slice(0, 80) : '',
+        projectDir: typeof raw.projectDir === 'string' ? raw.projectDir.slice(0, 4096) : '',
         updatedAt: Number(raw.updatedAt) || 0,
         nodes,
         edges,
@@ -1036,9 +1057,9 @@ window.__ModuleLoader__.load({
           .catch(() => setDocsList([]))
       }, [])
 
-      const refreshAgents = React.useCallback(() => {
+      const refreshAgents = React.useCallback((projectDir) => {
         setAgentsState('loading')
-        apiCall({ action: 'agents' })
+        apiCall({ action: 'agents', projectDir: typeof projectDir === 'string' ? projectDir : '' })
           .then(data => {
             setAgents(Array.isArray(data && data.agents) ? data.agents : [])
             setAgentsState('ready')
@@ -1050,6 +1071,12 @@ window.__ModuleLoader__.load({
         refreshDocs()
         refreshAgents()
       }, [refreshDocs, refreshAgents])
+
+      // v2.6.1：项目目录变化 → 名册按「用户级 + 该项目」重取
+      React.useEffect(() => {
+        if (doc && typeof doc.projectDir === 'string') refreshAgents(doc.projectDir)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [doc && doc.projectDir])
 
       // SPACE pans the canvas; typing a space into a field must still work.
       React.useEffect(() => {
@@ -1831,7 +1858,7 @@ window.__ModuleLoader__.load({
       const agentLabel = agent => (agent.name && agent.name !== agent.id ? `${agent.name} (${agent.id})` : agent.id)
       const agentOptions = userAgents.map(agent => ({
         value: agent.id,
-        label: agentLabel(agent),
+        label: agent.scope === 'project' ? `${agentLabel(agent)}${t('scopeProjectShort')}` : agentLabel(agent),
       }))
       // 守卫：旧画布绑定了被过滤掉的 agent 时，下拉里仍要能看到当前值（selected 可能为 null，先判空）
       if (selected && selected.agent && !agentOptions.some(option => option.value === selected.agent)) {
@@ -1851,7 +1878,7 @@ window.__ModuleLoader__.load({
         key: 'agent-' + agent.id,
         type: 'work',
         title: agent.name && agent.name !== agent.id ? agent.name : agent.id,
-        desc: agent.description || agent.id,
+        desc: (agent.scope === 'project' ? t('scopeProject') : '') + (agent.description || agent.id),
         extra: { agent: agent.id, label: agent.name && agent.name !== agent.id ? agent.name : agent.id },
       })
       const userAgentCards = userAgents.map(agentCard)
@@ -2021,6 +2048,18 @@ window.__ModuleLoader__.load({
             multiIds.length > 1
               ? h('span', { className: 'awbc-hint' }, `已选 ${multiIds.length} 个节点 · Delete 批量删除`)
               : h('span', { className: 'awbc-hint' }, t('selectNodeHint')),
+            h(
+              'div',
+              { className: 'awbc-field', style: { marginTop: 14 }, onPointerDown: event => event.stopPropagation() },
+              h('label', { className: 'awbc-label' }, t('fieldProjectDir')),
+              h('input', {
+                className: 'awbc-input',
+                placeholder: t('projectDirPh'),
+                value: doc.projectDir || '',
+                onChange: event => setDoc(prev => ({ ...prev, projectDir: event.target.value.slice(0, 4096) })),
+              }),
+            ),
+            h('div', { className: 'awbc-hint', style: { marginTop: 4 } }, t('projectDirHint')),
           )
         : h(
             'div',
@@ -2143,6 +2182,27 @@ window.__ModuleLoader__.load({
         specMode ? specPanel : editorBody,
       )
 
+      // v2.7.0 启动开关：看哪张图开哪张图。开启前三步串行——补 id（新画布）→ 落盘 → 绑定（宿主对活会话即时挂规范）。
+      const toggleRun = () => {
+        if (!sessionId) return
+        if (binding === doc.id && doc.id) {
+          setSessionBinding('')
+          return
+        }
+        const targetId = doc.id || uid('c')
+        const base = targetId === doc.id ? doc : { ...doc, id: targetId }
+        Promise.resolve(persistDoc(base, { silent: true }))
+          .then(ok => {
+            if (ok === false) {
+              showToast(t('loadFailed'))
+              return
+            }
+            setDoc(prev => ({ ...prev, id: targetId }))
+            setSessionBinding(targetId)
+          })
+          .catch(() => showToast(t('loadFailed')))
+      }
+
       const palette = h(
         'div',
         { className: 'awbc-palette' + (palOpen ? '' : ' collapsed'), style: palOpen ? { flexBasis: paletteW + 'px' } : undefined },
@@ -2227,15 +2287,20 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', key: 'redo', className: 'awbc-btn', title: 'Ctrl/Cmd+Shift+Z', disabled: !canRedo, onClick: redo }, '↷ ' + t('redo')),
         h('button', { type: 'button', key: 'layout', className: 'awbc-btn', title: t('layoutBtn'), disabled: doc.nodes.length === 0, onClick: autoLayout }, '⊞ ' + t('layoutBtn')),
         sessionId
-          ? h(Dropdown, {
-              key: 'bind',
-              className: 'awbc-bind',
-              value: binding,
-              options: [{ value: '', label: `${t('bindLabel')}：${t('unbound')}` }].concat(
-                docsList.map(canvas => ({ value: canvas.id, label: `${t('bindLabel')}：${canvas.name || t('docUnnamed')}` })),
+          ? [
+              h(
+                'div',
+                {
+                  key: 'runswitch',
+                  className: 'awbc-runswitch' + (binding === doc.id && doc.id ? ' on' : ''),
+                  title: t('switchTitle'),
+                  onClick: toggleRun,
+                },
+                h('span', { className: 'awbc-runswitch-track', 'aria-hidden': true }, h('span', { className: 'awbc-runswitch-knob' })),
+                h('span', { className: 'awbc-runswitch-label' },
+                  `${binding === doc.id && doc.id ? t('switchOnLabel') : t('switchOffLabel')}：${doc.name || t('docUnnamed')}`),
               ),
-              onChange: next => setSessionBinding(next),
-            })
+            ]
           : null,
         issues
           ? h('span', { key: 'chip', className: 'awbc-chip ' + (issueCount > 0 ? 'error' : 'ok') },
