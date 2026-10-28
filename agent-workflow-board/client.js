@@ -159,8 +159,7 @@ window.__ModuleLoader__.load({
       zoomFit: '适应内容',
       zoomFitShort: '适应',
       layoutBtn: '整理布局',
-      tabProps: '属性',
-      tabSpec: '规范',
+      specBtn: '规范预览',
       specTitle: '执行规范预览（发给模型的原文）',
       specHint: '绑定会话后，这段文字在每次模型请求组装时由 Host 动态注入系统提示词（实时重编，执行中改图只影响后续节点）。随编辑自动刷新。',
       specEmpty: '当前画布没有主会话入口，编译结果为空——绑定后也不会注入任何内容。',
@@ -276,8 +275,7 @@ window.__ModuleLoader__.load({
       zoomFit: 'Fit content',
       zoomFitShort: 'Fit',
       layoutBtn: 'Tidy layout',
-      tabProps: 'Properties',
-      tabSpec: 'Spec',
+      specBtn: 'Spec preview',
       specTitle: 'Execution spec preview (verbatim text sent to the model)',
       specHint: 'When bound to a session, the Host injects this text into the system prompt on every model-request assembly (recompiled live; mid-run edits only affect later nodes). Refreshes as you edit.',
       specEmpty: 'This canvas has no Main entry, so the compiled spec is empty — nothing would be injected.',
@@ -434,11 +432,8 @@ window.__ModuleLoader__.load({
       '.awbc-zoom button{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;line-height:16px;padding:2px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}',
       '.awbc-zoom button:hover{background:var(--dsw-alias-bg-layer-2)}',
       // --- spec preview（右栏「规范」标签页，常驻实时） ---
-      '.awbc-rtabs{display:flex;align-items:center;gap:4px}',
-      '.awbc-rtab{flex:0 0 auto;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;line-height:16px;padding:2px 12px;border-radius:999px;cursor:pointer}',
-      '.awbc-rtab:hover{background:var(--dsw-alias-bg-layer-2)}',
-      '.awbc-rtab.active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent)}',
       '.awbc-spec{flex:1 1 0;display:flex;flex-direction:column;gap:6px;min-height:0}',
+      '.awbc-spec-head{display:flex;align-items:center;gap:6px;min-height:24px}',
       '.awbc-specpre{flex:1 1 auto;min-height:0;overflow:auto;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:10px 12px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:17px;white-space:pre-wrap;word-break:break-word;color:var(--dsw-alias-label-primary)}',
       '.awbc-speclabel{color:var(--dsw-alias-label-tertiary);font-size:11px}',
       // --- overlays ---
@@ -788,13 +783,14 @@ window.__ModuleLoader__.load({
       const [importOpen, setImportOpen] = React.useState(false)
       const [importText, setImportText] = React.useState('')
       const [importError, setImportError] = React.useState('')
-      // 规范预览：右栏「规范」标签页常驻；激活时随 doc 变更防抖 500ms 实时重编。
-      const [rightTab, setRightTab] = React.useState('props') // 'props' | 'spec'
+      // 规范预览：点工具栏「≣ 规范预览」临时切到右栏规范视图（非常驻）；
+      // 激活时随 doc 变更防抖 500ms 实时重编；选中节点或再点一次按钮即回到属性。
+      const [specMode, setSpecMode] = React.useState(false)
       const [specText, setSpecText] = React.useState('')
       const [specState, setSpecState] = React.useState('loading')
       const [specCopied, setSpecCopied] = React.useState(false)
       React.useEffect(() => {
-        if (rightTab !== 'spec') return undefined
+        if (!specMode) return undefined
         let alive = true
         setSpecState('loading')
         const timer = setTimeout(() => {
@@ -813,7 +809,7 @@ window.__ModuleLoader__.load({
           alive = false
           clearTimeout(timer)
         }
-      }, [rightTab, doc])
+      }, [specMode, doc])
       const copySpec = React.useCallback(() => {
         try {
           if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -1540,6 +1536,7 @@ window.__ModuleLoader__.load({
           return
         }
         if (!tryChangeSelection(nodeId)) return
+        setSpecMode(false)
         setMultiIds([nodeId])
         setSelectedId(nodeId)
       }
@@ -2038,10 +2035,23 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', className: 'awbc-btn danger', onClick: deleteSelected }, t('deleteNode')),
           )
 
-      // 右栏 = 「属性 / 规范」双标签：规范页常驻显示编译原文，随编辑实时刷新。
+      // 规范视图（specMode 时顶替右栏属性面板，不常驻）：标题行 + 复制 + 编译原文。
       const specPanel = h(
         'div',
         { className: 'awbc-spec', key: 'spec-panel' },
+        h(
+          'div',
+          { className: 'awbc-spec-head' },
+          h('span', { className: 'awbc-speclabel' }, t('specTitle')),
+          h('button', {
+            type: 'button',
+            className: 'awbc-btn',
+            style: { marginLeft: 'auto' },
+            title: t('specCopy'),
+            disabled: specState !== 'ready' || !specText,
+            onClick: copySpec,
+          }, specCopied ? '✓ ' + t('specCopied') : '⧉ ' + t('specCopy')),
+        ),
         specState === 'error'
           ? h('div', { className: 'awbc-error' }, t('specLoadFailed'))
           : specState === 'ready' && !specText
@@ -2052,23 +2062,7 @@ window.__ModuleLoader__.load({
       const editorPanel = h(
         'div',
         { className: 'awbc-editor' },
-        h(
-          'div',
-          { className: 'awbc-rtabs' },
-          h('button', { type: 'button', className: 'awbc-rtab' + (rightTab === 'props' ? ' active' : ''), onClick: () => setRightTab('props') }, t('tabProps')),
-          h('button', { type: 'button', className: 'awbc-rtab' + (rightTab === 'spec' ? ' active' : ''), onClick: () => setRightTab('spec') }, t('tabSpec')),
-          rightTab === 'spec'
-            ? h('button', {
-                type: 'button',
-                className: 'awbc-rtab',
-                style: { marginLeft: 'auto' },
-                title: t('specCopy'),
-                disabled: specState !== 'ready' || !specText,
-                onClick: copySpec,
-              }, specCopied ? '✓ ' + t('specCopied') : '⧉ ' + t('specCopy'))
-            : null,
-        ),
-        rightTab === 'spec' ? specPanel : editorBody,
+        specMode ? specPanel : editorBody,
       )
 
       const palette = h(
@@ -2188,6 +2182,13 @@ window.__ModuleLoader__.load({
               issueCount > 0 ? '⚠ ' + t('issuesChip')(issueCount) : '✓ ' + t('validationOk'))
           : null,
         h('button', { type: 'button', key: 'validate', className: 'awbc-btn', onClick: () => setIssues(validateDoc(doc, t)) }, t('validateBtn')),
+        h('button', {
+          type: 'button',
+          key: 'spec',
+          className: 'awbc-btn primary' + (specMode ? ' active' : ''),
+          title: t('specTitle'),
+          onClick: () => setSpecMode(value => !value),
+        }, '≣ ' + t('specBtn')),
         h('button', { type: 'button', key: 'import', className: 'awbc-btn', onClick: () => { setImportText(''); setImportError(''); setImportOpen(true) } }, t('importBtn')),
         h('button', { type: 'button', key: 'export', className: 'awbc-btn', onClick: doExport }, t('exportBtn')),
         h('button', {
