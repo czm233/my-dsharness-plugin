@@ -1,0 +1,2 @@
+# 全库不做行尾转换：Mac 与 Windows 检出字节一致，避免 CRLF/LF 噪音 diff
+* -text

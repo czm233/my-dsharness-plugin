@@ -1,0 +1,103 @@
+# Windows 版 profile 补丁层 —— 由 scripts/export-config.sh 以此模板生成迁移包内的最终版
+# 与 Mac 版的唯一差异（其余逐字一致）：
+#   1. MCP zai-vision 的 npx 改为 `cmd /c npx`（Windows 无法直接 spawn 无扩展名的 npx）
+#   2. Z_AI_API_KEY 用 __Z_AI_API_KEY__ 占位（导出时注入真实值；真实值永不进 git）
+#   3. plugin-market.indexes 追加本仓库 raw 地址（AGENTS.md §4 要求，Mac 版也欠着）
+#   4. rightcode 显示名标注 windows
+- id: agent-default-model
+  name: "@deepseek-ai/dsh-agent-default-model"
+  config:
+    provider: zai-coding-cn
+    model: glm-5.3-flash
+    reasoningEffort: max
+- id: ui-settings-account
+  name: "@deepseek-ai/dsh-client-ui-settings-account"
+  config:
+    version: 1
+    step: done
+    purpose: development
+    process: detailed
+    completion: completed
+    usage: detailed
+    developerTools: true
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: standard
+    performanceUsage: detailed
+- id: ui-settings
+  name: "@deepseek-ai/dsh-client-ui-settings"
+  config:
+    enabled: true
+- id: session-log-deepseek
+  name: "@deepseek-ai/dsh-session-log-deepseek"
+  config:
+    enabled: false
+- id: llm-pi-ai
+  name: "@deepseek-ai/dsh-llm-pi-ai"
+  config:
+    providers:
+      zai-coding-cn:
+        apiKeyEnv: ZAI_CODING_CN_API_KEY
+        models:
+          - id: glm-5.3
+            name: GLM-5.3
+            contextWindow: 1000000
+            maxTokens: 131072
+            input:
+              - text
+          - id: glm-5.3-flash
+            name: GLM-5.3-Flash
+            contextWindow: 1000000
+            maxTokens: 131072
+            input:
+              - text
+              - image
+      rightcode:
+        displayName: Claude AwsQ（windows）
+        apiKeyEnv: RIGHTCODE_API_KEY
+        api: openai-responses
+        baseURL: https://rightapi.ai/v1
+        models:
+          - id: claude-opus-5-5
+            name: claude-opus-5-5
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              high: high
+          - id: claude-sonnet-5-5
+            name: claude-sonnet-5-5
+            reasoningEfforts:
+              off:
+              low: low
+              medium: medium
+              high: high
+- id: plugin-market
+  name: "@deepseek-ai/dsh-plugin-market"
+  config:
+    indexes:
+      - https://dshopen.org/index.json
+      - https://raw.githubusercontent.com/czm233/my-codex-skills/main/dsh-marketplace.json
+      - https://raw.githubusercontent.com/czm233/my-dsharness-plugin/main/index.json
+
+- id: mcp-zai-vision
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: zai-vision
+    transport: stdio
+    command: cmd
+    args: [ "/c", "npx", "-y", "@z_ai/mcp-server@latest" ]
+    env:
+      Z_AI_API_KEY: "__Z_AI_API_KEY__"
+      Z_AI_MODE: ZHIPU
+- id: llm-deepseek
+  name: "@deepseek-ai/dsh-llm-deepseek-api-key"
+  disabled: true
+  config:
+    baseURL: "111"
+- id: web
+  name: "@deepseek-ai/dsh-web"
+  config:
+    searchProvider: deepseek-search-api
+    fetchProvider: deepseek-fetch-api
