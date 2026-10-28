@@ -538,6 +538,16 @@
       },
       "versions": [
         {
+          "version": "1.15.4",
+          "publishTimestamp": 1793184343,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "66625aa7431bc0cb7e72f019544de23757ed17dc",
+            "path": "turn-cost"
+          }
+        },
+        {
           "version": "1.15.3",
           "publishTimestamp": 1793184040,
           "source": {
