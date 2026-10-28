@@ -104,6 +104,16 @@
   - **实时重编**：标签页激活时 `useEffect([rightTab, doc])` 防抖 500ms 调 `specPreview`——边改边看，切回属性页即停轮询
   - 删除了 v2.4.0 的工具栏「≣ 规范预览」按钮和弹窗（单一入口）；`specBtn` locale 键退役，新增 `tabProps`/`tabSpec`
 
+## 2.10 v2.5.0 新增（2026-10-28 本轮，待页面验收）
+
+- **自绘下拉组件 `Dropdown`**（模块作用域，替代全部 4 处原生 `<select>`：编辑面板执行方式/执行 agent/触发时机 + 工具栏会话绑定）
+  - 动机：用户反馈「弹开的列表还是原生的」——原生 select 的弹层在 macOS 上是系统级菜单，CSS 管不到；2.3.1 只能改收起态。根治 = 零原生 select（workflow-lite 同款思路）
+  - 结构：触发按钮 `.awbc-dd-trigger` + fixed 定位浮层 `.awbc-dd-pop`（逃出右栏 editor 的 overflow:auto 裁剪）
+  - **定位用 `useLayoutEffect`**（绘制前定位，不闪跳）；下方放不下自动向上弹；浮层外任何 scroll/wheel/resize/Esc/点击直接收起（fixed 锚点跟随不了滚动，wheel 监听捕获态但豁免浮层内部滚动）
+  - props 契约：`{ value, options:[{value,label}], onChange, className, title }`；选中项高亮（`.awbc-dd-item.selected`），选项超宽省略号
+  - 2.3.1 的 `.awbc-select` 系列样式已整体移除；`.awbc-bind` 保留（挂在 Dropdown 包装层上）
+- **协调记录**：2.4.0/2.4.1 由另一个并行会话开发（规范预览），期间撞过一次车（本会话恢复 `specBtn` 的编辑被对方 2.4.1 提交扫入，留了一个死键，本版顺手清掉）。**教训：同一插件不要两个会话同时写；开工前先 `git log --format="%h %ci"` 看最近提交时间**
+
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
 **目标**：用户把画布绑定到会话后，agent 按图执行，画布实时显示进度。

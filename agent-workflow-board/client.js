@@ -161,7 +161,6 @@ window.__ModuleLoader__.load({
       layoutBtn: '整理布局',
       tabProps: '属性',
       tabSpec: '规范',
-      specBtn: '规范预览',
       specTitle: '执行规范预览（发给模型的原文）',
       specHint: '绑定会话后，这段文字在每次模型请求组装时由 Host 动态注入系统提示词（实时重编，执行中改图只影响后续节点）。随编辑自动刷新。',
       specEmpty: '当前画布没有主会话入口，编译结果为空——绑定后也不会注入任何内容。',
@@ -401,13 +400,19 @@ window.__ModuleLoader__.load({
       '.awbc-input.invalid{border-color:var(--dsw-alias-state-danger-primary,#e5484d)}',
       '.awbc-input{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:4px 8px;border-radius:6px;width:100%;box-sizing:border-box}',
       '.awbc-textarea{min-height:80px;resize:vertical}',
-      // 原生 select 的系统箭头与自定义背景/圆角不搭（用户反馈「样式很奇怪」）：
-      // appearance:none 关掉原生外观，自绘中性灰箭头（明暗主题都可读），
-      // 右侧留 22px 给箭头；option 的弹层底色跟主题变量走。
-      '.awbc-select{appearance:none;-webkit-appearance:none;border:1px solid var(--dsw-alias-border-l1);background-color:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:3px 22px 3px 8px;border-radius:6px;width:100%;box-sizing:border-box;background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' fill=\'none\' stroke=\'%23888f9b\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center}',
-      '.awbc-select:hover{border-color:var(--dsw-alias-border-l2)}',
-      '.awbc-select:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
-      '.awbc-select option{background-color:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary)}',
+      // --- 自绘下拉（Dropdown 组件，替代原生 select：弹层是系统菜单管不到）---
+      '.awbc-dd{position:relative;display:inline-flex;min-width:0;max-width:100%}',
+      '.awbc-editor .awbc-dd{width:100%}',
+      '.awbc-dd-trigger{display:flex;align-items:center;gap:6px;width:100%;min-width:0;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:3px 8px;border-radius:6px;cursor:pointer;text-align:left}',
+      '.awbc-dd-trigger:hover{border-color:var(--dsw-alias-border-l2)}',
+      '.awbc-dd-trigger.open,.awbc-dd-trigger:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+      '.awbc-dd-value{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.awbc-dd-arrow{flex:0 0 auto;width:10px;height:6px;background:center/contain no-repeat url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' fill=\'none\' stroke=\'%23888f9b\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E");transition:transform .12s linear}',
+      '.awbc-dd-trigger.open .awbc-dd-arrow{transform:rotate(180deg)}',
+      '.awbc-dd-pop{position:fixed;z-index:130;display:flex;flex-direction:column;gap:1px;padding:4px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 8px 28px rgba(0,0,0,.3);max-height:260px;overflow:auto}',
+      '.awbc-dd-item{display:block;width:100%;border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;text-align:left;padding:5px 9px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.awbc-dd-item:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.awbc-dd-item.selected{color:var(--dsw-alias-brand-primary);background:color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent)}',
       '.awbc-bind{width:auto;flex:0 1 auto;max-width:220px;font-size:11px}',
       '.awbc-warnbadge{align-self:flex-start;padding:1px 8px;border-radius:999px;border:1px solid var(--dsw-alias-state-warning-primary,#c78a1d);color:var(--dsw-alias-state-warning-primary,#c78a1d);font-size:10px}',
       '.awbc-edge-row{display:flex;flex-direction:column;gap:3px;padding:6px 7px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px}',
@@ -658,6 +663,98 @@ window.__ModuleLoader__.load({
       const sameDay = new Date().toDateString() === date.toDateString()
       const clock = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
       return sameDay ? clock : `${date.getMonth() + 1}/${date.getDate()} ${clock}`
+    }
+
+    // 自绘下拉（替代原生 <select>）：原生 select 弹开的列表在 macOS 上是系统
+    // 菜单，CSS 管不到（用户反馈「弹开还是原生的」）。触发按钮 + fixed 定位
+    // 浮层；fixed 是为了逃出右栏 editor 的 overflow:auto 裁剪，代价是锚点
+    // 跟随不了滚动/缩放——列表外任何滚动直接收起。
+    // props: { value, options: [{value,label}], onChange, className, title }
+    function Dropdown(props) {
+      const options = Array.isArray(props.options) ? props.options : []
+      const value = props.value
+      const onChange = typeof props.onChange === 'function' ? props.onChange : () => {}
+      const [open, setOpen] = React.useState(false)
+      const [popStyle, setPopStyle] = React.useState(null)
+      const btnRef = React.useRef(null)
+      const popRef = React.useRef(null)
+      const current = options.find(option => option.value === value)
+
+      const place = React.useCallback(() => {
+        const btn = btnRef.current
+        if (!btn) return
+        const rect = btn.getBoundingClientRect()
+        const width = Math.max(rect.width, 150)
+        const style = { left: clamp(rect.left, 8, Math.max(8, window.innerWidth - width - 8)), width }
+        const estimated = Math.min(options.length * 27 + 8, 260) + 12
+        // 下方放不下且上方放得下 → 向上弹。
+        if (rect.bottom + estimated > window.innerHeight - 8 && rect.top - estimated > 8) {
+          style.bottom = window.innerHeight - rect.top + 4
+        } else {
+          style.top = rect.bottom + 4
+        }
+        setPopStyle(style)
+      }, [options.length])
+
+      // useLayoutEffect：绘制前完成定位，避免浮层先闪现在默认位置再跳正。
+      React.useLayoutEffect(() => {
+        if (!open) return undefined
+        place()
+        const onDown = event => {
+          const target = event.target
+          if (popRef.current && target instanceof Node && popRef.current.contains(target)) return
+          if (btnRef.current && target instanceof Node && btnRef.current.contains(target)) return
+          setOpen(false)
+        }
+        const onKey = event => {
+          if (event.key === 'Escape') setOpen(false)
+        }
+        const onMoveAway = event => {
+          const target = event.target
+          if (popRef.current && target instanceof Node && popRef.current.contains(target)) return
+          setOpen(false)
+        }
+        window.addEventListener('pointerdown', onDown, true)
+        window.addEventListener('keydown', onKey, true)
+        window.addEventListener('scroll', onMoveAway, true)
+        window.addEventListener('wheel', onMoveAway, { capture: true, passive: true })
+        window.addEventListener('resize', onMoveAway)
+        return () => {
+          window.removeEventListener('pointerdown', onDown, true)
+          window.removeEventListener('keydown', onKey, true)
+          window.removeEventListener('scroll', onMoveAway, true)
+          window.removeEventListener('wheel', onMoveAway, { capture: true })
+          window.removeEventListener('resize', onMoveAway)
+        }
+      }, [open, place])
+
+      return h('div', { className: 'awbc-dd' + (props.className ? ' ' + props.className : '') },
+        h('button', {
+          type: 'button',
+          ref: btnRef,
+          className: 'awbc-dd-trigger' + (open ? ' open' : ''),
+          title: props.title || (current ? current.label : ''),
+          onClick: () => setOpen(state => !state),
+        },
+          h('span', { className: 'awbc-dd-value' }, current ? current.label : '\u00a0'),
+          h('span', { className: 'awbc-dd-arrow', 'aria-hidden': true }),
+        ),
+        open
+          ? h('div', { className: 'awbc-dd-pop', ref: popRef, style: popStyle, role: 'listbox' },
+              options.map(option =>
+                h('button', {
+                  key: option.value,
+                  type: 'button',
+                  className: 'awbc-dd-item' + (option.value === value ? ' selected' : ''),
+                  onClick: () => {
+                    setOpen(false)
+                    if (option.value !== value) onChange(option.value)
+                  },
+                }, option.label),
+              ),
+            )
+          : null,
+      )
     }
 
     // Workbench cache: the view unmounts when the user switches tabs, so the
@@ -1873,23 +1970,24 @@ window.__ModuleLoader__.load({
                     'div',
                     { className: 'awbc-field', key: 'exec' },
                     h('label', { className: 'awbc-label' }, t('fieldExec')),
-                    h(
-                      'select',
-                      { className: 'awbc-select', value: selected.exec, onChange: event => updateSelected('exec', event.target.value) },
-                      h('option', { value: 'subagent' }, t('execSubagent')),
-                      h('option', { value: 'lead' }, t('execLead')),
-                    ),
+                    h(Dropdown, {
+                      value: selected.exec,
+                      options: [
+                        { value: 'subagent', label: t('execSubagent') },
+                        { value: 'lead', label: t('execLead') },
+                      ],
+                      onChange: next => updateSelected('exec', next),
+                    }),
                   ),
                   h(
                     'div',
                     { className: 'awbc-field', key: 'agent' },
                     h('label', { className: 'awbc-label' }, t('fieldAgent')),
-                    h(
-                      'select',
-                      { className: 'awbc-select', value: selected.agent, onChange: event => updateSelected('agent', event.target.value) },
-                      h('option', { value: '' }, t('agentLead')),
-                      agentOptions.map(option => h('option', { key: option.value, value: option.value }, option.label)),
-                    ),
+                    h(Dropdown, {
+                      value: selected.agent,
+                      options: [{ value: '', label: t('agentLead') }].concat(agentOptions),
+                      onChange: next => updateSelected('agent', next),
+                    }),
                   ),
                   h(
                     'div',
@@ -1916,12 +2014,11 @@ window.__ModuleLoader__.load({
                     'div',
                     { className: 'awbc-field', key: 'kind' },
                     h('label', { className: 'awbc-label' }, t('fieldHookKind')),
-                    h(
-                      'select',
-                      { className: 'awbc-select', value: selected.hookKind, onChange: event => updateSelected('hookKind', event.target.value) },
-                      h('option', { value: '' }, '—'),
-                      HOOK_KINDS.map(kind => h('option', { key: kind.value, value: kind.value }, t(kind.labelKey))),
-                    ),
+                    h(Dropdown, {
+                      value: selected.hookKind,
+                      options: [{ value: '', label: '—' }].concat(HOOK_KINDS.map(kind => ({ value: kind.value, label: t(kind.labelKey) }))),
+                      onChange: next => updateSelected('hookKind', next),
+                    }),
                   ),
                   h(
                     'div',
@@ -2076,19 +2173,15 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', key: 'redo', className: 'awbc-btn', title: 'Ctrl/Cmd+Shift+Z', disabled: !canRedo, onClick: redo }, '↷ ' + t('redo')),
         h('button', { type: 'button', key: 'layout', className: 'awbc-btn', title: t('layoutBtn'), disabled: doc.nodes.length === 0, onClick: autoLayout }, '⊞ ' + t('layoutBtn')),
         sessionId
-          ? h(
-              'select',
-              {
-                key: 'bind',
-                className: 'awbc-select awbc-bind',
-                value: binding,
-                onChange: event => setSessionBinding(event.target.value),
-              },
-              h('option', { value: '' }, `${t('bindLabel')}：${t('unbound')}`),
-              docsList.map(canvas =>
-                h('option', { key: canvas.id, value: canvas.id }, `${t('bindLabel')}：${canvas.name || t('docUnnamed')}`),
+          ? h(Dropdown, {
+              key: 'bind',
+              className: 'awbc-bind',
+              value: binding,
+              options: [{ value: '', label: `${t('bindLabel')}：${t('unbound')}` }].concat(
+                docsList.map(canvas => ({ value: canvas.id, label: `${t('bindLabel')}：${canvas.name || t('docUnnamed')}` })),
               ),
-            )
+              onChange: next => setSessionBinding(next),
+            })
           : null,
         issues
           ? h('span', { key: 'chip', className: 'awbc-chip ' + (issueCount > 0 ? 'error' : 'ok') },
