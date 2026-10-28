@@ -356,29 +356,47 @@ window.__ModuleLoader__.load({
           return undefined
         }
         let cancelled = false
+        let timer = null
         setState({ kind: 'loading' })
-        callUsage(sessionId, turnNo).then(
-          (value) => {
-            if (!cancelled) setState({
-              kind: 'done',
-              attempts: Array.isArray(value?.attempts) ? value.attempts : [],
-              events: Number(value?.events ?? -1),
-              matched: Number(value?.matched ?? -1),
+        const settle = (next) => { if (!cancelled) setState(next) }
+        // An empty fold on a turn not yet marked interrupted usually means the
+        // durable log has not flushed the usage/abort records at the moment of
+        // the read — retry quietly instead of flashing a failure state.
+        const RETRIES = 2
+        const RETRY_DELAY = 600
+        const run = (triesLeft) => {
+          callUsage(sessionId, turnNo).then(
+            (value) => {
+              const attempts = Array.isArray(value?.attempts) ? value.attempts : []
               // ESC-interrupted turns record no usage anywhere in the session
-              // log, so that state gets its own explanation, not the generic
-              // "no usage" failure probe.
-              interrupted: value?.interrupted === true || value?.aborted === true,
-            })
-          },
-          (error) => {
-            if (!cancelled) {
+              // log; the flag travels with the fold so the pill can stay out
+              // of the way for those turns.
+              const interrupted = value?.interrupted === true || value?.aborted === true
+              if (attempts.length === 0 && !interrupted && triesLeft > 0) {
+                timer = setTimeout(() => run(triesLeft - 1), RETRY_DELAY)
+                return
+              }
+              settle({
+                kind: 'done',
+                attempts,
+                events: Number(value?.events ?? -1),
+                matched: Number(value?.matched ?? -1),
+                interrupted,
+              })
+            },
+            (error) => {
+              if (triesLeft > 0) {
+                timer = setTimeout(() => run(triesLeft - 1), RETRY_DELAY)
+                return
+              }
               const message = String(error?.message ?? error)
               console.error(LOG, 'usage rpc failed:', message)
-              setState({ kind: 'error', message })
-            }
-          },
-        )
-        return () => { cancelled = true }
+              settle({ kind: 'error', message })
+            },
+          )
+        }
+        run(RETRIES)
+        return () => { cancelled = true; if (timer !== null) clearTimeout(timer) }
       }, [sessionId, turnNo, status, callUsage])
 
       const usage = useMemo(
@@ -399,13 +417,14 @@ window.__ModuleLoader__.load({
       const total = usage === undefined ? 0
         : parts.input + parts.cacheRead + parts.cacheWrite + parts.output
 
-      // Every state stays visible on the pill itself, so one screenshot is a
-      // full diagnosis; nothing is ever silently hidden. EXCEPT interrupted
-      // turns with no usage: the platform log has no token counts for them,
-      // so the pill stays out of the way entirely (user call, 1.15.3).
+      // Money once usage exists; total silence while unknown (no loading
+      // flicker) and on interrupted turns with no usage; the failure probes
+      // only surface after quiet retries, so they are never transient.
       let body
       if (usage !== undefined) {
         body = h(CostPill, { usage, prices, t, mode: 'ok', parts, total })
+      } else if (state.kind !== 'done' && state.kind !== 'error') {
+        body = null
       } else if (state.kind === 'done' && state.interrupted && state.attempts.length === 0) {
         body = null
       } else {
@@ -415,13 +434,7 @@ window.__ModuleLoader__.load({
           `turnNo: ${turnNo ?? '无'}`,
           `turn.status: ${status ?? '无'}`,
         ]
-        if (state.kind === 'idle') {
-          label = '¥?·无坐标'
-          lines.unshift('状态: 无坐标')
-        } else if (state.kind === 'loading') {
-          label = '¥…'
-          lines.unshift('状态: 正在请求 Host…')
-        } else if (state.kind === 'error') {
+        if (state.kind === 'error') {
           label = '¥?·失败'
           lines.unshift(`状态: 请求失败 · ${state.message}`)
         } else {
@@ -486,7 +499,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log(LOG, 'apply (v8, hide interrupted turns)')
+        console.log(LOG, 'apply (v9, silent until settled)')
 
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'turn-cost: dictionaries')
 
