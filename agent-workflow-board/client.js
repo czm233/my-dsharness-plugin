@@ -1574,10 +1574,8 @@ window.__ModuleLoader__.load({
             const target = doc.nodes.find(node => node.id === toId)
             if (target && target.type === 'start') return
             setLinkDrag(null)
-            setDoc(prev => {
-              if (prev.edges.some(edge => edge.from === fromNode.id && edge.to === toId)) return prev
-              return { ...prev, edges: prev.edges.concat([{ id: uid('e'), from: fromNode.id, to: toId, label: '' }]) }
-            })
+            if (doc.edges.some(edge => edge.from === fromNode.id && edge.to === toId)) return
+            addEdge(fromNode.id, toId)
             return
           }
           // Drop on the source node (or nowhere decidable): plain cancel.
@@ -1667,11 +1665,8 @@ window.__ModuleLoader__.load({
             setConnectSource('')
             return
           }
-          setDoc(prev => {
-            const key = connectSource + '->' + nodeId
-            if (prev.edges.some(edge => edge.from + '->' + edge.to === key)) return prev
-            return { ...prev, edges: prev.edges.concat([{ id: uid('e'), from: connectSource, to: nodeId, label: '' }]) }
-          })
+          if (doc.edges.some(edge => edge.from + '->' + edge.to === connectSource + '->' + nodeId)) return
+          addEdge(connectSource, nodeId)
           setConnectSource('')
           return
         }
@@ -1800,6 +1795,23 @@ window.__ModuleLoader__.load({
           ...prev,
           edges: prev.edges.map(edge => (edge.id === edgeId ? { ...edge, [field]: value } : edge)),
         }))
+      }
+
+      // 判断节点出线分支是/否互斥；新建出线时自动分配：先是，再否，都用完才落自定义（留空待填）
+      const addEdge = (fromId, toId) => {
+        setDoc(prev => {
+          if (prev.edges.some(edge => edge.from === fromId && edge.to === toId)) return prev
+          const from = prev.nodes.find(node => node.id === fromId)
+          const id = uid('e')
+          let label = ''
+          if (from && from.type === 'router') {
+            const outs = prev.edges.filter(edge => edge.from === fromId)
+            if (!outs.some(edge => edge.label === '是')) label = '是'
+            else if (!outs.some(edge => edge.label === '否')) label = '否'
+            else branchCustomRef.current[id] = true
+          }
+          return { ...prev, edges: prev.edges.concat([{ id, from: fromId, to: toId, label }]) }
+        })
       }
 
       // --- 一键整理布局：从主会话分层（BFS 最长层），孤岛接在末尾，层内竖排 ----
@@ -2119,9 +2131,27 @@ window.__ModuleLoader__.load({
               const kind = edge.label === '是' ? 'yes' : edge.label === '否' ? 'no' : branchCustomRef.current[edge.id] || edge.label ? 'custom' : ''
               const kindColor = kind === 'yes' ? '#34c77b' : kind === 'no' ? '#e5534b' : undefined
               const setBranch = value => {
-                if (value === 'custom') branchCustomRef.current[edge.id] = true
-                else delete branchCustomRef.current[edge.id]
-                updateEdge(edge.id, 'label', value === 'yes' ? '是' : value === 'no' ? '否' : '')
+                if (value === 'custom') {
+                  branchCustomRef.current[edge.id] = true
+                  updateEdge(edge.id, 'label', '')
+                  return
+                }
+                delete branchCustomRef.current[edge.id]
+                const newLabel = value === 'yes' ? '是' : '否'
+                const other = newLabel === '是' ? '否' : '是'
+                // 是/否全画布（同一判断节点出线）单选：别的线占了这个档就把它挪到另一档，另一档也被占就落自定义待填
+                setDoc(prev => {
+                  const outs = prev.edges.filter(e2 => e2.from === edge.from && e2.id !== edge.id)
+                  const otherTaken = outs.some(e2 => e2.label === other)
+                  return {
+                    ...prev,
+                    edges: prev.edges.map(e2 => {
+                      if (e2.id === edge.id) return { ...e2, label: newLabel }
+                      if (e2.from !== edge.from || e2.label !== newLabel) return e2
+                      return { ...e2, label: otherTaken ? '' : other }
+                    }),
+                  }
+                })
               }
               return h(
                 'div',
@@ -2136,7 +2166,7 @@ window.__ModuleLoader__.load({
                   ? h(
                       'select',
                       { className: 'awbc-input', value: kind, onChange: event => setBranch(event.target.value) },
-                      h('option', { value: '' }, t('edgeLabelField')),
+                      h('option', { value: '', disabled: true }, t('edgeLabelField')),
                       h('option', { value: 'yes' }, t('branchYes')),
                       h('option', { value: 'no' }, t('branchNo')),
                       h('option', { value: 'custom' }, t('branchCustom')),
