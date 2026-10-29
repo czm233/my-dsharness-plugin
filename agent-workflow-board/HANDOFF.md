@@ -166,6 +166,20 @@
 - **client**：绑定下拉整个退役（用户拍板：「一开始就不该存在」），换成自绘 **Switch**：看哪张图开哪张图，点一下开、再点一下停；开关文案「启动：图名 / 运行中：图名」，绿色=运行中；开启前自动补 id（新画布）→ 静默落盘 → 绑定。bindStart/bindStop/runningBadge/idleBadge/bindLabel 键退役，新增 switch* 三键。
 - **兼容**：bindings/status 数据结构未变；已绑定的存量会话在重装后由 bind 前挂载的空段接管（或下次 agent/created——即新会话——无缝生效）。
 
+## 2.16 v2.8.0 新增（2026-10-29 本轮，待页面验收）：画布内新建/编辑/删除 Agent（角色）
+
+- **需求**：用户反馈「新建一个 Agent（比如项目经理）还是很麻烦，想在画布里直接建」——此前名册是只读的，只能手动往 `agents/` 目录放 .md 文件。
+- **host.js**：rpc 新增三个 action（单一 POST 路由内）：
+  - `agentGet {id, projectDir?}`：从合并名册取单个角色的完整字段（含 prompt 正文），404=没找到；
+  - `agentPut {id, name, description, prompt, scope, projectDir}`：写角色 .md（YAML 头 `name:`/`description:` + 正文人设，与 parseAgentFile 同构，serializeAgentFile 生成）；scope=user 写 `storageDir()/agents`，scope=project 写 `<projectDir>/agents`（须过 sanitizeProjectDir）；name≤80/desc≤200/prompt≤8000 截断；用户级目录新建时校验 100 上限；id 走 sanitizeId；
+  - `agentDelete {id, scope, projectDir}`：只删指定档位的那个 .md，不存在静默 ok。
+- **client.js**：
+  - 名册「Agent（我的）」区新增「＋ 新建 Agent」按钮（primary，在「刷新」旁）；每张角色卡片 hover 右上角浮现 ✎ 编辑按钮（stopPropagation，不触发拖放/加节点）；
+  - 编辑弹窗（复用 awbc-overlay/awbc-dialog）：id（编辑时锁定）/显示名/描述/存储位置（Dropdown：用户级；填了项目目录才出现项目级项）/人设 textarea；底部删除（仅编辑态，confirm 后删）+关闭+保存；
+  - 保存校验：id 必须匹配 `^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$` 且人设非空，否则 toast 拦下；保存成功后 refreshAgents(projectDir) 重取名册 + toast；
+  - `agentEditor` 状态 `{isNew,id,name,description,prompt,scope,busy}`；编辑已有角色时先 agentGet 拉正文（busy 态防重复提交），拉失败可看已填字段仍可改存（会覆盖原文件，可接受）。
+- **语义不变**：角色仍是一个 .md 文件、同一套 compileSpec 注入（人设 ≤4000 字注入派发说明）；GUI 只是替手写文件。
+
 ## 3. M2 计划（下一阶段主体：让画布"指挥"agent）
 
 **目标**：用户把画布绑定到会话后，agent 按图执行，画布实时显示进度。

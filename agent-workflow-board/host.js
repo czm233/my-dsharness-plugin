@@ -394,6 +394,22 @@ function listAgents(projectDir) {
   )
 }
 
+// v2.8.0 角色编辑：名册不再只读——画布 GUI 直接新建/编辑/删除角色 .md。
+// scope=user 写 storageDir()/agents；scope=project 写 <projectDir>/agents。
+function agentFilePath(id, scope, projectDir) {
+  if (scope === 'project') {
+    const project = sanitizeProjectDir(projectDir)
+    if (!project) return ''
+    return path.join(project, 'agents', `${id}.md`)
+  }
+  return path.join(rosterDir(), `${id}.md`)
+}
+
+function serializeAgentFile(agent) {
+  const oneLine = value => String(value || '').replace(/[\r\n]+/g, ' ').trim()
+  return `---\nname: ${oneLine(agent.name)}\ndescription: ${oneLine(agent.description)}\n---\n\n${String(agent.prompt || '').trim()}\n`
+}
+
 // NOTE: `connection` is deliberately NOT a module-level inject. On a
 // loader-mounted host row that leaves the whole fiber pending until a web
 // carrier composes (and forever in profiles without one), so the routes never
@@ -611,6 +627,49 @@ export function apply(ctx) {
             try {
               if (action === 'list') return json({ canvases: await listCanvases() })
               if (action === 'agents') return json({ agents: await listAgents(sanitizeProjectDir(body.projectDir)) })
+              if (action === 'agentGet') {
+                const id = sanitizeId(body.id)
+                if (!id) return json({ error: 'missing-id' }, 400)
+                const agent = readRosterSync(sanitizeProjectDir(body.projectDir)).find(entry => entry.id === id)
+                if (!agent) return json({ error: 'not-found' }, 404)
+                return json({ agent })
+              }
+              if (action === 'agentPut') {
+                const id = sanitizeId(body.id)
+                const prompt = String(body.prompt || '').trim()
+                if (!id || !prompt) return json({ error: 'bad-agent' }, 400)
+                const scope = body.scope === 'project' ? 'project' : 'user'
+                const projectDir = sanitizeProjectDir(body.projectDir)
+                const filePath = agentFilePath(id, scope, projectDir)
+                if (!filePath) return json({ error: 'bad-project-dir' }, 400)
+                await fsp.mkdir(path.dirname(filePath), { recursive: true })
+                if (scope === 'user') {
+                  // 数量上限 100（与 readRosterSync 一致，只对用户级目录计数）
+                  let names = []
+                  try { names = await fsp.readdir(path.dirname(filePath)) } catch { names = [] }
+                  const known = new Set(names.map(name => name.replace(/\.md$/, '')))
+                  if (!known.has(id) && known.size >= 100) return json({ error: 'too-many-agents' }, 400)
+                }
+                const text = serializeAgentFile({
+                  name: String(body.name || '').slice(0, 80),
+                  description: String(body.description || '').slice(0, 200),
+                  prompt: prompt.slice(0, 8000),
+                })
+                await fsp.writeFile(filePath, text, 'utf8')
+                return json({ ok: true })
+              }
+              if (action === 'agentDelete') {
+                const id = sanitizeId(body.id)
+                if (!id) return json({ error: 'missing-id' }, 400)
+                const filePath = agentFilePath(id, body.scope === 'project' ? 'project' : 'user', sanitizeProjectDir(body.projectDir))
+                if (!filePath) return json({ error: 'bad-project-dir' }, 400)
+                try {
+                  await fsp.unlink(filePath)
+                } catch {
+                  /* already gone */
+                }
+                return json({ ok: true })
+              }
               if (action === 'get') {
                 const id = sanitizeId(body.id)
                 if (!id) return json({ error: 'missing-id' }, 400)

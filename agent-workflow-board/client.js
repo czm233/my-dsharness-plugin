@@ -174,6 +174,23 @@ window.__ModuleLoader__.load({
       specCopy: '复制',
       specCopied: '已复制',
       specLoadFailed: '预览生成失败',
+      agentDialogTitleNew: '新建 Agent（角色）',
+      agentDialogTitleEdit: '编辑 Agent（角色）',
+      agentIdLabel: '标识（id，唯一，作为文件名；字母/数字/-/_）',
+      agentNameLabel: '显示名',
+      agentDescLabel: '描述（名册卡片与下拉里的一句话说明）',
+      agentPromptLabel: '人设（派发时注入的角色提示词）',
+      agentScopeLabel: '存储位置',
+      agentScopeUser: '用户级（所有画布可用）',
+      agentScopeProject: '项目级（存到项目目录，需已填项目目录）',
+      agentSave: '保存角色',
+      agentSavedToast: '角色已保存',
+      agentDelToast: '角色已删除',
+      agentDeleteConfirm: '确定删除这个角色文件？',
+      agentInvalid: '标识（字母开头，仅字母/数字/-/_）和人设不能为空',
+      agentLoadFailed: '角色内容读取失败',
+      agentEditBtn: '编辑角色',
+      agentNew: '＋ 新建 Agent',
     }
 
     const en = {
@@ -298,6 +315,23 @@ window.__ModuleLoader__.load({
       specCopy: 'Copy',
       specCopied: 'Copied',
       specLoadFailed: 'Failed to build preview',
+      agentDialogTitleNew: 'New agent (role)',
+      agentDialogTitleEdit: 'Edit agent (role)',
+      agentIdLabel: 'ID (unique, used as the file name; letters/digits/-/_)',
+      agentNameLabel: 'Display name',
+      agentDescLabel: 'Description (one line for the roster card and dropdown)',
+      agentPromptLabel: 'Persona (role prompt injected on dispatch)',
+      agentScopeLabel: 'Storage',
+      agentScopeUser: 'User level (all canvases)',
+      agentScopeProject: 'Project level (needs a project directory)',
+      agentSave: 'Save agent',
+      agentSavedToast: 'Agent saved',
+      agentDelToast: 'Agent deleted',
+      agentDeleteConfirm: 'Delete this agent file?',
+      agentInvalid: 'ID (letter first, letters/digits/-/_) and persona are required',
+      agentLoadFailed: 'Failed to load agent content',
+      agentEditBtn: 'Edit agent',
+      agentNew: '＋ New agent',
     }
 
     const CSS = [
@@ -480,6 +514,14 @@ window.__ModuleLoader__.load({
       '.awbc-menu-item.danger{color:var(--dsw-alias-state-error-primary)}',
       '.awbc-menu-item.danger:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}',
       '.awbc-menu-item[disabled]{opacity:.4;cursor:not-allowed}',
+      // --- agent editor（v2.8.0 名册角色新建/编辑弹窗）---
+      '.awbc-agent-dialog{width:560px;max-width:92%;max-height:82vh;overflow:auto}',
+      '.awbc-agent-dialog textarea{min-height:200px}',
+      '.awbc-field{display:flex;flex-direction:column;gap:3px}',
+      '.awbc-field > label{color:var(--dsw-alias-label-tertiary);font-size:11px}',
+      '.awbc-card-edit{position:absolute;top:4px;right:4px;z-index:2;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:1;padding:3px 5px;border-radius:5px;cursor:pointer;opacity:0;transition:opacity .12s}',
+      '.awbc-card:hover .awbc-card-edit{opacity:1}',
+      '.awbc-card-edit:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2)}',
     ].join('')
 
     function clamp(value, min, max) {
@@ -802,6 +844,8 @@ window.__ModuleLoader__.load({
       const [connectSource, setConnectSource] = React.useState('')
       const [agents, setAgents] = React.useState([])
       const [agentsState, setAgentsState] = React.useState('loading')
+      // v2.8.0 角色编辑：名册不再只读——null=关闭，否则是编辑草稿 {isNew,id,name,description,prompt,scope,busy}
+      const [agentEditor, setAgentEditor] = React.useState(null)
       // v2.5.2 面板宽度：左右两栏都可拖拽调宽；初始同宽 292px，拖完的选择记 localStorage
       const [paletteW, setPaletteW] = React.useState(() => {
         try {
@@ -1882,16 +1926,34 @@ window.__ModuleLoader__.load({
         extra: { agent: agent.id, label: agent.name && agent.name !== agent.id ? agent.name : agent.id },
       })
       const userAgentCards = userAgents.map(agentCard)
-      const renderAgentCard = card =>
-        h(
+      const renderAgentCard = card => {
+        const rosterAgent = userAgents.find(entry => entry.id === card.extra.agent)
+        return h(
           'div',
           {
             key: card.key,
             className: 'awbc-card',
             title: card.desc,
+            style: { position: 'relative' },
             onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title }),
             onClick: () => addNode(card.type, card.extra),
           },
+          rosterAgent
+            ? h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'awbc-card-edit',
+                  title: t('agentEditBtn'),
+                  onPointerDown: event => event.stopPropagation(),
+                  onClick: event => {
+                    event.stopPropagation()
+                    openAgentEditor(rosterAgent)
+                  },
+                },
+                '✎',
+              )
+            : null,
           h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
           h(
             'div',
@@ -1900,6 +1962,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'awbc-card-desc' }, card.desc),
           ),
         )
+      }
 
       const edgesLayer = h(
         'svg',
@@ -2203,6 +2266,74 @@ window.__ModuleLoader__.load({
           .catch(() => showToast(t('loadFailed')))
       }
 
+      // v2.8.0 角色编辑：画布内直接新建/编辑/删除角色 .md（宿主 agentGet/agentPut/agentDelete）。
+      const currentProjectDir = () => (doc && typeof doc.projectDir === 'string' ? doc.projectDir : '')
+      const openAgentEditor = agent => {
+        if (!agent) {
+          setAgentEditor({ isNew: true, id: '', name: '', description: '', prompt: '', scope: 'user', busy: false })
+          return
+        }
+        setAgentEditor({
+          isNew: false,
+          id: agent.id,
+          name: agent.name && agent.name !== agent.id ? agent.name : '',
+          description: agent.description || '',
+          prompt: '',
+          scope: agent.scope === 'project' ? 'project' : 'user',
+          busy: true,
+        })
+        apiCall({ action: 'agentGet', id: agent.id, projectDir: currentProjectDir() })
+          .then(data => {
+            const full = data && data.agent
+            setAgentEditor(prev =>
+              prev && prev.id === agent.id
+                ? { ...prev, name: (full && full.name && full.name !== full.id) || prev.name, description: (full && full.description) || prev.description, prompt: (full && full.prompt) || '', busy: false }
+                : prev,
+            )
+          })
+          .catch(() => {
+            setAgentEditor(prev => (prev ? { ...prev, busy: false } : prev))
+            showToast(t('agentLoadFailed'))
+          })
+      }
+      const saveAgentEditor = () => {
+        const draft = agentEditor
+        if (!draft || draft.busy) return
+        const id = draft.id.trim()
+        const prompt = draft.prompt.trim()
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(id) || !prompt) {
+          showToast(t('agentInvalid'))
+          return
+        }
+        apiCall({
+          action: 'agentPut',
+          id,
+          name: draft.name.trim() || id,
+          description: draft.description.trim(),
+          prompt,
+          scope: draft.scope,
+          projectDir: currentProjectDir(),
+        })
+          .then(() => {
+            setAgentEditor(null)
+            refreshAgents(currentProjectDir())
+            showToast(t('agentSavedToast'))
+          })
+          .catch(() => showToast(t('loadFailed')))
+      }
+      const deleteAgentEditor = () => {
+        const draft = agentEditor
+        if (!draft || draft.isNew || draft.busy) return
+        if (!window.confirm(t('agentDeleteConfirm'))) return
+        apiCall({ action: 'agentDelete', id: draft.id, scope: draft.scope, projectDir: currentProjectDir() })
+          .then(() => {
+            setAgentEditor(null)
+            refreshAgents(currentProjectDir())
+            showToast(t('agentDelToast'))
+          })
+          .catch(() => showToast(t('loadFailed')))
+      }
+
       const palette = h(
         'div',
         { className: 'awbc-palette' + (palOpen ? '' : ' collapsed'), style: palOpen ? { flexBasis: paletteW + 'px' } : undefined },
@@ -2243,7 +2374,12 @@ window.__ModuleLoader__.load({
             : null,
           agentsState === 'ready' && agents.length === 0 ? h('div', { className: 'awbc-hint' }, t('agentsEmpty')) : null,
           userAgentCards.map(renderAgentCard),
-          h('button', { type: 'button', className: 'awbc-btn', style: { alignSelf: 'flex-start' }, onClick: refreshAgents }, t('refresh')),
+          h(
+            'div',
+            { style: { display: 'flex', gap: 6, alignSelf: 'flex-start' } },
+            h('button', { type: 'button', className: 'awbc-btn primary', onClick: () => openAgentEditor(null) }, t('agentNew')),
+            h('button', { type: 'button', className: 'awbc-btn', onClick: () => refreshAgents(currentProjectDir()) }, t('refresh')),
+          ),
           h('div', { className: 'awbc-sec' }, t('secDocs')),
           docsList.length === 0 ? h('div', { className: 'awbc-hint' }, t('docsEmpty')) : null,
           docsList.map(entry =>
@@ -2585,6 +2721,87 @@ window.__ModuleLoader__.load({
                   { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
                   h('button', { type: 'button', className: 'awbc-btn', onClick: () => setImportOpen(false) }, t('close')),
                   h('button', { type: 'button', className: 'awbc-btn primary', onClick: doImport }, t('importConfirm')),
+                ),
+              ),
+            )
+          : null,
+        agentEditor
+          ? h(
+              'div',
+              { className: 'awbc-overlay', key: 'agent-editor', onPointerDown: event => event.stopPropagation() },
+              h(
+                'div',
+                { className: 'awbc-dialog awbc-agent-dialog' },
+                h('div', { className: 'awbc-dialog-title' }, agentEditor.isNew ? t('agentDialogTitleNew') : t('agentDialogTitleEdit')),
+                agentEditor.busy ? h('div', { className: 'awbc-hint' }, t('agentsLoading')) : null,
+                h(
+                  'div',
+                  { className: 'awbc-field' },
+                  h('label', null, t('agentIdLabel')),
+                  h('input', {
+                    className: 'awbc-input',
+                    value: agentEditor.id,
+                    disabled: !agentEditor.isNew,
+                    placeholder: 'project-manager',
+                    onChange: event => setAgentEditor(prev => ({ ...prev, id: event.target.value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'awbc-field' },
+                  h('label', null, t('agentNameLabel')),
+                  h('input', {
+                    className: 'awbc-input',
+                    value: agentEditor.name,
+                    placeholder: '项目经理',
+                    onChange: event => setAgentEditor(prev => ({ ...prev, name: event.target.value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'awbc-field' },
+                  h('label', null, t('agentDescLabel')),
+                  h('input', {
+                    className: 'awbc-input',
+                    value: agentEditor.description,
+                    onChange: event => setAgentEditor(prev => ({ ...prev, description: event.target.value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'awbc-field' },
+                  h('label', null, t('agentScopeLabel')),
+                  h(Dropdown, {
+                    value: agentEditor.scope,
+                    options: [
+                      { value: 'user', label: t('agentScopeUser') },
+                      ...(currentProjectDir() ? [{ value: 'project', label: t('agentScopeProject') }] : []),
+                    ],
+                    onChange: value => setAgentEditor(prev => ({ ...prev, scope: value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'awbc-field' },
+                  h('label', null, t('agentPromptLabel')),
+                  h('textarea', {
+                    className: 'awbc-input awbc-textarea',
+                    value: agentEditor.prompt,
+                    onChange: event => setAgentEditor(prev => ({ ...prev, prompt: event.target.value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 8, justifyContent: 'space-between' } },
+                  agentEditor.isNew
+                    ? null
+                    : h('button', { type: 'button', className: 'awbc-btn danger', onClick: deleteAgentEditor }, '✕ ' + t('del')),
+                  h(
+                    'div',
+                    { style: { display: 'flex', gap: 8, marginLeft: 'auto' } },
+                    h('button', { type: 'button', className: 'awbc-btn', onClick: () => setAgentEditor(null) }, t('close')),
+                    h('button', { type: 'button', className: 'awbc-btn primary', disabled: agentEditor.busy, onClick: saveAgentEditor }, t('agentSave')),
+                  ),
                 ),
               ),
             )
