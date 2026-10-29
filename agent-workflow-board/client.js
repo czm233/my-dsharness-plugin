@@ -60,7 +60,7 @@ window.__ModuleLoader__.load({
       secAgents: 'Agent（系统级 / 用户级）',
       secAgentsMine: 'Agent（我的）',
       scopeProject: '项目 · ',
-      scopeProjectShort: '（项目）',
+      scopeProjectShort: '（P·项目）',
       fieldProjectDir: '项目目录（可选，项目级角色叠加）',
       projectDirPh: '/绝对路径/到/你的项目',
       projectDirHint: '填后名册 = 用户级 + <项目>/agents/*.md（同名项目级覆盖用户级）；留空只有用户级。改完点「刷新」。',
@@ -191,6 +191,7 @@ window.__ModuleLoader__.load({
       agentLoadFailed: '角色内容读取失败',
       agentEditBtn: '编辑角色',
       agentNew: '＋ 新建 Agent',
+      scopeLegend: 'U = 用户级（全画布可用）· P = 项目级（仅本项目，同名覆盖用户级）',
     }
 
     const en = {
@@ -201,7 +202,7 @@ window.__ModuleLoader__.load({
       secAgents: 'Agents (system / user)',
       secAgentsMine: 'Agents (mine)',
       scopeProject: 'Project · ',
-      scopeProjectShort: ' (project)',
+      scopeProjectShort: ' (P·project)',
       fieldProjectDir: 'Project directory (optional, project roles)',
       projectDirPh: '/absolute/path/to/your/project',
       projectDirHint: 'Roster = user-level + <project>/agents/*.md (project overrides user with same id); empty = user-level only. Click Refresh after editing.',
@@ -332,6 +333,7 @@ window.__ModuleLoader__.load({
       agentLoadFailed: 'Failed to load agent content',
       agentEditBtn: 'Edit agent',
       agentNew: '＋ New agent',
+      scopeLegend: 'U = user level (all canvases) · P = project level (this project only, overrides user on same id)',
     }
 
     const CSS = [
@@ -514,6 +516,10 @@ window.__ModuleLoader__.load({
       '.awbc-menu-item.danger{color:var(--dsw-alias-state-error-primary)}',
       '.awbc-menu-item.danger:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}',
       '.awbc-menu-item[disabled]{opacity:.4;cursor:not-allowed}',
+      // --- 角色档位徽标（v2.8.1）：U=用户级(绿) / P=项目级(蓝)，写在名册卡片的图标方块上 ---
+      '.awbc-scope-badge{display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;font-size:12px;font-weight:700;line-height:1}',
+      '.awbc-scope-badge.user{background:color-mix(in srgb, #30d158 18%, transparent);color:#30d158;border:1px solid color-mix(in srgb, #30d158 45%, transparent)}',
+      '.awbc-scope-badge.project{background:color-mix(in srgb, #0a84ff 18%, transparent);color:#409cff;border:1px solid color-mix(in srgb, #0a84ff 50%, transparent)}',
       // --- agent editor（v2.8.0 名册角色新建/编辑弹窗）---
       '.awbc-agent-dialog{width:560px;max-width:92%;max-height:82vh;overflow:auto}',
       '.awbc-agent-dialog textarea{min-height:200px}',
@@ -1954,7 +1960,18 @@ window.__ModuleLoader__.load({
                 '✎',
               )
             : null,
-          h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
+          rosterAgent
+            ? h(
+                'span',
+                {
+                  key: 'scope',
+                  className: 'awbc-tile work',
+                  title: rosterAgent.scope === 'project' ? t('agentScopeProject') : t('agentScopeUser'),
+                  'aria-hidden': true,
+                },
+                h('span', { className: `awbc-scope-badge ${rosterAgent.scope === 'project' ? 'project' : 'user'}` }, rosterAgent.scope === 'project' ? 'P' : 'U'),
+              )
+            : h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
           h(
             'div',
             { className: 'awbc-card-main' },
@@ -2368,6 +2385,7 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'awbc-sec' }, t('secAgentsMine')),
+          h('div', { className: 'awbc-hint', style: { margin: '-2px 0 4px' } }, t('scopeLegend')),
           agentsState === 'loading' ? h('div', { className: 'awbc-hint' }, t('agentsLoading')) : null,
           agentsState.indexOf('failed') === 0
             ? h('div', { className: 'awbc-hint' }, t('agentsFailed') + (agentsState.length > 7 ? `（${agentsState.slice(8)}）` : ''))
