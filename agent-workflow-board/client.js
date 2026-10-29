@@ -32,11 +32,11 @@ window.__ModuleLoader__.load({
     // --- 四向端口（上下左右，可进可出，无入出之分）---
     const PORTS = ['top', 'right', 'bottom', 'left']
     const PORT_DIRS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] }
-    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，含图标/内边距，72–232 之间截断
+    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，含图标/内边距/状态点余量，上限放宽到 480px——保证不出省略号
     function measureNodeWidth(label) {
       let text = 0
       for (const ch of String(label || '')) text += ch.charCodeAt(0) > 0xff ? 12 : 6.5
-      return Math.round(Math.min(232, Math.max(72, text + 52)))
+      return Math.round(Math.min(480, Math.max(80, text + 64)))
     }
     function portPoint(node, port) {
       const w = measureNodeWidth(node.label)
