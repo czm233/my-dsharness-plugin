@@ -191,7 +191,6 @@ window.__ModuleLoader__.load({
       agentLoadFailed: '角色内容读取失败',
       agentEditBtn: '编辑角色',
       agentNew: '＋ 新建 Agent',
-      scopeLegend: 'U = 用户级（全画布可用）· P = 项目级（仅本项目，同名覆盖用户级）',
     }
 
     const en = {
@@ -333,7 +332,6 @@ window.__ModuleLoader__.load({
       agentLoadFailed: 'Failed to load agent content',
       agentEditBtn: 'Edit agent',
       agentNew: '＋ New agent',
-      scopeLegend: 'U = user level (all canvases) · P = project level (this project only, overrides user on same id)',
     }
 
     const CSS = [
@@ -2385,7 +2383,6 @@ window.__ModuleLoader__.load({
             ),
           ),
           h('div', { className: 'awbc-sec' }, t('secAgentsMine')),
-          h('div', { className: 'awbc-hint', style: { margin: '-2px 0 4px' } }, t('scopeLegend')),
           agentsState === 'loading' ? h('div', { className: 'awbc-hint' }, t('agentsLoading')) : null,
           agentsState.indexOf('failed') === 0
             ? h('div', { className: 'awbc-hint' }, t('agentsFailed') + (agentsState.length > 7 ? `（${agentsState.slice(8)}）` : ''))
