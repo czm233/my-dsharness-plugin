@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({
     const PLANE_W = 2600
     const PLANE_H = 1700
     const NODE_W = 232
-    const NODE_H = 64
+    const NODE_H = 46
 
     // --- 四向端口（上下左右，可进可出，无入出之分）---
     const PORTS = ['top', 'right', 'bottom', 'left']
@@ -459,7 +459,7 @@ window.__ModuleLoader__.load({
       '.awbc-edge-label.no{fill:#e5534b}',
       '.awbc-edge-label{font-size:10px;fill:var(--dsw-alias-label-secondary);paint-order:stroke;stroke:var(--dsw-alias-bg-layer-2);stroke-width:3}',
       // --- node cards ---
-      '.awbc-node{position:absolute;min-height:64px;display:flex;gap:9px;align-items:center;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
+      '.awbc-node{position:absolute;min-height:46px;display:flex;gap:9px;align-items:center;padding:10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
       '.awbc-node.error{border-color:var(--dsw-alias-state-error-primary,#e5484d);box-shadow:0 0 0 1px var(--dsw-alias-state-error-primary,#e5484d),0 2px 8px rgba(0,0,0,.12)}',
       '.awbc-node.selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 2px 8px rgba(0,0,0,.12)}',
       '.awbc-node.connect-src{border-color:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-success-primary)}',
@@ -1251,7 +1251,7 @@ window.__ModuleLoader__.load({
         if (!marquee || !marquee.box) return
         const box = marquee.box
         const ids = doc.nodes
-          .filter(node => node.x + NODE_W >= box.x0 && node.x <= box.x1 && node.y + 32 >= box.y0 && node.y <= box.y1)
+          .filter(node => node.x + NODE_W >= box.x0 && node.x <= box.x1 && node.y + NODE_H >= box.y0 && node.y <= box.y1)
           .map(node => node.id)
         setMultiIds(ids)
       }, [marquee])
