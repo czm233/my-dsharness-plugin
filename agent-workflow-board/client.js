@@ -32,11 +32,11 @@ window.__ModuleLoader__.load({
     // --- 四向端口（上下左右，可进可出，无入出之分）---
     const PORTS = ['top', 'right', 'bottom', 'left']
     const PORT_DIRS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] }
-    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，含图标/内边距/状态点余量，上限放宽到 480px——保证不出省略号
+    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，余量含图标(26)+双内边距(20)+间距(9)+状态点(13)=68，上限 600px——保证不出省略号
     function measureNodeWidth(label) {
       let text = 0
       for (const ch of String(label || '')) text += ch.charCodeAt(0) > 0xff ? 12 : 6.5
-      return Math.round(Math.min(480, Math.max(80, text + 64)))
+      return Math.round(Math.min(600, Math.max(88, text + 80)))
     }
     function portPoint(node, port) {
       const w = measureNodeWidth(node.label)
@@ -459,7 +459,8 @@ window.__ModuleLoader__.load({
       '.awbc-edge-label.no{fill:#e5534b}',
       '.awbc-edge-label{font-size:10px;fill:var(--dsw-alias-label-secondary);paint-order:stroke;stroke:var(--dsw-alias-bg-layer-2);stroke-width:3}',
       // --- node cards ---
-      '.awbc-node{position:absolute;min-height:64px;display:flex;gap:9px;align-items:flex-start;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
+      '.awbc-node{position:absolute;min-height:64px;display:flex;gap:9px;align-items:center;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
+      '.awbc-node.error{border-color:var(--dsw-alias-state-error-primary,#e5484d);box-shadow:0 0 0 1px var(--dsw-alias-state-error-primary,#e5484d),0 2px 8px rgba(0,0,0,.12)}',
       '.awbc-node.selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 2px 8px rgba(0,0,0,.12)}',
       '.awbc-node.connect-src{border-color:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-success-primary)}',
       '.awbc-node-main{flex:1 1 auto;min-width:0}',
@@ -2202,9 +2203,9 @@ window.__ModuleLoader__.load({
           {
             key: node.id,
             'data-node-id': node.id,
-            className: `awbc-node${multiIds.includes(node.id) ? ' selected' : ''}${connectSource === node.id ? ' connect-src' : ''}`,
+            className: `awbc-node${status === 'error' ? ' error' : ''}${multiIds.includes(node.id) ? ' selected' : ''}${connectSource === node.id ? ' connect-src' : ''}`,
             style: { left: node.x, top: node.y, width: measureNodeWidth(node.label) },
-            title: nodeSubText(node, t),
+            title: status === 'error' && reported && reported.note ? `${nodeSubText(node, t)}\n失败：${reported.note}` : nodeSubText(node, t),
             onPointerDown: event => startNodeDrag(event, node),
             onContextMenu: event => openNodeMenu(event, node.id),
           },
@@ -2226,7 +2227,7 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'awbc-node-titlerow' },
               h('span', { className: 'awbc-node-title' }, node.label || node.id),
-              statusText ? h('span', { className: 'awbc-dot ' + status, title: statusText }) : null,
+              status === 'running' ? h('span', { className: 'awbc-dot running', title: statusText }) : null,
             ),
           )
         )
