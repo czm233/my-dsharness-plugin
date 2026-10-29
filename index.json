@@ -16,8 +16,8 @@
         "zh": "用量明细+"
       },
       "description": {
-        "en": "Composer usage pill with session cost and GLM plan quota (bars show remaining).",
-        "zh": "输入框用量胶囊:会话成本明细与 GLM 套餐额度(进度条显示剩余)。"
+        "en": "Composer usage pill with session cost, today's token total, and GLM plan quota (bars show remaining).",
+        "zh": "输入框用量胶囊:会话成本明细、今日 token 合计与 GLM 套餐额度(进度条显示剩余)。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -367,6 +367,16 @@
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "b58b0aa83a2dfe9e95a623d433336483fb32892b",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.1",
+          "publishTimestamp": 1793271414,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2770caafc39653d74e8f5e089b9765047bef2333",
             "path": "agent-workflow-board"
           }
         }
