@@ -1137,6 +1137,17 @@ window.__ModuleLoader__.load({
       const [lockState, setLockState] = React.useState({ id: '', locked: false })
       // 只读判定：当前打开的画布正处于绑定锁下
       const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
+      // 只读时试图修改 → 给一次性提示（节流 2.5s，避免拖拽时连续弹）
+      const lockToastRef = React.useRef(0)
+      const blocked = () => {
+        if (!readOnly) return false
+        const now = Date.now()
+        if (now - lockToastRef.current >= 2500) {
+          lockToastRef.current = now
+          showToast(t('boundLocked'))
+        }
+        return true
+      }
       React.useEffect(() => {
         let alive = true
         const poll = () => {
@@ -1364,7 +1375,7 @@ window.__ModuleLoader__.load({
       )
 
       const saveDoc = React.useCallback(() => {
-        if (readOnly) return
+        if (blocked()) return
         // 保存前强制校验：存在 error 级问题时不允许保存，并展示问题列表。
         const found = validateDoc(doc, t)
         setIssues(found)
@@ -1443,7 +1454,7 @@ window.__ModuleLoader__.load({
       const canRedo = histRef.current.index < histRef.current.stack.length - 1
 
       const undo = React.useCallback(() => {
-        if (readOnly) return
+        if (blocked()) return
         const hist = histRef.current
         if (hist.index <= 0) return
         hist.index -= 1
@@ -1451,7 +1462,7 @@ window.__ModuleLoader__.load({
       }, [applyHistory, readOnly])
 
       const redo = React.useCallback(() => {
-        if (readOnly) return
+        if (blocked()) return
         const hist = histRef.current
         if (hist.index >= hist.stack.length - 1) return
         hist.index += 1
@@ -1567,7 +1578,7 @@ window.__ModuleLoader__.load({
 
       const startNodeDrag = (event, node) => {
         if (!event || event.button !== 0) return
-        if (readOnly) return
+        if (blocked()) return
         // SPACE pans the canvas — even when pressing on a node.
         if (spaceHeld) return
         if (connectMode) return
@@ -1616,7 +1627,7 @@ window.__ModuleLoader__.load({
       // canvas cancels).
       const startLinkDrag = (event, fromNode, fromPort) => {
         if (!event || event.button !== 0) return
-        if (readOnly) return
+        if (blocked()) return
         // 强制：结束节点是终点，不能向外连线。
         if (fromNode.type === 'end') return
         event.stopPropagation()
@@ -1673,7 +1684,7 @@ window.__ModuleLoader__.load({
       // Create a node at (planeX, planeY) — optionally auto-linked from a
       // source node (used by the blank-drop picker after a port drag).
       const createLinkedNode = (type, extra, anchorX, anchorY, fromId, fromPort) => {
-        if (readOnly) return
+        if (blocked()) return
         const linked = Boolean(fromId)
         // 新节点摆在拉线方向的前方：端口朝向源节点，连线不回头。
         const dir = PORT_DIRS[PORTS.includes(fromPort) ? fromPort : 'right']
@@ -1763,7 +1774,7 @@ window.__ModuleLoader__.load({
       }
 
       const updateSelected = (field, value) => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => ({
           ...prev,
           nodes: prev.nodes.map(node => (node.id === selectedId ? { ...node, [field]: value } : node)),
@@ -1771,7 +1782,7 @@ window.__ModuleLoader__.load({
       }
 
       const deleteSelected = () => {
-        if (readOnly) return
+        if (blocked()) return
         const ids = multiIds.length > 0 ? multiIds.slice() : selectedId ? [selectedId] : []
         if (ids.length === 0) return
         setDoc(prev => ({
@@ -1802,7 +1813,7 @@ window.__ModuleLoader__.load({
       }, [selectedId, multiIds])
 
       const deleteEdge = edgeId => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => ({ ...prev, edges: prev.edges.filter(edge => edge.id !== edgeId) }))
       }
 
@@ -1860,7 +1871,7 @@ window.__ModuleLoader__.load({
       }, [linkMenu])
 
       const duplicateNode = nodeId => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => {
           const source = prev.nodes.find(node => node.id === nodeId)
           if (!source || source.type === 'start') return prev
@@ -1871,7 +1882,7 @@ window.__ModuleLoader__.load({
       }
 
       const deleteNodeById = nodeId => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => ({
           ...prev,
           nodes: prev.nodes.filter(node => node.id !== nodeId),
@@ -1882,7 +1893,7 @@ window.__ModuleLoader__.load({
       }
 
       const updateEdge = (edgeId, field, value) => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => ({
           ...prev,
           edges: prev.edges.map(edge => (edge.id === edgeId ? { ...edge, [field]: value } : edge)),
@@ -1897,7 +1908,7 @@ window.__ModuleLoader__.load({
         return ''
       }
       const addEdge = (fromId, toId, fromPort, toPort) => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => {
           if (prev.edges.some(edge => edge.from === fromId && edge.to === toId)) return prev
           const from = prev.nodes.find(node => node.id === fromId)
@@ -1909,7 +1920,7 @@ window.__ModuleLoader__.load({
 
       // --- 一键整理布局：从主会话分层（BFS 最长层），孤岛接在末尾，层内竖排 ----
       const autoLayout = () => {
-        if (readOnly) return
+        if (blocked()) return
         setDoc(prev => {
           if (prev.nodes.length === 0) return prev
           const ids = new Set(prev.nodes.map(node => node.id))
