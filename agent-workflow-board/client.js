@@ -122,7 +122,7 @@ window.__ModuleLoader__.load({
       typeHook: '钩子',
       fieldLabel: '名称',
       fieldDesc: '注释',
-      fieldPrompt: '提示词（派发时交给执行者的任务说明）',
+      fieldPrompt: '提示词（选填：派发时交给执行者的任务说明；不填则按节点名称和上一级的要求执行）',
       fieldExec: '执行方式',
       execSubagent: '派子 agent',
       execLead: '主会话自己做',
@@ -266,7 +266,7 @@ window.__ModuleLoader__.load({
       typeHook: 'Hook',
       fieldLabel: 'Name',
       fieldDesc: 'Notes',
-      fieldPrompt: 'Prompt (task instructions for the executor)',
+      fieldPrompt: 'Prompt (optional; defaults to the node name and the upstream requirement)',
       fieldExec: 'Execution',
       execSubagent: 'Dispatch subagent',
       execLead: 'Main session itself',
@@ -664,9 +664,7 @@ window.__ModuleLoader__.load({
             if (!edge.label) issues.push({ level: 'warn', text: t('warnRouterNoLabel').replace('{a}', node.label || node.id) })
           }
         }
-        if (node.type === 'work' && !node.prompt) {
-          issues.push({ level: 'warn', text: t('warnWorkNoPrompt').replace('{a}', node.label || node.id) })
-        }
+        // 工作节点不写提示词是合法默认（按节点名称与上一级要求执行），不作为问题提示。
         if (node.type === 'hook' && !node.hookKind) {
           issues.push({ level: 'warn', text: t('warnHookNoKind').replace('{a}', node.label || node.id) })
         }

@@ -218,7 +218,7 @@ function compileSpec(doc) {
       } else if (node.agent) {
         agentNote = `，子 agent 使用 agent preset「${node.agent}」`
       }
-      const promptNote = node.prompt ? `任务说明：${node.prompt}` : '（节点未写任务说明，按节点名称理解）'
+      const promptNote = node.prompt ? `任务说明：${node.prompt}` : '（节点未写任务说明：按节点名称理解职责，以上游节点派发的要求为准执行，完成后交棒下一节点）'
       lines.push(`${n}. 【工作】${labelOf(node)}：${exec}${agentNote}。${promptNote}`)
     } else if (node.type === 'router') {
       const branches = outsOfNode
