@@ -227,47 +227,28 @@ window.__ModuleLoader__.load({
       return { limits: limits };
     }
 
-    /** Local date as YYYY-MM-DD. */
-    function dayKey(date) {
-      return (
-        date.getFullYear() +
-        '-' +
-        String(date.getMonth() + 1).padStart(2, '0') +
-        '-' +
-        String(date.getDate()).padStart(2, '0')
-      );
+    /** Official daily token/call totals from data.totalUsage (monitor model-usage). */
+    function extractDaily(envelope) {
+      if (!envelope || typeof envelope !== 'object') return { error: 'network' };
+      if (envelope.ok !== true) {
+        const reason =
+          typeof envelope.reason === 'string' && envelope.reason.length > 0
+            ? envelope.reason
+            : typeof envelope.status === 'number'
+              ? 'HTTP ' + envelope.status
+              : 'upstream';
+        return { error: reason };
+      }
+      let data = envelope.body;
+      if (data && typeof data === 'object' && data.data && typeof data.data === 'object') data = data.data;
+      const totalUsage = data && typeof data === 'object' ? data.totalUsage : undefined;
+      const tokens = num(totalUsage && totalUsage.totalTokensUsage);
+      const calls = num(totalUsage && totalUsage.totalModelCallCount);
+      if (tokens === 0 && calls === 0) return { error: 'shape' };
+      return { tokens: tokens, calls: calls };
     }
 
-    /** Persisted per-session totals for one local day. */
-    const DAILY_KEY = '@local/composer-usage-plus/daily';
-    function readDaily() {
-      try {
-        const raw = window.localStorage.getItem(DAILY_KEY);
-        const parsed = raw === null ? null : JSON.parse(raw);
-        if (parsed && typeof parsed === 'object' && typeof parsed.day === 'string' && parsed.sessions && typeof parsed.sessions === 'object') {
-          return parsed;
-        }
-      } catch {
-        // fall through to a fresh store
-      }
-      return { day: '', sessions: {} };
-    }
-    function writeDaily(store) {
-      try {
-        window.localStorage.setItem(DAILY_KEY, JSON.stringify(store));
-      } catch {
-        // quota or privacy mode: today's count stays in memory only
-      }
-    }
-    function sumDaily(store) {
-      let sum = 0;
-      for (const key of Object.keys(store.sessions)) {
-        sum += num(store.sessions[key]);
-      }
-      return sum;
-    }
-
-    function UsageBreakdown({ useProjection, t, sessionId }) {
+    function UsageBreakdown({ useProjection, t }) {
       const rawUsage = useProjection('tokenUsage');
       const rawSelection = useProjection('modelSelection');
       const selectionInfo = readSelection(rawSelection);
@@ -275,10 +256,7 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false);
       const [pos, setPos] = React.useState(null);
       const [quota, setQuota] = React.useState(null);
-      const [todayTokens, setTodayTokens] = React.useState(function () {
-        const store = readDaily();
-        return store.day === dayKey(new Date()) ? sumDaily(store) : 0;
-      });
+      const [daily, setDaily] = React.useState(null);
       const anchorRef = React.useRef(null);
       const panelRef = React.useRef(null);
 
@@ -335,11 +313,20 @@ window.__ModuleLoader__.load({
           let timer = null;
           async function load() {
             try {
-              const response = await fetch('/api/composer-usage.quota');
-              const body = await response.json();
-              if (!cancelled) setQuota({ at: Date.now(), envelope: body });
+              const [quotaResponse, dailyResponse] = await Promise.all([
+                fetch('/api/composer-usage.quota'),
+                fetch('/api/composer-usage.daily'),
+              ]);
+              const [quotaBody, dailyBody] = await Promise.all([quotaResponse.json(), dailyResponse.json()]);
+              if (!cancelled) {
+                setQuota({ at: Date.now(), envelope: quotaBody });
+                setDaily({ at: Date.now(), envelope: dailyBody });
+              }
             } catch {
-              if (!cancelled) setQuota({ at: Date.now(), envelope: null });
+              if (!cancelled) {
+                setQuota({ at: Date.now(), envelope: null });
+                setDaily({ at: Date.now(), envelope: null });
+              }
             }
           }
           load();
@@ -352,31 +339,6 @@ window.__ModuleLoader__.load({
         [plan],
       );
 
-      React.useEffect(
-        function () {
-          if (typeof sessionId !== 'string' || sessionId === '') return undefined;
-          const current = readDaily();
-          const day = dayKey(new Date());
-          const store = current.day === day ? current : { day: day, sessions: {} };
-          const parts = {
-            uncached: num(rawUsage && rawUsage.uncachedInputTokens),
-            output: num(rawUsage && rawUsage.outputTokens),
-            cacheRead: num(rawUsage && rawUsage.cacheReadTokens),
-            cacheWrite: num(rawUsage && rawUsage.cacheWriteTokens),
-          };
-          const total = parts.uncached + parts.output + parts.cacheRead + parts.cacheWrite;
-          if (total === 0) return undefined;
-          const previous = num(store.sessions[sessionId]);
-          // Totals only grow within a session, so the delta against the last
-          // snapshot is exactly what was added since the previous render.
-          if (total > previous) store.sessions[sessionId] = total;
-          else if (previous === 0 || total < previous) store.sessions[sessionId] = total;
-          writeDaily(store);
-          setTodayTokens(sumDaily(store));
-        },
-        [sessionId, rawUsage],
-      );
-
       if (rawUsage === undefined || rawUsage === null) return null;
 
       const usage = {
@@ -386,7 +348,9 @@ window.__ModuleLoader__.load({
         cacheWrite: num(rawUsage.cacheWriteTokens),
       };
       const total = usage.uncached + usage.output + usage.cacheRead + usage.cacheWrite;
-      if (total === 0 && todayTokens === 0) return null;
+      const dailyView = plan && daily !== null ? extractDaily(daily.envelope) : null;
+      const todayCount = dailyView !== null && dailyView.tokens !== undefined ? dailyView.tokens : 0;
+      if (total === 0 && todayCount === 0) return null;
 
       const modelId = selectionInfo.modelId;
       const pricing = matchPricing(modelId);
@@ -536,8 +500,8 @@ window.__ModuleLoader__.load({
         return null;
       };
       const inlineBadges = [];
-      if (todayTokens > 0) {
-        inlineBadges.push(t('usage.todayInline', { count: compactTokens(todayTokens) }));
+      if (todayCount > 0) {
+        inlineBadges.push(t('usage.todayInline', { count: compactTokens(todayCount) }));
       }
       const badge5 = quotaBadge(t('usage.quota5h'), function (o) {
         return t('usage.quotaInline', o);
@@ -604,7 +568,7 @@ window.__ModuleLoader__.load({
                 {
                   className: 'cudP_label',
                   title: [
-                    todayTokens > 0 ? t('usage.todayTitle') : null,
+                    todayCount > 0 ? t('usage.todayTitle') : null,
                     quotaBars.length > 0 ? t('usage.quotaInlineTitle') : null,
                   ]
                     .filter(function (line) {
@@ -633,8 +597,8 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'cudP_titleValue' }, t('usage.count', { count: exactTokens(total) })),
               ),
               h('div', { className: 'cudP_rule', 'aria-hidden': true }),
-              todayTokens > 0
-                ? h('div', { className: 'cudP_today', title: t('usage.todayTitle') }, t('usage.todayLine', { count: exactTokens(todayTokens) }))
+              todayCount > 0
+                ? h('div', { className: 'cudP_today', title: t('usage.todayTitle') }, t('usage.todayLine', { count: exactTokens(todayCount) }))
                 : null,
               quotaSection,
               h(
@@ -705,8 +669,8 @@ window.__ModuleLoader__.load({
                 'usage.hitNote': '缓存命中率 {hit}。',
                 'usage.quota5h': '5 小时额度',
                 'usage.todayInline': '今日 {count}',
-                'usage.todayLine': '今日已用 {count} tok',
-                'usage.todayTitle': '今天所有会话的 token 合计（本机累计，跨会话统计）',
+                'usage.todayLine': '今日已用 {count} tok（官方统计）',
+                'usage.todayTitle': '官方接口统计的今日全部 token 用量（含缓存，与本账号使用详情页一致）',
                 'usage.quotaWeek': '7 天额度',
                 'usage.quotaMcp': 'MCP 月度',
                 'usage.quotaUsed': '已用 {percent}% · 剩 {left}%',
@@ -740,8 +704,8 @@ window.__ModuleLoader__.load({
                 'usage.hitNote': 'Cache hit rate {hit}.',
                 'usage.quota5h': '5-hour quota',
                 'usage.todayInline': 'today {count}',
-                'usage.todayLine': 'Used today: {count} tok',
-                'usage.todayTitle': "Total tokens across all of today's sessions (tracked locally)",
+                'usage.todayLine': 'Used today: {count} tok (official)',
+                'usage.todayTitle': "Official per-day token usage for this account, including cached tokens (matches the web usage page)",
                 'usage.quotaWeek': '7-day quota',
                 'usage.quotaMcp': 'MCP monthly',
                 'usage.quotaUsed': 'used {percent}% · {left}% left',

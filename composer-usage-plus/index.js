@@ -13,16 +13,19 @@
  */
 
 const ROUTE_PATH = "/api/composer-usage.quota";
+const DAILY_ROUTE_PATH = "/api/composer-usage.daily";
 const CREDENTIAL_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const DEFAULT_GATEWAY = "https://open.bigmodel.cn/api/coding/paas/v4";
 const API_KEY_ENV = "ZAI_CODING_CN_API_KEY";
 const TTL_SECONDS = 30;
+const DAILY_TTL_SECONDS = 60;
 
 export const inject = ["connection", "credentials"];
 
 export function apply(ctx) {
 	const config = { gateway: DEFAULT_GATEWAY, apiKeyEnv: API_KEY_ENV, ttlSeconds: TTL_SECONDS };
 	const cache = { at: 0, promise: null };
+	const dailyCache = { at: 0, promise: null };
 
 	ctx.effect(
 		function () {
@@ -38,6 +41,22 @@ export function apply(ctx) {
 			});
 		},
 		"composer-usage-plus: quota route"
+	);
+
+	ctx.effect(
+		function () {
+			const connection = Reflect.get(ctx, "connection");
+			if (connection === void 0) return undefined;
+			return connection.fetch.register({
+				path: DAILY_ROUTE_PATH,
+				methods: ["GET"],
+				requestBody: "buffered",
+				fetch: function () {
+					return handleDaily();
+				}
+			});
+		},
+		"composer-usage-plus: daily route"
 	);
 
 	async function resolveKey() {
@@ -89,6 +108,60 @@ export function apply(ctx) {
 			});
 		}
 		const body = await cache.promise;
+		return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+	}
+
+	/** "YYYY-MM-DD HH:mm:ss" in the host's local time, the format the monitor API expects. */
+	function monitorStamp(date, endOfDay) {
+		const pad = function (value) {
+			return String(value).padStart(2, "0");
+		};
+		return (
+			date.getFullYear() +
+			"-" +
+			pad(date.getMonth() + 1) +
+			"-" +
+			pad(date.getDate()) +
+			" " +
+			(endOfDay === true ? "23:59:59" : "00:00:00")
+		);
+	}
+
+	async function upstreamDaily() {
+		const key = await resolveKey();
+		if (key === null) return { ok: false, reason: "missing-api-key", body: null };
+		const now = new Date();
+		const query =
+			"startTime=" +
+			encodeURIComponent(monitorStamp(now, false)) +
+			"&endTime=" +
+			encodeURIComponent(monitorStamp(now, true));
+		const url = new URL("/api/monitor/usage/model-usage?" + query, config.gateway).toString();
+		const signal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined;
+		const response = await fetch(url, {
+			headers: { Authorization: key, Accept: "application/json" },
+			signal
+		});
+		const text = await response.text();
+		let body;
+		try {
+			body = JSON.parse(text);
+		} catch {
+			body = { raw: text.slice(0, 400) };
+		}
+		return { ok: response.ok, status: response.status, body };
+	}
+
+	async function handleDaily() {
+		const ttl = Math.max(30, DAILY_TTL_SECONDS) * 1000;
+		const now = Date.now();
+		if (dailyCache.promise === null || now - dailyCache.at >= ttl) {
+			dailyCache.at = now;
+			dailyCache.promise = upstreamDaily().catch(function (error) {
+				return { ok: false, reason: String((error && error.message) || error), body: null };
+			});
+		}
+		const body = await dailyCache.promise;
 		return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 	}
 }
