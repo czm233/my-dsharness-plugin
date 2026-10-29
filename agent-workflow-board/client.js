@@ -1738,7 +1738,7 @@ window.__ModuleLoader__.load({
 
       const onNodeClick = nodeId => {
         if (connectMode) {
-          if (readOnly) return
+          if (blocked()) return
           if (!connectSource) {
             // 强制：结束节点不能向外连线。
             const source = doc.nodes.find(node => node.id === nodeId)
