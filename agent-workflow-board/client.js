@@ -32,11 +32,13 @@ window.__ModuleLoader__.load({
     // --- 四向端口（上下左右，可进可出，无入出之分）---
     const PORTS = ['top', 'right', 'bottom', 'left']
     const PORT_DIRS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] }
-    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，余量含图标(26)+双内边距(20)+间距(9)+状态点(13)=68，上限 600px——保证不出省略号
+    // 节点宽度随名称自适应：用 Canvas 按真实字体精确测量文字宽，开销=边框2+内边距20+图标26+间距9+缓冲3=60
+    let measureCtx = null
     function measureNodeWidth(label) {
-      let text = 0
-      for (const ch of String(label || '')) text += ch.charCodeAt(0) > 0xff ? 12 : 6.5
-      return Math.round(Math.min(600, Math.max(88, text + 80)))
+      if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
+      measureCtx.font = '600 12px system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
+      const text = Math.ceil(measureCtx.measureText(String(label || '')).width)
+      return Math.round(Math.min(600, Math.max(76, text + 60)))
     }
     function portPoint(node, port) {
       const w = measureNodeWidth(node.label)
