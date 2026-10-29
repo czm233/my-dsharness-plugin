@@ -1033,8 +1033,6 @@ window.__ModuleLoader__.load({
       const savedSnapRef = React.useRef(WORKBENCH.savedSnap || JSON.stringify(initialDoc))
       // 自动保存状态：idle | pending（防抖等待） | saving | error
       const [saveState, setSaveState] = React.useState('idle')
-      // 只读判定：当前打开的画布正处于绑定锁下
-      const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
       // 撤销/重做历史：doc 快照栈 + 指针。suppress 标记 undo/redo 自身的 doc 变更，不进栈。
       const histRef = React.useRef({ canvasId: initialDoc.id, stack: [JSON.stringify(initialDoc)], index: 0, last: JSON.stringify(initialDoc), lastAt: 0, suppress: false })
 
@@ -1136,6 +1134,8 @@ window.__ModuleLoader__.load({
       const [runtimeStatus, setRuntimeStatus] = React.useState({})
       // 绑定锁：画布被任一会话绑定期间只读（宿主 put 也会拒绝，双保险）
       const [lockState, setLockState] = React.useState({ id: '', locked: false })
+      // 只读判定：当前打开的画布正处于绑定锁下
+      const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
       React.useEffect(() => {
         let alive = true
         const poll = () => {
