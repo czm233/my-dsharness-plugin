@@ -1137,15 +1137,14 @@ window.__ModuleLoader__.load({
       const [lockState, setLockState] = React.useState({ id: '', locked: false })
       // 只读判定：当前打开的画布正处于绑定锁下
       const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
-      // 只读时试图修改 → 给一次性提示（节流 2.5s，避免拖拽时连续弹）
-      const lockToastRef = React.useRef(0)
+      // 只读时试图修改 → 顶部红色横幅提示（与校验问题条同款样式），3s 自动消失
+      const [lockHint, setLockHint] = React.useState(false)
+      const lockHintTimerRef = React.useRef(null)
       const blocked = () => {
         if (!readOnly) return false
-        const now = Date.now()
-        if (now - lockToastRef.current >= 2500) {
-          lockToastRef.current = now
-          showToast(t('boundLocked'))
-        }
+        setLockHint(true)
+        clearTimeout(lockHintTimerRef.current)
+        lockHintTimerRef.current = setTimeout(() => setLockHint(false), 3000)
         return true
       }
       React.useEffect(() => {
@@ -2808,6 +2807,13 @@ window.__ModuleLoader__.load({
                     'div',
                     { className: 'awbc-issues', key: 'issues' },
                     issues.map((issue, index) => h('span', { key: index, className: 'awbc-issue ' + issue.level }, (issue.level === 'error' ? '✕ ' : '⚠ ') + issue.text)),
+                  )
+                : null,
+              lockHint
+                ? h(
+                    'div',
+                    { className: 'awbc-issues', key: 'lock-hint' },
+                    h('span', { className: 'awbc-issue error' }, '✕ ' + t('boundLocked')),
                   )
                 : null,
               toast ? h('div', { className: 'awbc-toast', key: 'toast' }, toast) : null,
