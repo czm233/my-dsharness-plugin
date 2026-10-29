@@ -202,8 +202,8 @@ window.__ModuleLoader__.load({
       menuDelete: '删除节点',
       pickerTitle: '创建节点',
       pickerAgents: '用 Agent 创建工作节点',
-      zoomIn: '放大（Ctrl+滚轮）',
-      zoomOut: '缩小（Ctrl+滚轮）',
+      zoomIn: '放大（空格+滚轮）',
+      zoomOut: '缩小（空格+滚轮）',
       zoomReset: '重置缩放到 100%',
       zoomFit: '适应内容',
       zoomFitShort: '适应',
@@ -350,8 +350,8 @@ window.__ModuleLoader__.load({
       menuDelete: 'Delete node',
       pickerTitle: 'Create node',
       pickerAgents: 'Work node with agent',
-      zoomIn: 'Zoom in (Ctrl+wheel)',
-      zoomOut: 'Zoom out (Ctrl+wheel)',
+      zoomIn: 'Zoom in (Space+wheel)',
+      zoomOut: 'Zoom out (Space+wheel)',
       zoomReset: 'Reset zoom to 100%',
       zoomFit: 'Fit content',
       zoomFitShort: 'Fit',
@@ -1027,6 +1027,8 @@ window.__ModuleLoader__.load({
       // 「screen = pan + world * zoom」，所有屏幕→平面换算都要除以 zoom。
       const [zoom, setZoom] = React.useState(() => (WORKBENCH.zoom ? WORKBENCH.zoom : 1))
       const [spaceHeld, setSpaceHeld] = React.useState(false)
+      // 空格键镜像：wheel 事件里读 ref，避免因 state 变化重挂监听
+      const spaceHeldRef = React.useRef(false)
       const [multiIds, setMultiIds] = React.useState([])
       const [marquee, setMarquee] = React.useState(null)
       // Port-to-port linking: set while dragging from a node's port; cx/cy
@@ -1125,7 +1127,8 @@ window.__ModuleLoader__.load({
         const onWheel = event => {
           const target = event.target
           if (target && target.closest && (target.closest('.awbc-issues') || target.closest('.awbc-menu'))) return
-          if (event.ctrlKey || event.metaKey) {
+          // 固定手势：按住空格 + 滚轮 = 缩放；普通滚轮 = 平移
+          if (spaceHeldRef.current) {
             event.preventDefault()
             zoomAt(event.clientX, event.clientY, Math.exp(-event.deltaY * 0.0016))
             return
@@ -1233,10 +1236,12 @@ window.__ModuleLoader__.load({
           if (event.code !== 'Space' || event.repeat) return
           if (isTextField(event.target)) return
           event.preventDefault()
+          spaceHeldRef.current = true
           setSpaceHeld(true)
         }
         const onKeyUp = event => {
           if (event.code !== 'Space') return
+          spaceHeldRef.current = false
           setSpaceHeld(false)
         }
         window.addEventListener('keydown', onKeyDown)
@@ -1244,6 +1249,7 @@ window.__ModuleLoader__.load({
         return () => {
           window.removeEventListener('keydown', onKeyDown)
           window.removeEventListener('keyup', onKeyUp)
+          spaceHeldRef.current = false
           setSpaceHeld(false)
         }
       }, [])
