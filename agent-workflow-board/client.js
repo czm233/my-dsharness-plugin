@@ -164,6 +164,7 @@ window.__ModuleLoader__.load({
       menuDuplicate: '复制节点',
       menuDelete: '删除节点',
       pickerTitle: '创建节点',
+      pickerAgents: '用 Agent 创建工作节点',
       zoomIn: '放大（Ctrl+滚轮）',
       zoomOut: '缩小（Ctrl+滚轮）',
       zoomReset: '重置缩放到 100%',
@@ -308,6 +309,7 @@ window.__ModuleLoader__.load({
       menuDuplicate: 'Duplicate node',
       menuDelete: 'Delete node',
       pickerTitle: 'Create node',
+      pickerAgents: 'Work node with agent',
       zoomIn: 'Zoom in (Ctrl+wheel)',
       zoomOut: 'Zoom out (Ctrl+wheel)',
       zoomReset: 'Reset zoom to 100%',
@@ -1619,12 +1621,12 @@ window.__ModuleLoader__.load({
           // an in-port double-click).
           const edges = fromId
             ? prev.edges.concat([
-                {
-                  id: uid('e'),
-                  from: reverse ? node.id : fromId,
-                  to: reverse ? fromId : node.id,
-                  label: '',
-                },
+                (() => {
+                  const id = uid('e')
+                  const from = fromId ? prev.nodes.find(n => n.id === fromId) : null
+                  const label = from && from.type === 'router' ? branchLabelFor(prev.edges.filter(edge => edge.from === fromId), id) : ''
+                  return { id, from: reverse ? node.id : fromId, to: reverse ? fromId : node.id, label }
+                })(),
               ])
             : prev.edges
           return { ...prev, nodes: prev.nodes.concat([node]), edges }
@@ -1796,18 +1798,18 @@ window.__ModuleLoader__.load({
       }
 
       // 判断节点出线分支是/否互斥；新建出线时自动分配：先是，再否，都用完才落自定义（留空待填）
+      const branchLabelFor = (outs, id) => {
+        if (!outs.some(edge => edge.label === '是')) return '是'
+        if (!outs.some(edge => edge.label === '否')) return '否'
+        branchCustomRef.current[id] = true
+        return ''
+      }
       const addEdge = (fromId, toId) => {
         setDoc(prev => {
           if (prev.edges.some(edge => edge.from === fromId && edge.to === toId)) return prev
           const from = prev.nodes.find(node => node.id === fromId)
           const id = uid('e')
-          let label = ''
-          if (from && from.type === 'router') {
-            const outs = prev.edges.filter(edge => edge.from === fromId)
-            if (!outs.some(edge => edge.label === '是')) label = '是'
-            else if (!outs.some(edge => edge.label === '否')) label = '否'
-            else branchCustomRef.current[id] = true
-          }
+          const label = from && from.type === 'router' ? branchLabelFor(prev.edges.filter(edge => edge.from === fromId), id) : ''
           return { ...prev, edges: prev.edges.concat([{ id, from: fromId, to: toId, label }]) }
         })
       }
@@ -2758,7 +2760,7 @@ window.__ModuleLoader__.load({
                   className: 'awbc-menu',
                   ref: linkMenuRef,
                   key: 'link-menu',
-                  style: { left, top },
+                  style: { left, top, maxHeight: '60vh', overflowY: 'auto' },
                   onContextMenu: event => event.preventDefault(),
                   onPointerDown: event => event.stopPropagation(),
                 },
@@ -2782,6 +2784,29 @@ window.__ModuleLoader__.load({
                     typeLabel(t, type),
                   ),
                 ),
+                userAgents.length
+                  ? [
+                      h('div', { className: 'awbc-sec', key: 'agents-sec', style: { margin: '6px 6px 2px' } }, t('pickerAgents')),
+                      ...userAgents.map(agent =>
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            key: 'agent-' + agent.id,
+                            className: 'awbc-menu-item',
+                            onClick: () => {
+                              const name = (agent.name && agent.name !== agent.id ? agent.name : agent.id).slice(0, 80)
+                              createLinkedNode('work', { label: name, agent: agent.id, exec: 'subagent' }, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.reverse)
+                              setLinkMenu(null)
+                              setLinkDrag(null)
+                            },
+                          },
+                          h('span', { className: 'awbc-tile work', 'aria-hidden': true, style: { width: 18, height: 18, fontSize: 9 } }, NODE_TYPES.work.glyph),
+                          agentLabel(agent) + (agent.scope === 'project' ? t('scopeProjectShort') : ''),
+                        ),
+                      ),
+                    ]
+                  : null,
               )
             })()
           : null,
