@@ -516,10 +516,10 @@ window.__ModuleLoader__.load({
       '.awbc-menu-item.danger{color:var(--dsw-alias-state-error-primary)}',
       '.awbc-menu-item.danger:hover{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent)}',
       '.awbc-menu-item[disabled]{opacity:.4;cursor:not-allowed}',
-      // --- 角色档位徽标（v2.8.1）：U=用户级(绿) / P=项目级(蓝)，写在名册卡片的图标方块上 ---
-      '.awbc-scope-badge{display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;font-size:12px;font-weight:700;line-height:1}',
-      '.awbc-scope-badge.user{background:color-mix(in srgb, #30d158 18%, transparent);color:#30d158;border:1px solid color-mix(in srgb, #30d158 45%, transparent)}',
-      '.awbc-scope-badge.project{background:color-mix(in srgb, #0a84ff 18%, transparent);color:#409cff;border:1px solid color-mix(in srgb, #0a84ff 50%, transparent)}',
+      // --- 角色档位徽标（v2.8.1）：U=用户级(绿底) / P=项目级(蓝底)，白字，写在名册卡片的图标方块上 ---
+      '.awbc-scope-badge{display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;font-size:12px;font-weight:700;line-height:1;color:#fff}',
+      '.awbc-scope-badge.user{background:#2f9e44}',
+      '.awbc-scope-badge.project{background:#2f6fe0}',
       // --- agent editor（v2.8.0 名册角色新建/编辑弹窗）---
       '.awbc-agent-dialog{width:560px;max-width:92%;max-height:82vh;overflow:auto}',
       '.awbc-agent-dialog textarea{min-height:200px}',
