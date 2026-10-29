@@ -32,12 +32,19 @@ window.__ModuleLoader__.load({
     // --- 四向端口（上下左右，可进可出，无入出之分）---
     const PORTS = ['top', 'right', 'bottom', 'left']
     const PORT_DIRS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] }
+    // 节点宽度随名称自适应：CJK 字符按 12px、半角按 6.5px 估宽，含图标/内边距，72–232 之间截断
+    function measureNodeWidth(label) {
+      let text = 0
+      for (const ch of String(label || '')) text += ch.charCodeAt(0) > 0xff ? 12 : 6.5
+      return Math.round(Math.min(232, Math.max(72, text + 52)))
+    }
     function portPoint(node, port) {
+      const w = measureNodeWidth(node.label)
       switch (port) {
-        case 'top': return { x: node.x + NODE_W / 2, y: node.y }
-        case 'bottom': return { x: node.x + NODE_W / 2, y: node.y + NODE_H }
+        case 'top': return { x: node.x + w / 2, y: node.y }
+        case 'bottom': return { x: node.x + w / 2, y: node.y + NODE_H }
         case 'left': return { x: node.x, y: node.y + NODE_H / 2 }
-        default: return { x: node.x + NODE_W, y: node.y + NODE_H / 2 }
+        default: return { x: node.x + w, y: node.y + NODE_H / 2 }
       }
     }
     function nearestPort(node, px, py) {
@@ -452,7 +459,7 @@ window.__ModuleLoader__.load({
       '.awbc-edge-label.no{fill:#e5534b}',
       '.awbc-edge-label{font-size:10px;fill:var(--dsw-alias-label-secondary);paint-order:stroke;stroke:var(--dsw-alias-bg-layer-2);stroke-width:3}',
       // --- node cards ---
-      '.awbc-node{position:absolute;width:232px;min-height:60px;display:flex;gap:9px;align-items:flex-start;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
+      '.awbc-node{position:absolute;min-height:64px;display:flex;gap:9px;align-items:flex-start;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
       '.awbc-node.selected{border-color:var(--dsw-alias-brand-primary);box-shadow:0 0 0 1px var(--dsw-alias-brand-primary),0 2px 8px rgba(0,0,0,.12)}',
       '.awbc-node.connect-src{border-color:var(--dsw-alias-state-success-primary);box-shadow:0 0 0 1px var(--dsw-alias-state-success-primary)}',
       '.awbc-node-main{flex:1 1 auto;min-width:0}',
@@ -1687,8 +1694,6 @@ window.__ModuleLoader__.load({
         const linked = Boolean(fromId)
         // 新节点摆在拉线方向的前方：端口朝向源节点，连线不回头。
         const dir = PORT_DIRS[PORTS.includes(fromPort) ? fromPort : 'right']
-        const cx = anchorX + dir[0] * (NODE_W / 2 + 70)
-        const cy = anchorY + dir[1] * (NODE_H / 2 + 60)
         const node = {
           id: uid('n'),
           type,
@@ -1699,9 +1704,17 @@ window.__ModuleLoader__.load({
           exec: 'subagent',
           hookKind: '',
           note: '',
-          x: linked ? cx - NODE_W / 2 : anchorX - NODE_W / 2,
-          y: linked ? cy - NODE_H / 2 : anchorY - NODE_H / 2,
+          x: 0,
+          y: 0,
           ...extra,
+        }
+        const nw = measureNodeWidth(node.label)
+        if (linked) {
+          node.x = anchorX + dir[0] * (nw / 2 + 70) - nw / 2
+          node.y = anchorY + dir[1] * (NODE_H / 2 + 60) - NODE_H / 2
+        } else {
+          node.x = anchorX - nw / 2
+          node.y = anchorY - NODE_H / 2
         }
         // 新节点的落线端口 = 面向源端口的那一边；源端口与落点相背时（源是 top 拉向下）就近修正。
         const inPort = nearestPort(node, anchorX, anchorY)
@@ -1724,11 +1737,12 @@ window.__ModuleLoader__.load({
       // Double-click a port: open the create-node picker at the cursor.
       const openPortPicker = (event, node, port) => {
         event.stopPropagation()
+        const pw = measureNodeWidth(node.label)
         const dir = PORT_DIRS[PORTS.includes(port) ? port : 'right']
         setLinkMenu({
           screenX: event.clientX,
           screenY: event.clientY,
-          x: node.x + NODE_W / 2 + dir[0] * (NODE_W / 2 + 70),
+          x: node.x + pw / 2 + dir[0] * (pw / 2 + 70),
           y: node.y + NODE_H / 2 + dir[1] * (NODE_H / 2 + 60),
           fromId: node.id,
           fromPort: port,
@@ -1759,8 +1773,8 @@ window.__ModuleLoader__.load({
           const src = doc.nodes.find(node => node.id === connectSource)
           const dst = target
           if (src && dst) {
-            const c = { x: dst.x + NODE_W / 2, y: dst.y + NODE_H / 2 }
-            const s = { x: src.x + NODE_W / 2, y: src.y + NODE_H / 2 }
+            const c = { x: dst.x + measureNodeWidth(dst.label) / 2, y: dst.y + NODE_H / 2 }
+            const s = { x: src.x + measureNodeWidth(src.label) / 2, y: src.y + NODE_H / 2 }
             addEdge(connectSource, nodeId, nearestPort(src, c.x, c.y), nearestPort(dst, s.x, s.y))
           } else addEdge(connectSource, nodeId)
           setConnectSource('')
@@ -2189,7 +2203,7 @@ window.__ModuleLoader__.load({
             key: node.id,
             'data-node-id': node.id,
             className: `awbc-node${multiIds.includes(node.id) ? ' selected' : ''}${connectSource === node.id ? ' connect-src' : ''}`,
-            style: { left: node.x, top: node.y },
+            style: { left: node.x, top: node.y, width: measureNodeWidth(node.label) },
             title: nodeSubText(node, t),
             onPointerDown: event => startNodeDrag(event, node),
             onContextMenu: event => openNodeMenu(event, node.id),
@@ -2214,9 +2228,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'awbc-node-title' }, node.label || node.id),
               statusText ? h('span', { className: 'awbc-dot ' + status, title: statusText }) : null,
             ),
-            nodeSubText(node, t) ? h('div', { className: 'awbc-node-sub' }, nodeSubText(node, t)) : null,
-            node.type === 'hook' ? h('div', { className: 'awbc-node-badge' }, t('hookPreviewBadge')) : null,
-          ),
+          )
         )
       })
 
@@ -2869,7 +2881,7 @@ window.__ModuleLoader__.load({
               // 选中后新节点的落点：与 createLinkedNode 的摆放公式一致，选中即把视口居中过去
               const placeDir = PORT_DIRS[PORTS.includes(linkMenu.fromPort) ? linkMenu.fromPort : 'right']
               const dropCenter = linkMenu.fromId
-                ? { x: linkMenu.x + placeDir[0] * (NODE_W / 2 + 70), y: linkMenu.y + placeDir[1] * (NODE_H / 2 + 60) }
+                ? { x: linkMenu.x + placeDir[0] * 130, y: linkMenu.y + placeDir[1] * 92 }
                 : { x: linkMenu.x, y: linkMenu.y }
               const focusDrop = () => centerOn(dropCenter.x, dropCenter.y)
               return h(
