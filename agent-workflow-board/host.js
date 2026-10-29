@@ -685,9 +685,31 @@ export function apply(ctx) {
               if (action === 'put') {
                 const canvas = normalizeStored(body.canvas)
                 if (!canvas) return json({ error: 'bad-canvas' }, 400)
+                // 绑定锁：方案被任一会话绑定期间禁止修改（删画布仍允许，删时会清绑定）。
+                try {
+                  const bindings = await readBindings()
+                  const holder = Object.keys(bindings).find(sid => bindings[sid] && bindings[sid].canvasId === canvas.id)
+                  if (holder) return json({ error: 'bound-locked', sessionId: holder }, 409)
+                } catch {
+                  /* 锁检查失败不阻塞保存（best-effort） */
+                }
+                // 名称唯一：与其他画布重名则拒绝（客户端通常会先自行改名避开）。
+                if (canvas.name) {
+                  const canvases = await listCanvases()
+                  if (canvases.some(entry => entry.id !== canvas.id && entry.name === canvas.name)) {
+                    return json({ error: 'dup-name' }, 409)
+                  }
+                }
                 canvas.updatedAt = Date.now()
                 await writeCanvas(canvas)
                 return json({ canvas })
+              }
+              if (action === 'getLock') {
+                const id = sanitizeId(body.id)
+                if (!id) return json({ error: 'missing-id' }, 400)
+                const bindings = await readBindings()
+                const holder = Object.keys(bindings).find(sid => bindings[sid] && bindings[sid].canvasId === id)
+                return json({ locked: Boolean(holder), sessionId: holder || '' })
               }
               if (action === 'delete') {
                 const id = sanitizeId(body.id)

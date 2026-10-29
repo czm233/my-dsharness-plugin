@@ -96,6 +96,9 @@ window.__ModuleLoader__.load({
       refresh: '刷新',
       docsEmpty: '还没有已保存的画布',
       docUnnamed: '未命名画布',
+      canvasNamePrefix: '画布',
+      dupName: '画布名称与其他画布重复，已自动追加时间后缀',
+      boundLocked: '该画布已绑定会话执行中，已锁定编辑；解绑后才能修改',
       newCanvas: '新建',
       save: '保存',
       saveBlocked: '有未通过的检查项，无法保存',
@@ -241,6 +244,9 @@ window.__ModuleLoader__.load({
       refresh: 'Refresh',
       docsEmpty: 'No saved canvases yet',
       docUnnamed: 'Untitled canvas',
+      canvasNamePrefix: 'Canvas',
+      dupName: 'Canvas name duplicates another; a timestamp suffix was added',
+      boundLocked: 'This canvas is bound to a session and locked; unbind to edit',
       newCanvas: 'New',
       save: 'Save',
       saveBlocked: 'Fix validation errors before saving',
@@ -582,6 +588,13 @@ window.__ModuleLoader__.load({
       if (type === 'end') return t('descEnd')
       if (type === 'hook') return t('descHook')
       return t('descWork')
+    }
+
+    // 画布默认名的时间戳部分：YYYYMMDD-HHMMSS（同秒创建由调用方再加后缀去重）
+    function stampName() {
+      const d = new Date()
+      const p = n => String(n).padStart(2, '0')
+      return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
     }
 
     function emptyDoc() {
@@ -1020,6 +1033,8 @@ window.__ModuleLoader__.load({
       const savedSnapRef = React.useRef(WORKBENCH.savedSnap || JSON.stringify(initialDoc))
       // 自动保存状态：idle | pending（防抖等待） | saving | error
       const [saveState, setSaveState] = React.useState('idle')
+      // 只读判定：当前打开的画布正处于绑定锁下
+      const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
       // 撤销/重做历史：doc 快照栈 + 指针。suppress 标记 undo/redo 自身的 doc 变更，不进栈。
       const histRef = React.useRef({ canvasId: initialDoc.id, stack: [JSON.stringify(initialDoc)], index: 0, last: JSON.stringify(initialDoc), lastAt: 0, suppress: false })
 
@@ -1119,6 +1134,8 @@ window.__ModuleLoader__.load({
       const board = useProjection ? useProjection('agentWorkflowBoard') : undefined
       const lanes = board && Array.isArray(board.lanes) ? board.lanes : []
       const [runtimeStatus, setRuntimeStatus] = React.useState({})
+      // 绑定锁：画布被任一会话绑定期间只读（宿主 put 也会拒绝，双保险）
+      const [lockState, setLockState] = React.useState({ id: '', locked: false })
       React.useEffect(() => {
         let alive = true
         const poll = () => {
@@ -1127,6 +1144,11 @@ window.__ModuleLoader__.load({
           apiCall({ action: 'getStatus', id: canvasId })
             .then(data => {
               if (alive) setRuntimeStatus((data && data.status) || {})
+            })
+            .catch(() => {})
+          apiCall({ action: 'getLock', id: canvasId })
+            .then(data => {
+              if (alive) setLockState({ id: canvasId, locked: Boolean(data && data.locked) })
             })
             .catch(() => {})
         }
@@ -1269,6 +1291,11 @@ window.__ModuleLoader__.load({
           setSaveState('saving')
           const next = { ...base, name: base.name || t('docUnnamed'), updatedAt: Date.now() }
           if (!next.id) next.id = uid('c')
+          // 名称唯一：与其他画布重名时自动追加时间戳后缀（宿主 put 也会兜底拒绝）
+          if (next.name) {
+            const taken = new Set(docsList.filter(entry => entry.id !== next.id).map(entry => entry.name).filter(Boolean))
+            if (taken.has(next.name)) next.name = `${next.name}-${stampName()}`
+          }
           return apiCall({ action: 'put', canvas: next })
             .then(data => {
               const saved = normalizeDoc(data && data.canvas)
@@ -1281,13 +1308,16 @@ window.__ModuleLoader__.load({
               refreshDocs()
               return true
             })
-            .catch(() => {
+            .catch(error => {
               setSaveState('error')
-              if (!options.silent) showToast(t('loadFailed'))
+              const msg = error && error.message ? error.message : ''
+              if (!options.silent && msg.includes('dup-name')) showToast(t('dupName'))
+              else if (!options.silent && msg.includes('bound-locked')) showToast(t('boundLocked'))
+              else if (!options.silent) showToast(t('loadFailed'))
               return false
             })
         },
-        [refreshDocs, showToast, t],
+        [refreshDocs, showToast, t, docsList],
       )
 
       // --- M2.1 会话绑定 ---------------------------------------------------
@@ -1333,6 +1363,7 @@ window.__ModuleLoader__.load({
       )
 
       const saveDoc = React.useCallback(() => {
+        if (readOnly) return
         // 保存前强制校验：存在 error 级问题时不允许保存，并展示问题列表。
         const found = validateDoc(doc, t)
         setIssues(found)
@@ -1341,11 +1372,11 @@ window.__ModuleLoader__.load({
           return
         }
         persistDoc(doc)
-      }, [doc, persistDoc, t])
+      }, [doc, persistDoc, t, readOnly])
 
-      // 自动保存：文档变更后防抖落盘；有 error 级校验问题时暂不自动保存（等修正后下一笔编辑触发）。
+      // 自动保存：文档变更后防抖落盘；有 error 级校验问题时暂不自动保存（等修正后下一笔编辑触发）；只读时不动。
       React.useEffect(() => {
-        if (!dirty) return undefined
+        if (!dirty || readOnly) return undefined
         setSaveState(state => (state === 'saving' ? state : 'pending'))
         const timer = setTimeout(() => {
           const found = validateDoc(doc, t)
@@ -1354,7 +1385,7 @@ window.__ModuleLoader__.load({
           persistDoc(doc, { silent: true })
         }, 1800)
         return () => clearTimeout(timer)
-      }, [doc, dirty, persistDoc, t])
+      }, [doc, dirty, persistDoc, t, readOnly])
 
       // 未保存内容防丢兜底：还有未落盘变更时，关闭/重载窗口前挂原生确认。
       // 自动保存把窗口缩到 1.8s 防抖内，这里只挡真正的意外退出。
@@ -1411,18 +1442,20 @@ window.__ModuleLoader__.load({
       const canRedo = histRef.current.index < histRef.current.stack.length - 1
 
       const undo = React.useCallback(() => {
+        if (readOnly) return
         const hist = histRef.current
         if (hist.index <= 0) return
         hist.index -= 1
         applyHistory(hist.stack[hist.index])
-      }, [applyHistory])
+      }, [applyHistory, readOnly])
 
       const redo = React.useCallback(() => {
+        if (readOnly) return
         const hist = histRef.current
         if (hist.index >= hist.stack.length - 1) return
         hist.index += 1
         applyHistory(hist.stack[hist.index])
-      }, [applyHistory])
+      }, [applyHistory, readOnly])
 
       // Ctrl/Cmd+Z 撤销、Ctrl/Cmd+Shift+Z 或 Ctrl+Y 重做；输入框内不拦截。
       React.useEffect(() => {
@@ -1533,6 +1566,7 @@ window.__ModuleLoader__.load({
 
       const startNodeDrag = (event, node) => {
         if (!event || event.button !== 0) return
+        if (readOnly) return
         // SPACE pans the canvas — even when pressing on a node.
         if (spaceHeld) return
         if (connectMode) return
@@ -1581,6 +1615,7 @@ window.__ModuleLoader__.load({
       // canvas cancels).
       const startLinkDrag = (event, fromNode, fromPort) => {
         if (!event || event.button !== 0) return
+        if (readOnly) return
         // 强制：结束节点是终点，不能向外连线。
         if (fromNode.type === 'end') return
         event.stopPropagation()
@@ -1637,6 +1672,7 @@ window.__ModuleLoader__.load({
       // Create a node at (planeX, planeY) — optionally auto-linked from a
       // source node (used by the blank-drop picker after a port drag).
       const createLinkedNode = (type, extra, anchorX, anchorY, fromId, fromPort) => {
+        if (readOnly) return
         const linked = Boolean(fromId)
         // 新节点摆在拉线方向的前方：端口朝向源节点，连线不回头。
         const dir = PORT_DIRS[PORTS.includes(fromPort) ? fromPort : 'right']
@@ -1690,6 +1726,7 @@ window.__ModuleLoader__.load({
 
       const onNodeClick = nodeId => {
         if (connectMode) {
+          if (readOnly) return
           if (!connectSource) {
             // 强制：结束节点不能向外连线。
             const source = doc.nodes.find(node => node.id === nodeId)
@@ -1725,6 +1762,7 @@ window.__ModuleLoader__.load({
       }
 
       const updateSelected = (field, value) => {
+        if (readOnly) return
         setDoc(prev => ({
           ...prev,
           nodes: prev.nodes.map(node => (node.id === selectedId ? { ...node, [field]: value } : node)),
@@ -1732,6 +1770,7 @@ window.__ModuleLoader__.load({
       }
 
       const deleteSelected = () => {
+        if (readOnly) return
         const ids = multiIds.length > 0 ? multiIds.slice() : selectedId ? [selectedId] : []
         if (ids.length === 0) return
         setDoc(prev => ({
@@ -1762,6 +1801,7 @@ window.__ModuleLoader__.load({
       }, [selectedId, multiIds])
 
       const deleteEdge = edgeId => {
+        if (readOnly) return
         setDoc(prev => ({ ...prev, edges: prev.edges.filter(edge => edge.id !== edgeId) }))
       }
 
@@ -1819,6 +1859,7 @@ window.__ModuleLoader__.load({
       }, [linkMenu])
 
       const duplicateNode = nodeId => {
+        if (readOnly) return
         setDoc(prev => {
           const source = prev.nodes.find(node => node.id === nodeId)
           if (!source || source.type === 'start') return prev
@@ -1829,6 +1870,7 @@ window.__ModuleLoader__.load({
       }
 
       const deleteNodeById = nodeId => {
+        if (readOnly) return
         setDoc(prev => ({
           ...prev,
           nodes: prev.nodes.filter(node => node.id !== nodeId),
@@ -1839,6 +1881,7 @@ window.__ModuleLoader__.load({
       }
 
       const updateEdge = (edgeId, field, value) => {
+        if (readOnly) return
         setDoc(prev => ({
           ...prev,
           edges: prev.edges.map(edge => (edge.id === edgeId ? { ...edge, [field]: value } : edge)),
@@ -1853,6 +1896,7 @@ window.__ModuleLoader__.load({
         return ''
       }
       const addEdge = (fromId, toId, fromPort, toPort) => {
+        if (readOnly) return
         setDoc(prev => {
           if (prev.edges.some(edge => edge.from === fromId && edge.to === toId)) return prev
           const from = prev.nodes.find(node => node.id === fromId)
@@ -1864,6 +1908,7 @@ window.__ModuleLoader__.load({
 
       // --- 一键整理布局：从主会话分层（BFS 最长层），孤岛接在末尾，层内竖排 ----
       const autoLayout = () => {
+        if (readOnly) return
         setDoc(prev => {
           if (prev.nodes.length === 0) return prev
           const ids = new Set(prev.nodes.map(node => node.id))
@@ -2543,8 +2588,10 @@ window.__ModuleLoader__.load({
           className: 'awbc-name',
           value: doc.name,
           placeholder: t('docUnnamed'),
+          disabled: readOnly,
           onChange: event => setDoc(prev => ({ ...prev, name: event.target.value })),
         }),
+        readOnly ? h('span', { key: 'lock', className: 'awbc-badge', title: t('boundLocked'), style: { color: 'var(--dsw-alias-state-warning-primary,#c78a1d)' } }, '🔒') : null,
         h('span', { key: 'badge', className: 'awbc-badge' + (dirty ? (saveState === 'error' ? ' error' : '') : ' ok') },
           h('span', { className: 'awbc-badge-dot' }),
           dirty ? (saveState === 'error' ? t('saveFailed') : errorCount > 0 ? t('unsavedBadge') : t('savingBadge')) : t('savedBadge'),
@@ -2589,6 +2636,8 @@ window.__ModuleLoader__.load({
           className: 'awbc-btn',
           onClick: () => {
             const empty = emptyDoc()
+            // 默认名带时间戳，天然不与已有画布重名（同秒再建由保存时去重兜底）
+            empty.name = `${t('canvasNamePrefix')} ${stampName()}`
             setDoc(empty)
             savedSnapRef.current = JSON.stringify(empty)
             setSelectedId('')
