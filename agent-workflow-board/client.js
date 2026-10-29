@@ -2564,7 +2564,7 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { style: { display: 'flex', gap: 6, alignSelf: 'flex-start' } },
-            h('button', { type: 'button', className: 'awbc-btn primary', onClick: () => openAgentEditor(null) }, t('agentNew')),
+            h('button', { type: 'button', className: 'awbc-btn', onClick: () => openAgentEditor(null) }, t('agentNew')),
             h('button', { type: 'button', className: 'awbc-btn', onClick: () => refreshAgents(currentProjectDir()) }, t('refresh')),
           ),
           h('div', { className: 'awbc-sec' }, t('secDocs')),
