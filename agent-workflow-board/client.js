@@ -2178,16 +2178,19 @@ window.__ModuleLoader__.load({
                 delete branchCustomRef.current[edge.id]
                 const newLabel = value === 'yes' ? '是' : '否'
                 const other = newLabel === '是' ? '否' : '是'
+                // 分支决定走向：「是」从右侧端口继续主流程，「否」从底部端口往下分岔。
+                const wantPort = newLabel === '是' ? 'right' : 'bottom'
                 // 是/否全画布（同一判断节点出线）单选：别的线占了这个档就把它挪到另一档，另一档也被占就落自定义待填
                 setDoc(prev => {
                   const outs = prev.edges.filter(e2 => e2.from === edge.from && e2.id !== edge.id)
                   const otherTaken = outs.some(e2 => e2.label === other)
+                  const otherPort = newLabel === '是' ? 'bottom' : 'right'
                   return {
                     ...prev,
                     edges: prev.edges.map(e2 => {
-                      if (e2.id === edge.id) return { ...e2, label: newLabel }
+                      if (e2.id === edge.id) return { ...e2, label: newLabel, fromPort: wantPort }
                       if (e2.from !== edge.from || e2.label !== newLabel) return e2
-                      return { ...e2, label: otherTaken ? '' : other }
+                      return { ...e2, label: otherTaken ? '' : other, fromPort: otherTaken ? e2.fromPort : otherPort }
                     }),
                   }
                 })
