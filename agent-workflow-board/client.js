@@ -763,7 +763,8 @@ window.__ModuleLoader__.load({
       const p2 = portPoint(to, tp)
       const d1 = PORT_DIRS[fp]
       const d2 = PORT_DIRS[tp]
-      const off = Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2)
+      // 控制点沿端口法线外推：近距离按距离一半，远距离封顶 160px，避免回环线拉出巨大的半圆
+      const off = Math.min(160, Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2))
       const c1 = { x: p1.x + d1[0] * off, y: p1.y + d1[1] * off }
       const c2 = { x: p2.x + d2[0] * off, y: p2.y + d2[1] * off }
       // 标签锚点取曲线中点（t=0.5）：(p1 + 3c1 + 3c2 + p2) / 8，保证大弯弧时标签贴在线上而不是悬在圆心
