@@ -140,9 +140,12 @@ window.__ModuleLoader__.load({
       hookSessionEnd: '会话结束时',
       fieldHookNote: '动作说明',
       hookPreviewBadge: '按时机注入提示词',
-      routerHint: '判断节点连出的每条线都要写分支标签，由主会话按条件选择。',
+      routerHint: '判断节点每条出线选「是/否」即可；特殊情况选「自定义」再填文字，主会话按判断说明选分支。',
       edgesLabel: '连出的线',
       edgeLabelField: '分支标签',
+      branchYes: '是',
+      branchNo: '否',
+      branchCustom: '自定义',
       deleteNode: '删除节点',
       selectNodeHint: '点击画布上的节点编辑属性',
       legendNormal: '连线',
@@ -281,9 +284,12 @@ window.__ModuleLoader__.load({
       hookSessionEnd: 'Session end',
       fieldHookNote: 'Action notes',
       hookPreviewBadge: 'Injected at its trigger',
-      routerHint: 'Every line out of a router needs a branch label; the main session picks by condition.',
+      routerHint: 'Pick Yes/No for each router edge; use Custom only for special cases, the main session picks by decision notes.',
       edgesLabel: 'Outgoing edges',
       edgeLabelField: 'Branch label',
+      branchYes: 'Yes',
+      branchNo: 'No',
+      branchCustom: 'Custom',
       deleteNode: 'Delete node',
       selectNodeHint: 'Click a node on the canvas to edit',
       legendNormal: 'flow',
@@ -405,6 +411,12 @@ window.__ModuleLoader__.load({
       '.awbc-edge.hot{stroke:var(--dsw-alias-brand-primary);stroke-width:2}',
       '.awbc-edge-arrow{fill:var(--dsw-alias-label-tertiary)}',
       '.awbc-edge-arrow.hot{fill:var(--dsw-alias-brand-primary)}',
+      '.awbc-edge-arrow.yes{fill:#34c77b}',
+      '.awbc-edge-arrow.no{fill:#e5534b}',
+      '.awbc-edge.yes{stroke:#34c77b}',
+      '.awbc-edge.no{stroke:#e5534b}',
+      '.awbc-edge-label.yes{fill:#34c77b}',
+      '.awbc-edge-label.no{fill:#e5534b}',
       '.awbc-edge-label{font-size:10px;fill:var(--dsw-alias-label-secondary);paint-order:stroke;stroke:var(--dsw-alias-bg-layer-2);stroke-width:3}',
       // --- node cards ---
       '.awbc-node{position:absolute;width:232px;min-height:60px;display:flex;gap:9px;align-items:flex-start;padding:9px 10px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:grab;user-select:none;touch-action:none}',
@@ -985,6 +997,8 @@ window.__ModuleLoader__.load({
       const ZOOM_MIN = 0.25
       const ZOOM_MAX = 2.5
       const zoomRef = React.useRef(zoom)
+      // 判断出线「自定义」模式的记忆：选中自定义但文字还没填时，下拉要保持停在自定义项并露出输入框
+      const branchCustomRef = React.useRef({})
       zoomRef.current = zoom
 
       // 以（屏幕坐标）锚点为中心缩放：锚点的世界坐标在缩放前后保持不动。
@@ -1985,11 +1999,11 @@ window.__ModuleLoader__.load({
         h(
           'defs',
           { key: 'defs' },
-          ['awbc-arrow', 'awbc-arrow-hot'].map((id, index) =>
+          ['awbc-arrow', 'awbc-arrow-hot', 'awbc-arrow-yes', 'awbc-arrow-no'].map(id =>
             h(
               'marker',
               { key: id, id, markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto', markerUnits: 'strokeWidth' },
-              h('path', { className: index === 1 ? 'awbc-edge-arrow hot' : 'awbc-edge-arrow', d: 'M0,0 L8,4 L0,8 Z' }),
+              h('path', { className: 'awbc-edge-arrow' + (id === 'awbc-arrow-hot' ? ' hot' : id === 'awbc-arrow-yes' ? ' yes' : id === 'awbc-arrow-no' ? ' no' : ''), d: 'M0,0 L8,4 L0,8 Z' }),
             ),
           ),
         ),
@@ -1999,14 +2013,15 @@ window.__ModuleLoader__.load({
           if (!from || !to) return null
           const geo = edgeGeometry(from, to)
           const hot = selectedId === edge.from || selectedId === edge.to
+          const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
           return h('g', { key: edge.id },
             h('path', {
-              className: 'awbc-edge' + (hot ? ' hot' : ''),
+              className: 'awbc-edge' + kind + (hot ? ' hot' : ''),
               d: geo.d,
-              markerEnd: 'url(#' + (hot ? 'awbc-arrow-hot' : 'awbc-arrow') + ')',
+              markerEnd: 'url(#' + (kind ? 'awbc-arrow-' + kind.trim() : hot ? 'awbc-arrow-hot' : 'awbc-arrow') + ')',
             }),
             edge.label
-              ? h('text', { className: 'awbc-edge-label', x: geo.mx, y: geo.my - 5, textAnchor: 'middle' }, edge.label)
+              ? h('text', { className: 'awbc-edge-label' + kind, x: geo.mx, y: geo.my - 5, textAnchor: 'middle' }, edge.label)
               : null,
           )
         }),
@@ -2100,21 +2115,47 @@ window.__ModuleLoader__.load({
             .filter(edge => edge.from === selected.id)
             .map(edge => {
               const to = nodeById(edge.to)
+              const toName = to ? to.label : edge.to
+              const kind = edge.label === '是' ? 'yes' : edge.label === '否' ? 'no' : branchCustomRef.current[edge.id] || edge.label ? 'custom' : ''
+              const kindColor = kind === 'yes' ? '#34c77b' : kind === 'no' ? '#e5534b' : undefined
+              const setBranch = value => {
+                if (value === 'custom') branchCustomRef.current[edge.id] = true
+                else delete branchCustomRef.current[edge.id]
+                updateEdge(edge.id, 'label', value === 'yes' ? '是' : value === 'no' ? '否' : '')
+              }
               return h(
                 'div',
                 { className: 'awbc-edge-row', key: edge.id },
                 h(
                   'div',
                   { className: 'awbc-edge-line' },
-                  h('span', { className: 'awbc-edge-text', title: to ? to.label : edge.to }, `→ ${to ? to.label : edge.to}`),
+                  h('span', { className: 'awbc-edge-text', title: toName, style: kindColor ? { color: kindColor } : undefined }, `→ ${toName}`),
                   h('button', { type: 'button', className: 'awbc-mini', title: '✕', onClick: () => deleteEdge(edge.id) }, '✕'),
                 ),
-                h('input', {
-                  className: 'awbc-input',
-                  value: edge.label,
-                  placeholder: t('edgeLabelField'),
-                  onChange: event => updateEdge(edge.id, 'label', event.target.value),
-                }),
+                selected.type === 'router'
+                  ? h(
+                      'select',
+                      { className: 'awbc-input', value: kind, onChange: event => setBranch(event.target.value) },
+                      h('option', { value: '' }, t('edgeLabelField')),
+                      h('option', { value: 'yes' }, t('branchYes')),
+                      h('option', { value: 'no' }, t('branchNo')),
+                      h('option', { value: 'custom' }, t('branchCustom')),
+                    )
+                  : h('input', {
+                      className: 'awbc-input',
+                      value: edge.label,
+                      placeholder: t('edgeLabelField'),
+                      onChange: event => updateEdge(edge.id, 'label', event.target.value),
+                    }),
+                selected.type === 'router' && kind === 'custom'
+                  ? h('input', {
+                      className: 'awbc-input',
+                      value: edge.label,
+                      placeholder: t('edgeLabelField'),
+                      autoFocus: true,
+                      onChange: event => updateEdge(edge.id, 'label', event.target.value),
+                    })
+                  : null,
               )
             })
         : []
