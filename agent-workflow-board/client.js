@@ -29,6 +29,31 @@ window.__ModuleLoader__.load({
     const NODE_W = 232
     const NODE_H = 64
 
+    // --- 四向端口（上下左右，可进可出，无入出之分）---
+    const PORTS = ['top', 'right', 'bottom', 'left']
+    const PORT_DIRS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] }
+    function portPoint(node, port) {
+      switch (port) {
+        case 'top': return { x: node.x + NODE_W / 2, y: node.y }
+        case 'bottom': return { x: node.x + NODE_W / 2, y: node.y + NODE_H }
+        case 'left': return { x: node.x, y: node.y + NODE_H / 2 }
+        default: return { x: node.x + NODE_W, y: node.y + NODE_H / 2 }
+      }
+    }
+    function nearestPort(node, px, py) {
+      let best = 'right'
+      let bestD = Infinity
+      for (const port of PORTS) {
+        const pt = portPoint(node, port)
+        const d = (pt.x - px) ** 2 + (pt.y - py) ** 2
+        if (d < bestD) {
+          bestD = d
+          best = port
+        }
+      }
+      return best
+    }
+
     const NODE_TYPES = {
       start: { glyph: '▶' },
       work: { glyph: '⚙' },
@@ -433,15 +458,14 @@ window.__ModuleLoader__.load({
       '.awbc-dot.error{background:var(--dsw-alias-state-error-primary)}',
       '.awbc-node-sub{margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px;max-height:30px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}',
       '.awbc-node-badge{margin-top:3px;color:var(--dsw-alias-state-warning-primary,#c78a1d);font-size:10px;line-height:13px}',
-      // --- connection ports (workflow-lite style side dots) ---
-      // Port center pinned at 32px from the node's OUTER top (= NODE_H / 2,
-      // where edges terminate). top:26px + 5px half-height + 1px border = 32.
-      '.awbc-port{position:absolute;top:26px;width:10px;height:10px;border-radius:50%;box-sizing:border-box;background:#0e1116;border:2px solid var(--dsw-alias-label-tertiary);cursor:crosshair;z-index:2;transition:border-color .12s linear, transform .12s linear}',
+      // --- connection ports: 四边各一个，可进可出 ---
+      '.awbc-port{position:absolute;width:10px;height:10px;border-radius:50%;box-sizing:border-box;background:#0e1116;border:2px solid var(--dsw-alias-label-tertiary);cursor:crosshair;z-index:2;transition:border-color .12s linear, transform .12s linear}',
       // Generous invisible hit area around the small visible dot.
       '.awbc-port::after{content:"";position:absolute;inset:-8px}',
-      '.awbc-port.in{left:-6px}',
-      // 方向语法：左空心（入，等待被连入）· 右实心（出，从这里发出）。
-      '.awbc-port.out{right:-6px;background:var(--dsw-alias-label-tertiary)}',
+      '.awbc-port.p-top{top:-6px;left:50%;margin-left:-5px}',
+      '.awbc-port.p-bottom{bottom:-6px;left:50%;margin-left:-5px}',
+      '.awbc-port.p-left{left:-6px;top:50%;margin-top:-5px}',
+      '.awbc-port.p-right{right:-6px;top:50%;margin-top:-5px}',
       // Hovering a node highlights the NODE border; hovering a port scales
       // the port itself (grab affordance).
       '.awbc-node:hover{border-color:var(--dsw-alias-brand-primary)}',
@@ -451,13 +475,7 @@ window.__ModuleLoader__.load({
       '.awbc-node.router .awbc-port{border-color:var(--dsw-alias-state-warning-primary,#c78a1d)}',
       '.awbc-node.end .awbc-port{border-color:var(--dsw-alias-state-success-primary)}',
       '.awbc-node.hook .awbc-port{border-color:var(--dsw-alias-state-error-primary)}',
-      '.awbc-node.start .awbc-port.out{background:var(--dsw-alias-brand-primary)}',
-      '.awbc-node.work .awbc-port.out{background:var(--dsw-alias-state-info-primary,#4d6bfe)}',
-      '.awbc-node.router .awbc-port.out{background:var(--dsw-alias-state-warning-primary,#c78a1d)}',
-      '.awbc-node.hook .awbc-port.out{background:var(--dsw-alias-state-error-primary)}',
-      // 强制：结束节点是终点 — no outgoing port at all, so it never reads
-      // as "you can keep going from here".
-      '.awbc-node.end .awbc-port.out{display:none}',
+      // 强制约束改在交互层：结束节点不能向外拉（startLinkDrag 拦截）、主会话不能被连入（落点拦截）。
       '.awbc-link-live{fill:none;stroke:var(--dsw-alias-brand-primary);stroke-width:2;stroke-dasharray:5 4}',
       // --- editor panel ---
       '.awbc-editor{flex:0 0 292px;display:flex;flex-direction:column;gap:9px;padding:12px;border-left:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow:auto}',
@@ -613,7 +631,14 @@ window.__ModuleLoader__.load({
         const key = from + '->' + to
         if (seen.has(key)) continue
         seen.add(key)
-        edges.push({ id: String(edge.id || uid('e')), from, to, label: typeof edge.label === 'string' ? edge.label.slice(0, 120) : '' })
+        edges.push({
+          id: String(edge.id || uid('e')),
+          from,
+          to,
+          fromPort: PORTS.includes(edge.fromPort) ? edge.fromPort : 'right',
+          toPort: PORTS.includes(edge.toPort) ? edge.toPort : 'left',
+          label: typeof edge.label === 'string' ? edge.label.slice(0, 120) : '',
+        })
       }
       return {
         version: 1,
@@ -718,13 +743,17 @@ window.__ModuleLoader__.load({
       return node.description || typeDesc(t, node.type)
     }
 
-    function edgeGeometry(from, to) {
-      const x1 = from.x + NODE_W
-      const y1 = from.y + NODE_H / 2
-      const x2 = to.x
-      const y2 = to.y + NODE_H / 2
-      const dx = Math.max(40, Math.abs(x2 - x1) / 2)
-      return { d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`, mx: (x1 + x2) / 2, my: (y1 + y2) / 2 }
+    function edgeGeometry(from, to, fromPort, toPort) {
+      const fp = PORTS.includes(fromPort) ? fromPort : 'right'
+      const tp = PORTS.includes(toPort) ? toPort : 'left'
+      const p1 = portPoint(from, fp)
+      const p2 = portPoint(to, tp)
+      const d1 = PORT_DIRS[fp]
+      const d2 = PORT_DIRS[tp]
+      const off = Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2)
+      const c1 = { x: p1.x + d1[0] * off, y: p1.y + d1[1] * off }
+      const c2 = { x: p2.x + d2[0] * off, y: p2.y + d2[1] * off }
+      return { d: `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`, mx: (p1.x + p2.x) / 2, my: (p1.y + p2.y) / 2 }
     }
 
     function pickLane(lanes, label) {
@@ -1540,7 +1569,7 @@ window.__ModuleLoader__.load({
       // Port-to-port linking: press a side port, drag a rubber band, release
       // on another node — the edge is created on drop (release on blank
       // canvas cancels).
-      const startLinkDrag = (event, fromNode) => {
+      const startLinkDrag = (event, fromNode, fromPort) => {
         if (!event || event.button !== 0) return
         // 强制：结束节点是终点，不能向外连线。
         if (fromNode.type === 'end') return
@@ -1551,8 +1580,8 @@ window.__ModuleLoader__.load({
           cx: rect ? (clientX - rect.left - pan.x) / zoomRef.current : clientX,
           cy: rect ? (clientY - rect.top - pan.y) / zoomRef.current : clientY,
         })
-        const start = toPlane(event.clientX, event.clientY)
-        setLinkDrag({ fromId: fromNode.id, cx: start.cx, cy: start.cy })
+        const origin = portPoint(fromNode, fromPort)
+        setLinkDrag({ fromId: fromNode.id, fromPort, cx: origin.x, cy: origin.y })
         const onMove = moveEvent => {
           const point = toPlane(moveEvent.clientX, moveEvent.clientY)
           setLinkDrag(state => (state ? { ...state, cx: point.cx, cy: point.cy } : state))
@@ -1573,9 +1602,10 @@ window.__ModuleLoader__.load({
           if (toId && toId !== fromNode.id) {
             const target = doc.nodes.find(node => node.id === toId)
             if (target && target.type === 'start') return
+            const up = toPlane(upEvent.clientX, upEvent.clientY)
             setLinkDrag(null)
             if (doc.edges.some(edge => edge.from === fromNode.id && edge.to === toId)) return
-            addEdge(fromNode.id, toId)
+            addEdge(fromNode.id, toId, fromPort, nearestPort(target, up.cx, up.cy))
             return
           }
           // Drop on the source node (or nowhere decidable): plain cancel.
@@ -1588,7 +1618,7 @@ window.__ModuleLoader__.load({
           // the rubber band stays anchored while the picker is open; it is
           // cleared when the picker closes (select, dismiss, or Esc).
           const point = toPlane(upEvent.clientX, upEvent.clientY)
-          setLinkMenu({ screenX: upEvent.clientX, screenY: upEvent.clientY, x: point.cx, y: point.cy, fromId: fromNode.id })
+          setLinkMenu({ screenX: upEvent.clientX, screenY: upEvent.clientY, x: point.cx, y: point.cy, fromId: fromNode.id, fromPort })
         }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
@@ -1596,8 +1626,12 @@ window.__ModuleLoader__.load({
 
       // Create a node at (planeX, planeY) — optionally auto-linked from a
       // source node (used by the blank-drop picker after a port drag).
-      const createLinkedNode = (type, extra, anchorX, anchorY, fromId, reverse) => {
+      const createLinkedNode = (type, extra, anchorX, anchorY, fromId, fromPort) => {
         const linked = Boolean(fromId)
+        // 新节点摆在拉线方向的前方：端口朝向源节点，连线不回头。
+        const dir = PORT_DIRS[PORTS.includes(fromPort) ? fromPort : 'right']
+        const cx = anchorX + dir[0] * (NODE_W / 2 + 70)
+        const cy = anchorY + dir[1] * (NODE_H / 2 + 60)
         const node = {
           id: uid('n'),
           type,
@@ -1608,24 +1642,21 @@ window.__ModuleLoader__.load({
           exec: 'subagent',
           hookKind: '',
           note: '',
-          // Anchor semantics: the LINKING PORT lands exactly on the anchor
-          // (the rubber-band end), so the line meets the new node without a
-          // jump. No link (right-click create): center the node on it.
-          x: linked ? (reverse ? anchorX - NODE_W : anchorX) : anchorX - NODE_W / 2,
-          y: anchorY - 32,
+          x: linked ? cx - NODE_W / 2 : anchorX - NODE_W / 2,
+          y: linked ? cy - NODE_H / 2 : anchorY - NODE_H / 2,
           ...extra,
         }
+        // 新节点的落线端口 = 面向源端口的那一边；源端口与落点相背时（源是 top 拉向下）就近修正。
+        const inPort = nearestPort(node, anchorX, anchorY)
         setDoc(prev => {
           if (type === 'start' && prev.nodes.some(n => n.type === 'start')) return prev
-          // reverse: the NEW node flows into the existing one (created from
-          // an in-port double-click).
           const edges = fromId
             ? prev.edges.concat([
                 (() => {
                   const id = uid('e')
                   const from = fromId ? prev.nodes.find(n => n.id === fromId) : null
                   const label = from && from.type === 'router' ? branchLabelFor(prev.edges.filter(edge => edge.from === fromId), id) : ''
-                  return { id, from: reverse ? node.id : fromId, to: reverse ? fromId : node.id, label }
+                  return { id, from: fromId, to: node.id, fromPort: fromPort || 'right', toPort: inPort, label }
                 })(),
               ])
             : prev.edges
@@ -1634,15 +1665,16 @@ window.__ModuleLoader__.load({
       }
 
       // Double-click a port: open the create-node picker at the cursor.
-      const openPortPicker = (event, node, side) => {
+      const openPortPicker = (event, node, port) => {
         event.stopPropagation()
+        const dir = PORT_DIRS[PORTS.includes(port) ? port : 'right']
         setLinkMenu({
           screenX: event.clientX,
           screenY: event.clientY,
-          x: side === 'out' ? node.x + NODE_W + 60 : node.x - NODE_W - 60,
-          y: node.y,
+          x: node.x + NODE_W / 2 + dir[0] * (NODE_W / 2 + 70),
+          y: node.y + NODE_H / 2 + dir[1] * (NODE_H / 2 + 60),
           fromId: node.id,
-          reverse: side === 'in',
+          fromPort: port,
         })
       }
 
@@ -1666,7 +1698,13 @@ window.__ModuleLoader__.load({
             return
           }
           if (doc.edges.some(edge => edge.from + '->' + edge.to === connectSource + '->' + nodeId)) return
-          addEdge(connectSource, nodeId)
+          const src = doc.nodes.find(node => node.id === connectSource)
+          const dst = target
+          if (src && dst) {
+            const c = { x: dst.x + NODE_W / 2, y: dst.y + NODE_H / 2 }
+            const s = { x: src.x + NODE_W / 2, y: src.y + NODE_H / 2 }
+            addEdge(connectSource, nodeId, nearestPort(src, c.x, c.y), nearestPort(dst, s.x, s.y))
+          } else addEdge(connectSource, nodeId)
           setConnectSource('')
           return
         }
@@ -1804,13 +1842,13 @@ window.__ModuleLoader__.load({
         branchCustomRef.current[id] = true
         return ''
       }
-      const addEdge = (fromId, toId) => {
+      const addEdge = (fromId, toId, fromPort, toPort) => {
         setDoc(prev => {
           if (prev.edges.some(edge => edge.from === fromId && edge.to === toId)) return prev
           const from = prev.nodes.find(node => node.id === fromId)
           const id = uid('e')
           const label = from && from.type === 'router' ? branchLabelFor(prev.edges.filter(edge => edge.from === fromId), id) : ''
-          return { ...prev, edges: prev.edges.concat([{ id, from: fromId, to: toId, label }]) }
+          return { ...prev, edges: prev.edges.concat([{ id, from: fromId, to: toId, fromPort: fromPort || 'right', toPort: toPort || 'left', label }]) }
         })
       }
 
@@ -2023,7 +2061,7 @@ window.__ModuleLoader__.load({
           const from = nodeById(edge.from)
           const to = nodeById(edge.to)
           if (!from || !to) return null
-          const geo = edgeGeometry(from, to)
+          const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
           return h('g', { key: edge.id },
@@ -2041,9 +2079,11 @@ window.__ModuleLoader__.load({
           ? (() => {
               const from = nodeById(linkDrag.fromId)
               if (!from) return null
-              const x1 = from.x + NODE_W
-              const y1 = from.y + NODE_H / 2
+              const origin = portPoint(from, linkDrag.fromPort)
+              const x1 = origin.x
+              const y1 = origin.y
               const dx = Math.max(40, Math.abs(linkDrag.cx - x1) / 2)
+              const dy = Math.max(40, Math.abs(linkDrag.cy - y1) / 2)
               return h('path', {
                 key: 'link-live',
                 className: 'awbc-link-live',
@@ -2088,15 +2128,16 @@ window.__ModuleLoader__.load({
             onPointerDown: event => startNodeDrag(event, node),
             onContextMenu: event => openNodeMenu(event, node.id),
           },
-          // 强制：主会话是入口 — no incoming port rendered at all.
-          node.type === 'start'
-            ? null
-            : h('span', {
-                className: 'awbc-port in',
-                title: '←',
-                onPointerDown: event => startLinkDrag(event, node),
-                onDoubleClick: event => openPortPicker(event, node, 'in'),
-              }),
+          // 四向端口，可进可出；方向硬约束（结束不能出、主会话不能入）在拖拽处理里拦截。
+          ...PORTS.map(port =>
+            h('span', {
+              key: port,
+              className: `awbc-port p-${port}`,
+              title: port,
+              onPointerDown: event => startLinkDrag(event, node, port),
+              onDoubleClick: event => openPortPicker(event, node, port),
+            }),
+          ),
           h('div', { className: `awbc-tile ${node.type}`, 'aria-hidden': true }, NODE_TYPES[node.type].glyph),
           h(
             'div',
@@ -2110,15 +2151,6 @@ window.__ModuleLoader__.load({
             nodeSubText(node, t) ? h('div', { className: 'awbc-node-sub' }, nodeSubText(node, t)) : null,
             node.type === 'hook' ? h('div', { className: 'awbc-node-badge' }, t('hookPreviewBadge')) : null,
           ),
-          // 强制：结束节点是终点 — no outgoing port rendered at all.
-          node.type === 'end'
-            ? null
-            : h('span', {
-                className: 'awbc-port out',
-                title: '→',
-                onPointerDown: event => startLinkDrag(event, node),
-                onDoubleClick: event => openPortPicker(event, node, 'out'),
-              }),
         )
       })
 
@@ -2775,7 +2807,7 @@ window.__ModuleLoader__.load({
                       key: type,
                       className: 'awbc-menu-item',
                       onClick: () => {
-                        createLinkedNode(type, {}, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.reverse)
+                        createLinkedNode(type, {}, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.fromPort)
                         setLinkMenu(null)
                         setLinkDrag(null)
                       },
@@ -2796,7 +2828,7 @@ window.__ModuleLoader__.load({
                             className: 'awbc-menu-item',
                             onClick: () => {
                               const name = (agent.name && agent.name !== agent.id ? agent.name : agent.id).slice(0, 80)
-                              createLinkedNode('work', { label: name, agent: agent.id, exec: 'subagent' }, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.reverse)
+                              createLinkedNode('work', { label: name, agent: agent.id, exec: 'subagent' }, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.fromPort)
                               setLinkMenu(null)
                               setLinkDrag(null)
                             },
