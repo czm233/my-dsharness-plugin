@@ -753,7 +753,10 @@ window.__ModuleLoader__.load({
       const off = Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2)
       const c1 = { x: p1.x + d1[0] * off, y: p1.y + d1[1] * off }
       const c2 = { x: p2.x + d2[0] * off, y: p2.y + d2[1] * off }
-      return { d: `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`, mx: (p1.x + p2.x) / 2, my: (p1.y + p2.y) / 2 }
+      // 标签锚点取曲线中点（t=0.5）：(p1 + 3c1 + 3c2 + p2) / 8，保证大弯弧时标签贴在线上而不是悬在圆心
+      const mx = (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8
+      const my = (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8
+      return { d: `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`, mx, my }
     }
 
     function pickLane(lanes, label) {
