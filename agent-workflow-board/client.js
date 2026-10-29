@@ -989,6 +989,13 @@ window.__ModuleLoader__.load({
       // panning reads as moving the canvas itself. Panning happens while
       // SPACE is held; without it, blank-canvas drag is a selection marquee.
       const [pan, setPan] = React.useState(() => (WORKBENCH.pan ? WORKBENCH.pan : { x: 0, y: 0 }))
+      // 视口居中：把平面坐标 (cx,cy) 挪到视口正中（供拉线建节点后定位新节点用）。
+      const centerOn = React.useCallback((cx, cy) => {
+        const vp = viewportRef.current
+        if (!vp) return
+        const z = zoomRef.current
+        setPan({ x: vp.clientWidth / 2 - cx * z, y: vp.clientHeight / 2 - cy * z })
+      }, [])
       // 画布缩放：transform = translate(pan) scale(zoom)，pan 保持屏幕像素。
       // 「screen = pan + world * zoom」，所有屏幕→平面换算都要除以 zoom。
       const [zoom, setZoom] = React.useState(() => (WORKBENCH.zoom ? WORKBENCH.zoom : 1))
@@ -2786,6 +2793,12 @@ window.__ModuleLoader__.load({
               const pickerWidth = 150
               const left = Math.min(linkMenu.screenX, window.innerWidth - pickerWidth - 8)
               const top = Math.min(linkMenu.screenY, window.innerHeight - 200)
+              // 选中后新节点的落点：与 createLinkedNode 的摆放公式一致，选中即把视口居中过去
+              const placeDir = PORT_DIRS[PORTS.includes(linkMenu.fromPort) ? linkMenu.fromPort : 'right']
+              const dropCenter = linkMenu.fromId
+                ? { x: linkMenu.x + placeDir[0] * (NODE_W / 2 + 70), y: linkMenu.y + placeDir[1] * (NODE_H / 2 + 60) }
+                : { x: linkMenu.x, y: linkMenu.y }
+              const focusDrop = () => centerOn(dropCenter.x, dropCenter.y)
               return h(
                 'div',
                 {
@@ -2808,6 +2821,7 @@ window.__ModuleLoader__.load({
                       className: 'awbc-menu-item',
                       onClick: () => {
                         createLinkedNode(type, {}, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.fromPort)
+                        focusDrop()
                         setLinkMenu(null)
                         setLinkDrag(null)
                       },
@@ -2829,6 +2843,7 @@ window.__ModuleLoader__.load({
                             onClick: () => {
                               const name = (agent.name && agent.name !== agent.id ? agent.name : agent.id).slice(0, 80)
                               createLinkedNode('work', { label: name, agent: agent.id, exec: 'subagent' }, linkMenu.x, linkMenu.y, linkMenu.fromId, linkMenu.fromPort)
+                              focusDrop()
                               setLinkMenu(null)
                               setLinkDrag(null)
                             },
