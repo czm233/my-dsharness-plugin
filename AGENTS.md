@@ -60,7 +60,7 @@
 - 本仓库根目录的 `index.json` 是 DSH 插件市场的索引文件(format 1)。
 - **新增或更新插件后必须同步更新 `index.json`**:新插件加一个条目;版本更新要在 `versions` 里追加一项,并填当时的 commit hash。
 - 本地 profile 的插件市场配置(`~/.dsh/profiles/desktop/cordis.patch.yml` 的 `plugin-market.indexes`)已包含本仓库的 raw 地址;新机器配置时记得加上。
-- **插件双机同步见 [WINDOWS-SETUP.md](WINDOWS-SETUP.md)**:主通道是 skill `dsh-plugin-sync`(产地 my-codex-skills,两台装在 ~/.agents/skills/),Mac 说「插件上线」push,Windows 说「插件接上」pull+登记+install;push 即同步意图,用户级配置不跨机。
+- **插件双机同步见 [WINDOWS-SETUP.md](WINDOWS-SETUP.md)**:主通道是 skill `dsh-plugin-sync`(产地 my-codex-skills,两台装在 ~/.agents/skills/),「插件上线/接上/同步」任一台皆可,push 即同步意图;用户级配置不跨机。
 
 ## 5. 新插件上手清单
 
