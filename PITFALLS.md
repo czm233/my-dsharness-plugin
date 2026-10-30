@@ -470,3 +470,16 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 给官方扩展点（slots/sidebars/guide/entries 等）传数据前，必须先从 asar 抽出官方实现确认字段名与类型，禁止凭 README 或 inspect 树的 purpose 文本猜。抽取方法：bash 可直接读 app.asar 二进制，按 asar header（uint32LE@4=header pickle 大小，@8 起 header，dataStart=8+headerPickleSize）定位 `dsh/node_modules/@deepseek-ai/<pkg>/lib/client.js` 抽到 /tmp 再 grep/read。
 - "注册成功"≠"渲染正确"：注册期校验极松，崩在渲染期且会连带官方 UI。官方包加载过的字段用法（如 subagent 的 `SidebarChatTab` props 表）逐字照抄，不自创同义字段。
 - 此类崩溃影响面是整块官方 UI，不是本插件槽位——装机前先在抽出的官方源码里核对一遍将传入的每个字段。
+
+## 26. client 插件组件闭包里没有 `ctx`；`sessions.retain` 的形状是字符串 id（2026-10-30，side-chat 0.1.0→0.1.1）
+
+**现象**：点右栏「侧边对话」卡片，tab 打开后显示「创建分支失败: ctx is not defined」。
+
+**根因**（两个，一起暴露）：
+1. `ctx` 只存在于 `apply(ctx)` 的作用域；`factory(require)` 和组件函数里是**裸变量不存在**（不是 undefined，是 ReferenceError）。照抄官方组件时容易把 `ctx.xxx` 直接写进组件体。
+2. `ctx.sessions.retain(target)` 的 `resolveTarget` 是 `typeof target === 'string' ? target : target.childSessionId`——普通会话必须传**字符串 sessionId**；我传了 `{ sessionId }`，被当成 subagent 地址读 `childSessionId` → undefined。对象形状只属于 subagent 地址 `{parentSessionId, childSessionId, mode}`。
+
+**解法/规则**：
+- 组件要调 service：`apply(ctx)` 里存 `clientCtx = ctx`（模块级 let），组件只走 `clientCtx`；`grep -n "ctx\." client.js` 检查除 apply 体外是否还有裸 `ctx`。
+- 官方 `sessions.fork({ sessionId, increaseTitle: true })` 自带 `increasedForkTitle` 重命名（加 -1/-2 后缀），不用自己拼后缀。
+- 核对官方契约用仓库内 `scripts/asar-extract.cjs`（`node scripts/asar-extract.cjs <包名> client.js /tmp/out.js`，`--list` 看文件），比 README 可靠——PITFALLS #25 的教训在此复用。
