@@ -976,6 +976,13 @@ window.__ModuleLoader__.load({
       // 正交阶梯点：横竖分明，杜绝斜线
       const v1 = d1[1] !== 0
       const v2 = d2[1] !== 0
+      // 近对齐直连：两端同轴正对且垂直偏差 ≤12px 时，合并为一条直线，避免几像素的小台阶弯折
+      if (v1 === v2 && (v1 ? Math.abs(p1.x - p2.x) <= 12 : Math.abs(p1.y - p2.y) <= 12)) {
+        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+        const ddx = Math.abs(p2.x - p1.x)
+        const ddy = Math.abs(p2.y - p1.y)
+        return { pts: [p1, mid, p2], axis: ddx >= ddy ? 'h' : 'v' }
+      }
       let pts = [p1, a, b, p2]
       if (v1 === v2) {
         // 同轴：反向(上↔下/左↔右)走中位线，同向走 S 阶梯
