@@ -1,6 +1,6 @@
 {
   "name": "@local/agent-workflow-board",
-  "version": "2.14.0",
+  "version": "2.14.1",
   "private": true,
   "type": "module",
   "description": "Visual agent workflow canvas: Lead-generated DAG, per-node agents, live status",

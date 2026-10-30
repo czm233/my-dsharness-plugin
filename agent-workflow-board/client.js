@@ -838,8 +838,25 @@ window.__ModuleLoader__.load({
     }
 
     function edgeGeometry(from, to, fromPort, toPort) {
-      const fp = PORTS.includes(fromPort) ? fromPort : 'right'
-      const tp = PORTS.includes(toPort) ? toPort : 'left'
+      let fp = PORTS.includes(fromPort) ? fromPort : 'right'
+      let tp = PORTS.includes(toPort) ? toPort : 'left'
+      // 同轴端口背向纠正：比如 下→下 但目标就在正下方，会走出 S 形回头路；
+      // 此时按相对位置改用面向彼此的端口（下→上 直连）。
+      if (fp === tp && (fp === 'top' || fp === 'bottom')) {
+        const targetBelow = to.y + NODE_H / 2 >= from.y + NODE_H / 2
+        const away = fp === 'top' ? !targetBelow : targetBelow
+        if (away) {
+          fp = targetBelow ? 'bottom' : 'top'
+          tp = targetBelow ? 'top' : 'bottom'
+        }
+      } else if (fp === tp && (fp === 'left' || fp === 'right')) {
+        const targetRight = to.x >= from.x
+        const away = fp === 'left' ? !targetRight : targetRight
+        if (away) {
+          fp = targetRight ? 'right' : 'left'
+          tp = targetRight ? 'left' : 'right'
+        }
+      }
       const p1 = portPoint(from, fp)
       const p2 = portPoint(to, tp)
       const d1 = PORT_DIRS[fp]
