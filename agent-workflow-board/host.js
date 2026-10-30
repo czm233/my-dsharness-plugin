@@ -121,7 +121,9 @@ async function readBindings() {
   }
 }
 
-// 锁详情：画布被哪些会话引用、各会话是否存活（走 agents 注册表；拿不到注册表时 alive=unknown 降级为锁定）
+// 锁详情：画布被哪些会话引用、各会话是否正在运行（agent.status === 'running'）。
+// 注意：agents.get() 对任何打开过的会话都返回句柄（空闲也算），必须看 status 才是真"运行中"。
+// 拿不到注册表或读不出 status 时 alive=unknown，降级为锁定。
 async function lockInfo(canvasId, ctx) {
   const bindings = await readBindings()
   const holders = Object.keys(bindings).filter(sid => bindings[sid] && bindings[sid].canvasId === canvasId)
@@ -136,7 +138,10 @@ async function lockInfo(canvasId, ctx) {
     let alive = null
     if (registry && typeof registry.get === 'function') {
       try {
-        alive = Boolean(registry.get(sid))
+        const agent = registry.get(sid)
+        if (!agent) alive = false
+        else if (agent.status === 'running' || agent.status === 'idle') alive = agent.status === 'running'
+        else alive = null
       } catch {
         alive = null
       }
