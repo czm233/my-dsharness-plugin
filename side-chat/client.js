@@ -26,6 +26,10 @@ window.__ModuleLoader__.load({
     const TAB_ID = '@local/side-chat/forkchat'
     const CONV_SLOT = 'sidechat.conversation'
 
+    // The apply() ctx, captured for component closures: `ctx` is not a module
+    // binding, so views reach services through this captured reference.
+    let clientCtx = null
+
     const zh = {
       'guide.label': '侧边对话',
       'guide.desc': '把当前会话分出一个分支，在右栏继续聊',
@@ -64,9 +68,9 @@ window.__ModuleLoader__.load({
       return record
     }
 
-    function sessionDisplayName(ctx, sessionId) {
+    function sessionDisplayName(sessionId) {
       try {
-        const row = ctx.sessions.list.getSnapshot().byId[sessionId]
+        const row = clientCtx.sessions.list.getSnapshot().byId[sessionId]
         return (row && (row.title || row.name)) || sessionId
       } catch (_unknownStoreShape) {
         return sessionId
@@ -117,9 +121,9 @@ window.__ModuleLoader__.load({
         let reference = null
         ;(async () => {
           try {
-            const childId = await ctx.sessions.fork({ sessionId: parentId, increaseTitle: true })
+            const childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
             if (released) return
-            reference = ctx.sessions.retain({ sessionId: childId }, { source: 'sideChat', signal: tab.signal })
+            reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
             setBranch(tab.id, { childId, reference })
           } catch (error) {
             if (!released) setBranch(tab.id, { error })
@@ -152,7 +156,7 @@ window.__ModuleLoader__.load({
       const t = translator
       let label = t('tab.title')
       if (branch && branch.childId) {
-        label = sessionDisplayName(ctx, branch.childId)
+        label = sessionDisplayName(branch.childId)
       }
       return h('span', { style: styles.title }, label)
     }
@@ -185,6 +189,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['sessions', 'slots', 'locale', 'sidebarRight', 'sidebarRightTabs'],
       apply(ctx) {
+        clientCtx = ctx
         ctx.effect(() => {
           styles.spinnerKeyframes = document.head.appendChild(Object.assign(document.createElement('style'), {
             textContent: '@keyframes sidechat-spin{to{transform:rotate(360deg)}}',
