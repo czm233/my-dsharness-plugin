@@ -48,7 +48,7 @@ for (let i = lines.length - 1; i >= 0; i--) {
   if (lines[i] === '    return {') { idx = i; break }
 }
 if (idx < 0) { console.error('ANCHOR NOT FOUND: 模块级 "    return {" 不在了，client.js 结构变了，先更新本 harness 的注入锚点'); process.exit(1) }
-lines.splice(idx, 0, '    window.__test = { CanvasPage, WORKBENCH, normalizeDoc, emptyDoc }')
+lines.splice(idx, 0, '    window.__test = { CanvasPage, WORKBENCH, normalizeDoc, emptyDoc, edgeGeometry, routeAroundNodes, segHitsNode, measureNodeWidth, NODE_H }')
 const tmp = path.join(os.tmpdir(), 'awb-render-harness.cjs')
 fs.writeFileSync(tmp, lines.join('\n'))
 require(tmp)
@@ -66,11 +66,36 @@ const files = fs.existsSync(storageDir)
   : []
 const cases = files.length > 0 ? files : null
 let failed = 0
-const run = (name, doc) => {
+const labelOf = doc => id => (doc.nodes.find(n => n.id === id) || {}).label || id
+const run = (name, rawDoc) => {
   try {
-    T.WORKBENCH.doc = T.normalizeDoc(doc)
+    const doc = T.normalizeDoc(rawDoc)
+    T.WORKBENCH.doc = doc
     const tree = T.CanvasPage({ sessionId: 'render-harness' })
     if (!tree || typeof tree !== 'object') throw new Error('render returned nothing')
+    // 穿卡断言：任何边的中间段（跳过首尾端口短线）穿过第三方节点 → FAIL
+    const nodesById = new Map(doc.nodes.map(n => [n.id, n]))
+    let crossings = 0
+    for (const edge of doc.edges || []) {
+      const from = nodesById.get(edge.from)
+      const to = nodesById.get(edge.to)
+      if (!from || !to) continue
+      const base = T.edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
+      const pts = T.routeAroundNodes(base.pts, base.axis, doc.nodes, edge.from, edge.to)
+      for (let i = 1; i < pts.length - 2; i++) {
+        const a = pts[i]
+        const b = pts[i + 1]
+        for (const n of doc.nodes) {
+          if (n.id === edge.from || n.id === edge.to) continue
+          if (T.segHitsNode(a, b, n)) {
+            crossings++
+            const lbl = id => (doc.nodes.find(nn => nn.id === id) || {}).label || id
+            console.log('CROSS', name, '::', lbl(edge.from), '→', lbl(edge.to), '穿过', n.label)
+          }
+        }
+      }
+    }
+    if (crossings > 0) throw new Error(crossings + ' 处线穿节点')
     console.log('PASS', name)
   } catch (e) {
     failed++

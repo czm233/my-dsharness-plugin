@@ -847,6 +847,88 @@ window.__ModuleLoader__.load({
       return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom']
     }
 
+    // 线段是否穿过（外扩4px的）节点矩形：水平段看 y 落带 + x 区间，垂直段对称
+    function segHitsNode(a, b, node) {
+      const r = { x: node.x, y: node.y, w: measureNodeWidth(node.label), h: NODE_H }
+      if (a.y === b.y && a.x !== b.x) {
+        const lo = Math.min(a.x, b.x)
+        const hi = Math.max(a.x, b.x)
+        return b.y > r.y - 4 && b.y < r.y + r.h + 4 && hi > r.x - 4 && lo < r.x + r.w + 4
+      }
+      if (a.x === b.x && a.y !== b.y) {
+        const lo = Math.min(a.y, b.y)
+        const hi = Math.max(a.y, b.y)
+        return a.x > r.x - 4 && a.x < r.x + r.w + 4 && hi > r.y - 4 && lo < r.y + r.h + 4
+      }
+      return false
+    }
+
+    // 避障绕行：中间长段若穿过任何第三方节点，把该段平移到清空带（上/下/左/右就近），最多迭代 6 轮
+    function routeAroundNodes(pts, axis, nodes, skipA, skipB) {
+      let cur = pts
+      const clear = 14
+      for (let round = 0; round < 6; round++) {
+        let changed = false
+        for (let i = 1; i < cur.length - 2; i++) {
+          const a = cur[i]
+          const b = cur[i + 1]
+          if (Math.hypot(b.x - a.x, b.y - a.y) < 30) continue
+          const others = nodes.filter(n => n.id !== skipA && n.id !== skipB)
+          if (!others.some(n => segHitsNode(a, b, n))) continue
+          if (axis === 'h') {
+            const lo = Math.min(a.x, b.x)
+            const hi = Math.max(a.x, b.x)
+            let y = a.y
+            for (let k = 0; k < 4; k++) {
+              const hits = others.filter(n => lo < n.x + measureNodeWidth(n.label) + 4 && hi > n.x - 4 && y > n.y - 4 && y < n.y + NODE_H + 4)
+              if (hits.length === 0) break
+              const belowMax = Math.max(...hits.map(n => n.y + NODE_H)) + clear
+              const aboveMin = Math.min(...hits.map(n => n.y)) - clear
+              y = Math.abs(y - belowMax) <= Math.abs(y - aboveMin) ? belowMax : aboveMin
+            }
+            if (y !== a.y) {
+              cur = [...cur.slice(0, i + 1), { x: a.x, y }, { x: b.x, y }, ...cur.slice(i + 1)]
+              changed = true
+              break
+            }
+          } else {
+            const lo = Math.min(a.y, b.y)
+            const hi = Math.max(a.y, b.y)
+            let x = a.x
+            for (let k = 0; k < 4; k++) {
+              const hits = others.filter(n => lo < n.y + NODE_H + 4 && hi > n.y - 4 && x > n.x - 4 && x < n.x + measureNodeWidth(n.label) + 4)
+              if (hits.length === 0) break
+              const rightMax = Math.max(...hits.map(n => n.x + measureNodeWidth(n.label))) + clear
+              const leftMin = Math.min(...hits.map(n => n.x)) - clear
+              x = Math.abs(x - rightMax) <= Math.abs(x - leftMin) ? rightMax : leftMin
+            }
+            if (x !== a.x) {
+              cur = [...cur.slice(0, i + 1), { x, y: a.y }, { x, y: b.y }, ...cur.slice(i + 1)]
+              changed = true
+              break
+            }
+          }
+        }
+        if (!changed) break
+      }
+      // 去重与去共线
+      const clean = []
+      for (const pt of cur) {
+        const prevPt = clean[clean.length - 1]
+        if (prevPt && Math.hypot(pt.x - prevPt.x, pt.y - prevPt.y) < 1) continue
+        clean.push(pt)
+      }
+      for (let i = 1; i < clean.length - 1; ) {
+        const p = clean[i - 1]
+        const c = clean[i]
+        const n = clean[i + 1]
+        const cross = (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x)
+        if (Math.abs(cross) < 0.5) clean.splice(i, 1)
+        else i++
+      }
+      return clean
+    }
+
     function edgeGeometry(from, to, fromPort, toPort, label) {
       let fp = PORTS.includes(fromPort) ? fromPort : 'right'
       let tp = PORTS.includes(toPort) ? toPort : 'left'
@@ -910,23 +992,10 @@ window.__ModuleLoader__.load({
         pts = [p1, a, { x: b.x, y: a.y }, b, p2]
       }
       // 去重与去共线：删掉 <1px 的重复点和在直线上毫无作用的中间点
-      const clean = []
-      for (const pt of pts) {
-        const prevPt = clean[clean.length - 1]
-        if (prevPt && Math.hypot(pt.x - prevPt.x, pt.y - prevPt.y) < 1) continue
-        clean.push(pt)
-      }
-      for (let i = 1; i < clean.length - 1; ) {
-        const p = clean[i - 1]
-        const c = clean[i]
-        const n = clean[i + 1]
-        const cross = (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x)
-        if (Math.abs(cross) < 0.5) clean.splice(i, 1)
-        else i++
-      }
       const dx = Math.abs(p2.x - p1.x)
       const dy = Math.abs(p2.y - p1.y)
-      return { pts: clean, axis: dx >= dy ? 'h' : 'v' }
+      // 原始阶梯点（不去共线）——避障需要完整拐点；去重/去共线由 routeAroundNodes 收尾
+      return { pts, axis: dx >= dy ? 'h' : 'v' }
     }
 
     function pickLane(lanes, label) {
@@ -2341,7 +2410,9 @@ window.__ModuleLoader__.load({
         const from = nodeById(edge.from)
         const to = nodeById(edge.to)
         if (!from || !to) return
-        geosById.set(edge.id, edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label))
+        const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
+        geo.pts = routeAroundNodes(geo.pts, geo.axis, doc.nodes, edge.from, edge.to)
+        geosById.set(edge.id, geo)
       })
       const principalOf = g => {
         let best = -1
@@ -2405,7 +2476,7 @@ window.__ModuleLoader__.load({
           const to = nodeById(edge.to)
           if (!from || !to) return null
           try {
-          const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
+          const geo = geosById.get(edge.id)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
           const pts = geo.pts
