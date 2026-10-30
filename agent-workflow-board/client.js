@@ -917,8 +917,9 @@ window.__ModuleLoader__.load({
         if (Math.abs(cross) < 0.5) clean.splice(i, 1)
         else i++
       }
-      const mid = polylineMid(clean)
-      return { d: roundedPath(clean), mx: mid.x, my: mid.y }
+      const dx = Math.abs(p2.x - p1.x)
+      const dy = Math.abs(p2.y - p1.y)
+      return { pts: clean, axis: dx >= dy ? 'h' : 'v' }
     }
 
     function pickLane(lanes, label) {
@@ -2326,6 +2327,26 @@ window.__ModuleLoader__.load({
         )
       }
 
+      // 平行线分道：同一走廊（同行/同列的平行线段）按序错开 4px，避免线条重叠分不清
+      const geosById = new Map()
+      doc.edges.forEach(edge => {
+        const from = nodeById(edge.from)
+        const to = nodeById(edge.to)
+        if (!from || !to) return
+        geosById.set(edge.id, edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label))
+      })
+      const corridorGroups = new Map()
+      for (const [id, g] of geosById) {
+        const key = g.axis + ':' + (g.axis === 'h' ? Math.round(g.pts.reduce((acc, pt) => acc + pt.y, 0) / g.pts.length / 8) : Math.round(g.pts.reduce((acc, pt) => acc + pt.x, 0) / g.pts.length / 8))
+        if (!corridorGroups.has(key)) corridorGroups.set(key, [])
+        corridorGroups.get(key).push(id)
+      }
+      const laneOffsets = new Map()
+      for (const ids of corridorGroups.values()) {
+        if (ids.length < 2) continue
+        ids.forEach((id, i) => laneOffsets.set(id, (i - (ids.length - 1) / 2) * 4))
+      }
+      const lanePts = new Map(geosById)
       const edgesLayer = h(
         'svg',
         { className: 'awbc-edge-layer', width: PLANE_W, height: PLANE_H },
@@ -2347,14 +2368,21 @@ window.__ModuleLoader__.load({
           const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
+          const pts = lanes.get(edge.id) || geo.pts
+          // 平行线分道：中间段垂直错开 lane，首尾仍贴端口
+          const lane = laneOffsets.get(edge.id) || 0
+          const shifted = lane
+            ? pts.map((pt, idx) => (idx === 0 || idx === pts.length - 1 ? pt : geo.axis === 'h' ? { x: pt.x, y: pt.y + lane } : { x: pt.x + lane, y: pt.y }))
+            : pts
+          const mid = polylineMid(shifted)
           return h('g', { key: edge.id },
             h('path', {
               className: 'awbc-edge' + kind + (hot ? ' hot' : ''),
-              d: geo.d,
+              d: roundedPath(shifted),
               markerEnd: 'url(#' + (kind ? 'awbc-arrow-' + kind.trim() : hot ? 'awbc-arrow-hot' : 'awbc-arrow') + ')',
             }),
             edge.label
-              ? h('text', { className: 'awbc-edge-label' + kind, x: geo.mx, y: geo.my - 5, textAnchor: 'middle' }, edge.label)
+              ? h('text', { className: 'awbc-edge-label' + kind, x: mid.x, y: mid.y - 5, textAnchor: 'middle' }, edge.label)
               : null,
           )
         }),
