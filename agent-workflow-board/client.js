@@ -968,9 +968,11 @@ window.__ModuleLoader__.load({
         const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
         return { pts: [p1, mid, p2], axis: 'h' }
       }
-      // 电路板式走线：端口沿法线伸出 24px，再横平竖直达目标端口，直角倒圆角
-      const a = { x: p1.x + d1[0] * 24, y: p1.y + d1[1] * 24 }
-      const b = { x: p2.x + d2[0] * 24, y: p2.y + d2[1] * 24 }
+      // 电路板式走线：端口沿法线伸出引出线，再横平竖直达目标端口，直角倒圆角。
+      // 引出线长度随两端间距自适应：间距小时收缩，两端引出线永不互相插进对方。
+      const stub = Math.min(24, Math.max(6, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2 - 2))
+      const a = { x: p1.x + d1[0] * stub, y: p1.y + d1[1] * stub }
+      const b = { x: p2.x + d2[0] * stub, y: p2.y + d2[1] * stub }
       // 正交阶梯点：横竖分明，杜绝斜线
       const v1 = d1[1] !== 0
       const v2 = d2[1] !== 0
@@ -2237,8 +2239,8 @@ window.__ModuleLoader__.load({
             break
           }
           // 蛇形排版：按流程顺序像文字一样换行，行列数自动取整图接近方形，面积最小、一眼看完
-          const rowH = NODE_H + 56
-          const colGap = 36
+          const rowH = NODE_H + 88
+          const colGap = 64
           const nodesById = new Map(prev.nodes.map(node => [node.id, node]))
           const widths = new Map(order.map(id => [id, measureNodeWidth((nodesById.get(id) || { label: '' }).label)]))
           const totalW = widths.size ? [...widths.values()].reduce((a, b) => a + b, 0) : 0
@@ -2438,24 +2440,38 @@ window.__ModuleLoader__.load({
         }
         return { line, span: [lo, hi] }
       }
-      const corridorGroups = new Map()
-      for (const [id, g] of geosById) {
-        const key = g.axis + ':' + Math.round(principalOf(g).line / 8)
-        if (!corridorGroups.has(key)) corridorGroups.set(key, [])
-        corridorGroups.get(key).push(id)
+      // 走廊合并：同轴且主段直线坐标相差 ≤10px 的边归入同一条走廊（近邻合并，避免错几像素就漏分组）
+      const items = [...geosById.entries()].map(([id, g]) => ({ id, axis: g.axis, line: principalOf(g).line }))
+      const corridorGroups = []
+      for (const axis of ['h', 'v']) {
+        const pool = items.filter(item => item.axis === axis).sort((a, b) => a.line - b.line)
+        let group = null
+        for (const item of pool) {
+          if (group && item.line - group.line <= 10) group.ids.push(item.id)
+          else {
+            group = { line: item.line, ids: [item.id] }
+            corridorGroups.push(group)
+          }
+        }
       }
+      // 车道：走廊内主段区间互相重叠才让道；车道序号居中扇形展开（档距 8px），不往单侧堆
       const laneOffsets = new Map()
-      for (const ids of corridorGroups.values()) {
-        if (ids.length < 2) continue
+      for (const group of corridorGroups) {
+        if (group.ids.length < 2) continue
         const placed = []
-        for (const id of ids) {
+        const laneSeq = []
+        for (const id of group.ids) {
           const span = principalOf(geosById.get(id)).span
           let lane = 0
           const clash = () => placed.some(item => item.lane === lane && span[0] < item.span[1] - 2 && item.span[0] < span[1] - 2)
           while (clash()) lane++
           placed.push({ lane, span })
-          if (lane > 0) laneOffsets.set(id, lane * 6)
+          laneSeq.push(lane)
         }
+        const maxLane = Math.max(...laneSeq)
+        group.ids.forEach((id, i) => {
+          if (maxLane > 0) laneOffsets.set(id, (laneSeq[i] - maxLane / 2) * 8)
+        })
       }
       const edgesLayer = h(
         'svg',
