@@ -49,19 +49,6 @@ window.__ModuleLoader__.load({
         default: return { x: node.x + w, y: node.y + NODE_H / 2 }
       }
     }
-    function nearestPort(node, px, py) {
-      let best = 'right'
-      let bestD = Infinity
-      for (const port of PORTS) {
-        const pt = portPoint(node, port)
-        const d = (pt.x - px) ** 2 + (pt.y - py) ** 2
-        if (d < bestD) {
-          bestD = d
-          best = port
-        }
-      }
-      return best
-    }
 
     const NODE_TYPES = {
       start: { glyph: '▶' },
@@ -842,32 +829,6 @@ window.__ModuleLoader__.load({
     // 按两节点当前相对位置选最优端口对（画线时动态计算，节点怎么挪都走最短路径）
     // 端口组合评分：最少拐弯优先，其次最短路径。
     // 0 拐弯 = 共线直连；1 拐弯 = 垂直端口 L 形；2 拐弯 = 同轴阶梯/S。
-    function pairScore(from, to, fp, tp) {
-      const p1 = portPoint(from, fp)
-      const p2 = portPoint(to, tp)
-      const d1 = PORT_DIRS[fp]
-      const d2 = PORT_DIRS[tp]
-      const sameAxis = (d1[0] !== 0) === (d2[0] !== 0)
-      const perpOff = sameAxis ? (d1[1] !== 0 ? Math.abs(p1.x - p2.x) : Math.abs(p1.y - p2.y)) : Infinity
-      const turns = sameAxis && perpOff <= 12 ? 0 : sameAxis ? 2 : 1
-      const len = Math.hypot(p2.x - p1.x, p2.y - p1.y)
-      return { turns, score: turns * 10000 + len }
-    }
-    function bestPair(from, to, fixedFp) {
-      let best = null
-      for (const fp of PORTS) {
-        if (fixedFp && fp !== fixedFp) continue
-        for (const tp of PORTS) {
-          const s = pairScore(from, to, fp, tp)
-          if (!best || s.score < best.score) best = { fp, tp, score: s.score }
-        }
-      }
-      return best
-    }
-    function bestPorts(from, to) {
-      const best = bestPair(from, to)
-      return [best.fp, best.tp]
-    }
 
     // 线段是否穿过（外扩4px的）节点矩形：水平段看 y 落带 + x 区间，垂直段对称
     function segHitsNode(a, b, node) {
@@ -966,25 +927,16 @@ window.__ModuleLoader__.load({
     function edgeGeometry(from, to, fromPort, toPort, label) {
       let fp = PORTS.includes(fromPort) ? fromPort : 'right'
       let tp = PORTS.includes(toPort) ? toPort : 'left'
-      if (from.type === 'router' && (label === '是' || label === '否')) {
-        // 判断分支：语义出端（是=右/否=下）只作为小幅偏好（-30px，远小于一档拐弯 10000），
-        // 几何明显更优（更少拐弯/更短）的组合照常胜出，不再硬性钉死出端
-        const semanticFp = label === '是' ? 'right' : 'bottom'
-        let best = null
-        for (const f of PORTS) {
-          for (const t of PORTS) {
-            const s = pairScore(from, to, f, t)
-            const score = s.score - (f === semanticFp ? 30 : 0)
-            if (!best || score < best.score) best = { fp: f, tp: t, score }
-          }
-        }
-        fp = best.fp
-        tp = best.tp
+      // 端口选择：只取「面向对方」的同侧端口——水平邻居连左右口，垂直邻居连上下口。
+      // 不绕到背面的上/下端口（箭头会被节点盖住），线与任何节点零重合由避障保证。
+      const sdx = to.x - from.x
+      const sdy = to.y - from.y
+      if (Math.abs(sdx) >= Math.abs(sdy)) {
+        fp = sdx >= 0 ? 'right' : 'left'
+        tp = sdx >= 0 ? 'left' : 'right'
       } else {
-        // 其他节点：出/入端都按「最少拐弯优先、其次最短」选
-        const best = bestPair(from, to)
-        fp = best.fp
-        tp = best.tp
+        fp = sdy >= 0 ? 'bottom' : 'top'
+        tp = sdy >= 0 ? 'top' : 'bottom'
       }
       // 同轴端口背向纠正：比如 下→下 但目标就在正下方，会走出 S 形回头路；
       // 此时按相对位置改用面向彼此的端口（下→上 直连）。
@@ -1021,7 +973,7 @@ window.__ModuleLoader__.load({
       const v1 = d1[1] !== 0
       const v2 = d2[1] !== 0
       // 近对齐直连：两端同轴正对且垂直偏差 ≤12px 时，合并为一条直线，避免几像素的小台阶弯折
-      if (v1 === v2 && (v1 ? Math.abs(p1.x - p2.x) <= 12 : Math.abs(p1.y - p2.y) <= 12)) {
+      if (v1 === v2 && (v1 ? Math.abs(p1.x - p2.x) <= 24 : Math.abs(p1.y - p2.y) <= 24)) {
         const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
         const ddx = Math.abs(p2.x - p1.x)
         const ddy = Math.abs(p2.y - p1.y)
