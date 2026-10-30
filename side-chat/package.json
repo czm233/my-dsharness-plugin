@@ -1,0 +1,32 @@
+{
+  "name": "@local/side-chat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "侧边对话：在官方右栏为当前会话开一个分支（fork 出真实会话，左侧列表同步出现，名字加后缀区分），在右栏 tab 里用完整对话界面继续聊。",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

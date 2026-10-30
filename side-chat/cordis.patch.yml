@@ -1,0 +1,5 @@
+# Host half of Side Chat: a pure UI plugin — the empty apply exists so the
+# plugin appears in the host Loader; all behavior lives in the Client half.
+- insert:
+    - id: side-chat
+      name: '@local/side-chat'
