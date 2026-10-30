@@ -797,6 +797,46 @@ window.__ModuleLoader__.load({
       return node.description || typeDesc(t, node.type)
     }
 
+    // 折线圆角：相邻段交界处用二次贝塞尔倒圆角，直角变圆角，电路板走线观感
+    function roundedPath(pts, r = 14) {
+      let d = `M ${pts[0].x} ${pts[0].y}`
+      for (let i = 1; i < pts.length - 1; i++) {
+        const p = pts[i - 1]
+        const c = pts[i]
+        const n = pts[i + 1]
+        const d1 = Math.hypot(c.x - p.x, c.y - p.y)
+        const d2 = Math.hypot(n.x - c.x, n.y - c.y)
+        if (d1 < 1 || d2 < 1) continue
+        const rr = Math.min(r, d1 / 2, d2 / 2)
+        const t1 = { x: c.x + ((p.x - c.x) / d1) * rr, y: c.y + ((p.y - c.y) / d1) * rr }
+        const t2 = { x: c.x + ((n.x - c.x) / d2) * rr, y: c.y + ((n.y - c.y) / d2) * rr }
+        d += ` L ${t1.x} ${t1.y} Q ${c.x} ${c.y} ${t2.x} ${t2.y}`
+      }
+      const last = pts[pts.length - 1]
+      d += ` L ${last.x} ${last.y}`
+      return d
+    }
+
+    // 折线中点（按长度走的一半处），作标签锚点
+    function polylineMid(pts) {
+      let total = 0
+      const segs = []
+      for (let i = 1; i < pts.length; i++) {
+        const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+        segs.push(len)
+        total += len
+      }
+      let remain = total / 2
+      for (let i = 0; i < segs.length; i++) {
+        if (remain <= segs[i]) {
+          const t = segs[i] ? remain / segs[i] : 0
+          return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * t, y: pts[i].y + (pts[i + 1].y - pts[i].y) * t }
+        }
+        remain -= segs[i]
+      }
+      return pts[0]
+    }
+
     function edgeGeometry(from, to, fromPort, toPort) {
       const fp = PORTS.includes(fromPort) ? fromPort : 'right'
       const tp = PORTS.includes(toPort) ? toPort : 'left'
@@ -804,14 +844,15 @@ window.__ModuleLoader__.load({
       const p2 = portPoint(to, tp)
       const d1 = PORT_DIRS[fp]
       const d2 = PORT_DIRS[tp]
-      // 控制点沿端口法线外推：近距离按距离一半，远距离封顶 160px，避免回环线拉出巨大的半圆
-      const off = Math.min(160, Math.max(40, Math.hypot(p2.x - p1.x, p2.y - p1.y) / 2))
-      const c1 = { x: p1.x + d1[0] * off, y: p1.y + d1[1] * off }
-      const c2 = { x: p2.x + d2[0] * off, y: p2.y + d2[1] * off }
-      // 标签锚点取曲线中点（t=0.5）：(p1 + 3c1 + 3c2 + p2) / 8，保证大弯弧时标签贴在线上而不是悬在圆心
-      const mx = (p1.x + 3 * c1.x + 3 * c2.x + p2.x) / 8
-      const my = (p1.y + 3 * c1.y + 3 * c2.y + p2.y) / 8
-      return { d: `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`, mx, my }
+      // 电路板式走线：端口沿法线伸出 24px，再横平竖直达目标端口，直角倒圆角
+      const a = { x: p1.x + d1[0] * 24, y: p1.y + d1[1] * 24 }
+      const b = { x: p2.x + d2[0] * 24, y: p2.y + d2[1] * 24 }
+      const pts = [p1]
+      if (Math.hypot(a.x - p1.x, a.y - p1.y) > 1) pts.push(a)
+      if (Math.hypot(b.x - a.x, b.y - a.y) > 1 && Math.hypot(b.x - p2.x, b.y - p2.y) > 1) pts.push(b)
+      pts.push(p2)
+      const mid = polylineMid(pts)
+      return { d: roundedPath(pts), mx: mid.x, my: mid.y }
     }
 
     function pickLane(lanes, label) {
@@ -2067,6 +2108,16 @@ window.__ModuleLoader__.load({
             if (!rows[row]) rows[row] = []
             rows[row].push(id)
           })
+          // 减少交叉：每行（首行除外）按父节点在序中的均值位置重排
+          const orderIdx = new Map(order.map((id, i) => [id, i]))
+          for (let r = 1; r < rows.length; r++) {
+            const avg = id => {
+              const parents = (ins.get(id) || []).filter(pid => orderIdx.has(pid))
+              return parents.length ? parents.reduce((acc, p) => acc + orderIdx.get(p), 0) / parents.length : orderIdx.get(id)
+            }
+            const sorted = rows[r].slice().sort((a, b) => avg(a) - avg(b))
+            rows[r] = sorted
+          }
           // 第二遍：定位。偶数行从左往右、奇数行从右往左（蛇形），同链相邻节点始终贴近
           const x0 = 160
           const y0 = 200
