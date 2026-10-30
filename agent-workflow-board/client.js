@@ -837,9 +837,24 @@ window.__ModuleLoader__.load({
       return pts[0]
     }
 
+    // 按两节点当前相对位置选最优端口对（画线时动态计算，节点怎么挪都走最短路径）
+    function bestPorts(from, to) {
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ['right', 'left'] : ['left', 'right']
+      return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom']
+    }
+
     function edgeGeometry(from, to, fromPort, toPort) {
       let fp = PORTS.includes(fromPort) ? fromPort : 'right'
       let tp = PORTS.includes(toPort) ? toPort : 'left'
+      if (from.type === 'router') {
+        // 判断节点：出端是分支语义（是=右/否=下）保持不动，入端按目标相对位置就近选
+        if (fp === 'right' || fp === 'bottom') tp = nearestPort(to, from.x + NODE_W / 2, from.y + NODE_H / 2)
+      } else {
+        // 其他节点：出/入端都按相对位置动态取最优
+        ;[fp, tp] = bestPorts(from, to)
+      }
       // 同轴端口背向纠正：比如 下→下 但目标就在正下方，会走出 S 形回头路；
       // 此时按相对位置改用面向彼此的端口（下→上 直连）。
       if (fp === tp && (fp === 'top' || fp === 'bottom')) {
