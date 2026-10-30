@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Edit and resend",
+    "description": "Edit any user message and send again: branches a new session from the history before that message, keeping the original session untouched."
+  }
+}

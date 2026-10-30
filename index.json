@@ -1205,6 +1205,33 @@
           }
         }
       ]
+    },
+    {
+      "name": "edit-restart",
+      "title": {
+        "en": "Edit and Resend",
+        "zh": "修改重发"
+      },
+      "description": {
+        "en": "Edit any user message in place, then send: a new branch session is forked from the history before that message and the edited text is posted there; the original session stays untouched.",
+        "zh": "在任意一条用户消息旁点「修改」，改完发送：按这条消息之前的上下文分出一个新的分支会话并发出修改后的内容，原会话原样保留。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "edit-restart"
+      },
+      "metadata": {
+        "category": "interface",
+        "keywords": [
+          "dsh",
+          "edit",
+          "resend",
+          "fork",
+          "branch",
+          "message"
+        ]
+      },
+      "versions": []
     }
   ]
 }
