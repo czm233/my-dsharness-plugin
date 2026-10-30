@@ -261,3 +261,8 @@
 
 > 插件在 `/Users/czm/githubProject/my-dsharness-plugin/agent-workflow-board/`，
 > 先读目录里的 `HANDOFF.md`（交接文档），按 M2 计划开工。改完用 plugin_manager remove+install 该目录重装，刷新页面验证。
+
+## 7. 备选需求清单（BACKLOG.md，2026-10-30）
+
+整理布局等候选功能统一记录在目录内 `BACKLOG.md`（含优先级、实现提示、验收标准、市场调研出处）。
+用户将来可能说「把备选需求全部实现」——届时读 BACKLOG.md 按其执行规范逐项做（每项独立版本+commit+过渲染门禁）。
