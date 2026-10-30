@@ -2052,20 +2052,37 @@ window.__ModuleLoader__.load({
             }
             break
           }
-          const GAP_X = NODE_W + 140
-          const GAP_Y = NODE_H + 96
-          const byLayer = new Map()
-          for (const id of order) {
-            const l = layer.get(id) || 0
-            if (!byLayer.has(l)) byLayer.set(l, [])
-            byLayer.get(l).push(id)
-          }
+          // 蛇形排版：按流程顺序像文字一样换行，行列数自动取整图接近方形，面积最小、一眼看完
+          const rowH = NODE_H + 56
+          const colGap = 36
+          const nodesById = new Map(prev.nodes.map(node => [node.id, node]))
+          const widths = new Map(order.map(id => [id, measureNodeWidth((nodesById.get(id) || { label: '' }).label)]))
+          const totalW = widths.size ? [...widths.values()].reduce((a, b) => a + b, 0) : 0
+          const avgW = widths.size ? totalW / widths.size : 160
+          const cols = Math.max(1, Math.min(order.length, Math.round(Math.sqrt((order.length * rowH) / (avgW + colGap)))))
+          // 第一遍：按序切成行
+          const rows = []
+          order.forEach((id, i) => {
+            const row = Math.floor(i / cols)
+            if (!rows[row]) rows[row] = []
+            rows[row].push(id)
+          })
+          // 第二遍：定位。偶数行从左往右、奇数行从右往左（蛇形），同链相邻节点始终贴近
+          const x0 = 160
+          const y0 = 200
           const pos = new Map()
-          for (const [l, layerIds] of byLayer) {
-            layerIds.forEach((id, i) => {
-              pos.set(id, { x: 160 + l * GAP_X, y: 200 + i * GAP_Y })
+          rows.forEach((rowIds, row) => {
+            const rowW = rowIds.reduce((acc, id) => acc + widths.get(id), 0) + (rowIds.length - 1) * colGap
+            let left = x0
+            let right = x0 + rowW
+            rowIds.forEach(id => {
+              const w = widths.get(id)
+              const x = row % 2 === 0 ? left : right - w
+              pos.set(id, { x, y: y0 + row * rowH })
+              if (row % 2 === 0) left += w + colGap
+              else right -= w + colGap
             })
-          }
+          })
           return { ...prev, nodes: prev.nodes.map(node => (pos.has(node.id) ? { ...node, ...pos.get(node.id) } : node)) }
         })
       }
