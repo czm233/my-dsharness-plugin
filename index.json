@@ -1231,7 +1231,18 @@
           "message"
         ]
       },
-      "versions": []
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793375493,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "c754de651a57f854a8e2f7979a75f75f4b02271d",
+            "path": "edit-restart"
+          }
+        }
+      ]
     }
   ]
 }
