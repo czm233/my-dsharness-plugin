@@ -854,7 +854,7 @@ window.__ModuleLoader__.load({
     // 避障绕行：中间长段若穿过任何第三方节点，把该段平移到清空带（上/下/左/右就近），最多迭代 6 轮
     function routeAroundNodes(pts, axis, nodes, skipA, skipB) {
       let cur = pts
-      const clear = 14
+      const clear = 20
       const usedLines = [] // 已使用的绕行线：后续绕行就近吸附，避免同一批绕行出现 1~2px 的小台阶
       for (let round = 0; round < 6; round++) {
         let changed = false
@@ -905,6 +905,46 @@ window.__ModuleLoader__.load({
           }
         }
         if (!changed) break
+      }
+      // 兜底：逐段修之后仍有穿越（复杂震荡场景）→ 整线重建为一条贯穿清空带
+      let stillCross = false
+      for (let i = 0; i < cur.length - 1; i++) {
+        const a = cur[i]
+        const b = cur[i + 1]
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 30) continue
+        if (nodes.some(n => n.id !== skipA && n.id !== skipB && segHitsNode(a, b, n))) { stillCross = true; break }
+      }
+      if (stillCross) {
+        const p1 = cur[0]
+        const p2 = cur[cur.length - 1]
+        const othersAll = nodes.filter(n => n.id !== skipA && n.id !== skipB)
+        if (axis === 'h') {
+          const lo = Math.min(p1.x, p2.x)
+          const hi = Math.max(p1.x, p2.x)
+          let yAbove = Infinity
+          let yBelow = -Infinity
+          for (const n of othersAll) {
+            if (n.x + measureNodeWidth(n.label) + 4 < lo || n.x - 4 > hi) continue
+            yAbove = Math.min(yAbove, n.y - clear)
+            yBelow = Math.max(yBelow, n.y + NODE_H + clear)
+          }
+          if (yAbove === Infinity && yBelow === -Infinity) yBelow = p1.y
+          const y = yAbove === Infinity ? yBelow : yBelow === -Infinity ? yAbove : Math.abs(p1.y - yBelow) <= Math.abs(p1.y - yAbove) ? yBelow : yAbove
+          cur = [p1, { x: p1.x, y }, { x: p2.x, y }, p2]
+        } else {
+          const lo = Math.min(p1.y, p2.y)
+          const hi = Math.max(p1.y, p2.y)
+          let xLeft = Infinity
+          let xRight = -Infinity
+          for (const n of othersAll) {
+            if (n.y + NODE_H + 4 < lo || n.y - 4 > hi) continue
+            xLeft = Math.min(xLeft, n.x - clear)
+            xRight = Math.max(xRight, n.x + measureNodeWidth(n.label) + clear)
+          }
+          if (xLeft === Infinity && xRight === -Infinity) xRight = p1.x
+          const x = xLeft === Infinity ? xRight : xRight === -Infinity ? xLeft : Math.abs(p1.x - xLeft) <= Math.abs(p1.x - xRight) ? xLeft : xRight
+          cur = [p1, { x, y: p1.y }, { x, y: p2.y }, p2]
+        }
       }
       // 去重与去共线
       const clean = []
@@ -1846,8 +1886,33 @@ window.__ModuleLoader__.load({
           const dy = moveEvent.clientY - drag.startY
           if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true
           // 屏幕位移 ÷ zoom = 平面位移（缩放后拖动不漂移）。
-          const wx = dx / zoomRef.current
-          const wy = dy / zoomRef.current
+          let wx = dx / zoomRef.current
+          let wy = dy / zoomRef.current
+          // 节点实体化：拖动组与其他节点矩形互斥，重叠即沿拖动方向顶开/顶住
+          if (!multiIds.includes(node.id)) {
+            const GAP = 6
+            const w = measureNodeWidth(node.label)
+            const others = doc.nodes.filter(item => item.id !== node.id)
+            for (let iter = 0; iter < 3; iter++) {
+              let pushed = false
+              for (const other of others) {
+                const ow = measureNodeWidth(other.label)
+                const nx = node.x + wx
+                const ny = node.y + wy
+                const overlap = nx < other.x + ow + GAP && nx + w + GAP > other.x && ny < other.y + NODE_H + GAP && ny + NODE_H + GAP > other.y
+                if (!overlap) continue
+                const moveLeft = wx < 0
+                const moveUp = wy < 0
+                if (Math.abs(wx) >= Math.abs(wy)) {
+                  wx = moveLeft ? other.x + ow + GAP - node.x : other.x - GAP - w - node.x
+                } else {
+                  wy = moveUp ? other.y + NODE_H + GAP - node.y : other.y - GAP - NODE_H - node.y
+                }
+                pushed = true
+              }
+              if (!pushed) break
+            }
+          }
           setDoc(prev => ({
             ...prev,
             nodes: prev.nodes.map(item => {
