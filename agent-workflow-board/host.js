@@ -121,6 +121,33 @@ async function readBindings() {
   }
 }
 
+// 锁详情：画布被哪些会话引用、各会话是否存活（走 agents 注册表；拿不到注册表时 alive=unknown 降级为锁定）
+async function lockInfo(canvasId, ctx) {
+  const bindings = await readBindings()
+  const holders = Object.keys(bindings).filter(sid => bindings[sid] && bindings[sid].canvasId === canvasId)
+  let registry = null
+  try {
+    registry = typeof ctx.get === 'function' ? ctx.get('agents') : undefined
+  } catch {
+    registry = undefined
+  }
+  if (!registry && ctx && ctx.agents && typeof ctx.agents.get === 'function') registry = ctx.agents
+  const sessions = holders.map(sid => {
+    let alive = null
+    if (registry && typeof registry.get === 'function') {
+      try {
+        alive = Boolean(registry.get(sid))
+      } catch {
+        alive = null
+      }
+    }
+    return { sessionId: sid, alive }
+  })
+  const degraded = !registry
+  const locked = degraded || sessions.some(s => s.alive !== false)
+  return { locked, sessions, degraded }
+}
+
 async function writeBindings(map) {
   await fsp.mkdir(storageDir(), { recursive: true })
   await fsp.writeFile(bindingsPath(), JSON.stringify(map, null, 2), 'utf8')
@@ -685,11 +712,10 @@ export function apply(ctx) {
               if (action === 'put') {
                 const canvas = normalizeStored(body.canvas)
                 if (!canvas) return json({ error: 'bad-canvas' }, 400)
-                // 绑定锁：方案被任一会话绑定期间禁止修改（删画布仍允许，删时会清绑定）。
+                // 绑定锁：方案被「存活会话」绑定期间禁止修改（删画布仍允许，删时会清绑定）
                 try {
-                  const bindings = await readBindings()
-                  const holder = Object.keys(bindings).find(sid => bindings[sid] && bindings[sid].canvasId === canvas.id)
-                  if (holder) return json({ error: 'bound-locked', sessionId: holder }, 409)
+                  const lock = await lockInfo(canvas.id, ctx)
+                  if (lock.locked) return json({ error: 'bound-locked', sessions: lock.sessions }, 409)
                 } catch {
                   /* 锁检查失败不阻塞保存（best-effort） */
                 }
@@ -707,9 +733,7 @@ export function apply(ctx) {
               if (action === 'getLock') {
                 const id = sanitizeId(body.id)
                 if (!id) return json({ error: 'missing-id' }, 400)
-                const bindings = await readBindings()
-                const holder = Object.keys(bindings).find(sid => bindings[sid] && bindings[sid].canvasId === id)
-                return json({ locked: Boolean(holder), sessionId: holder || '' })
+                return json(await lockInfo(id, ctx))
               }
               if (action === 'delete') {
                 const id = sanitizeId(body.id)

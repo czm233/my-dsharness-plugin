@@ -108,6 +108,13 @@ window.__ModuleLoader__.load({
       canvasNamePrefix: '画布',
       dupName: '画布名称与其他画布重复，已自动追加时间后缀',
       boundLocked: '该画布已绑定会话执行中，已锁定编辑；解绑后才能修改',
+      lockTitle: '画布引用状态',
+      lockNone: '当前没有会话引用此画布',
+      sessionRunning: '运行中，已锁定',
+      sessionIdle: '未运行，可解绑',
+      sessionUnknown: '状态未知（按锁定处理）',
+      unbindBtn: '解绑',
+      lockDegraded: '无法检测会话状态，已按锁定处理',
       newCanvas: '新建',
       save: '保存',
       saveBlocked: '有未通过的检查项，无法保存',
@@ -256,6 +263,13 @@ window.__ModuleLoader__.load({
       canvasNamePrefix: 'Canvas',
       dupName: 'Canvas name duplicates another; a timestamp suffix was added',
       boundLocked: 'This canvas is bound to a session and locked; unbind to edit',
+      lockTitle: 'Canvas usage',
+      lockNone: 'No session is using this canvas',
+      sessionRunning: 'running · locked',
+      sessionIdle: 'not running · can unbind',
+      sessionUnknown: 'unknown (treated as locked)',
+      unbindBtn: 'Unbind',
+      lockDegraded: 'Cannot detect session state; treated as locked',
       newCanvas: 'New',
       save: 'Save',
       saveBlocked: 'Fix validation errors before saving',
@@ -532,6 +546,11 @@ window.__ModuleLoader__.load({
       '.awbc-issue{display:block;font-size:11px;line-height:17px}',
       '.awbc-issue.error{color:var(--dsw-alias-state-error-primary)}',
       '.awbc-issue.warn{color:var(--dsw-alias-state-warning-primary,#c78a1d)}',
+      '.awbc-lock-row{display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:11px}',
+      '.awbc-lock-session{font-family:ui-monospace,monospace;color:var(--dsw-alias-label-secondary)}',
+      '.awbc-lock-state{flex:1 1 auto;color:var(--dsw-alias-label-tertiary)}',
+      '.awbc-lock-state.running{color:var(--dsw-alias-state-warning-primary,#c78a1d)}',
+      '.awbc-lock-state.idle{color:var(--dsw-alias-state-success-primary)}',
       // --- status bar ---
       '.awbc-status{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:3px 12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:11px;white-space:nowrap;overflow:hidden}',
       '.awbc-legend{display:inline-flex;align-items:center;gap:5px}',
@@ -605,6 +624,11 @@ window.__ModuleLoader__.load({
       const d = new Date()
       const p = n => String(n).padStart(2, '0')
       return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
+    }
+
+    // 会话 id 缩写展示：session-ff69b962-… → ff69b962
+    function shortSession(sessionId) {
+      return String(sessionId || '').replace(/^session-/, '').slice(0, 8)
     }
 
     function emptyDoc() {
@@ -1146,8 +1170,18 @@ window.__ModuleLoader__.load({
       const board = useProjection ? useProjection('agentWorkflowBoard') : undefined
       const lanes = board && Array.isArray(board.lanes) ? board.lanes : []
       const [runtimeStatus, setRuntimeStatus] = React.useState({})
-      // 绑定锁：画布被任一会话绑定期间只读（宿主 put 也会拒绝，双保险）
-      const [lockState, setLockState] = React.useState({ id: '', locked: false })
+      // 绑定锁：记录被哪些会话引用及各会话存活状态（宿主 put 同口径拒绝，双保险）
+      const [lockState, setLockState] = React.useState({ id: '', locked: false, sessions: [] })
+      const refreshLock = React.useCallback(() => {
+        const canvasId = doc.id
+        if (!canvasId) return
+        apiCall({ action: 'getLock', id: canvasId })
+          .then(data => setLockState({ id: canvasId, locked: Boolean(data && data.locked), sessions: (data && data.sessions) || [] }))
+          .catch(() => {})
+      }, [doc.id])
+      // 锁详情弹层（点锁徽章打开）
+      const [lockMenu, setLockMenu] = React.useState(null)
+      const lockMenuRef = React.useRef(null)
       // 只读判定：当前打开的画布正处于绑定锁下
       const readOnly = lockState.locked && lockState.id === doc.id && Boolean(doc.id)
       // 只读时试图修改 → 顶部红色横幅提示（与校验问题条同款样式），3s 自动消失
@@ -1172,7 +1206,7 @@ window.__ModuleLoader__.load({
             .catch(() => {})
           apiCall({ action: 'getLock', id: canvasId })
             .then(data => {
-              if (alive) setLockState({ id: canvasId, locked: Boolean(data && data.locked) })
+              if (alive) setLockState({ id: canvasId, locked: Boolean(data && data.locked), sessions: (data && data.sessions) || [] })
             })
             .catch(() => {})
         }
@@ -1891,6 +1925,25 @@ window.__ModuleLoader__.load({
           window.removeEventListener('keydown', onKey, true)
         }
       }, [linkMenu])
+
+      // 锁详情弹层：点外部或 Esc 关闭
+      React.useEffect(() => {
+        if (!lockMenu) return undefined
+        const onDown = event => {
+          const el = lockMenuRef.current
+          if (el && event.target instanceof Node && el.contains(event.target)) return
+          setLockMenu(null)
+        }
+        const onKey = event => {
+          if (event.key === 'Escape') setLockMenu(null)
+        }
+        window.addEventListener('pointerdown', onDown, true)
+        window.addEventListener('keydown', onKey, true)
+        return () => {
+          window.removeEventListener('pointerdown', onDown, true)
+          window.removeEventListener('keydown', onKey, true)
+        }
+      }, [lockMenu])
 
       const duplicateNode = nodeId => {
         if (blocked()) return
@@ -2623,7 +2676,20 @@ window.__ModuleLoader__.load({
           disabled: readOnly,
           onChange: event => setDoc(prev => ({ ...prev, name: event.target.value })),
         }),
-        readOnly ? h('span', { key: 'lock', className: 'awbc-badge', title: t('boundLocked'), style: { color: 'var(--dsw-alias-state-warning-primary,#c78a1d)' } }, '🔒') : null,
+        readOnly
+          ? h(
+              'button',
+              {
+                key: 'lock',
+                type: 'button',
+                className: 'awbc-btn',
+                title: t('lockTitle'),
+                style: { color: 'var(--dsw-alias-state-warning-primary,#c78a1d)' },
+                onClick: event => setLockMenu({ screenX: event.clientX, screenY: event.clientY + 18 }),
+              },
+              '🔒',
+            )
+          : null,
         h('span', { key: 'badge', className: 'awbc-badge' + (dirty ? (saveState === 'error' ? ' error' : '') : ' ok') },
           h('span', { className: 'awbc-badge-dot' }),
           dirty ? (saveState === 'error' ? t('saveFailed') : errorCount > 0 ? t('unsavedBadge') : t('savingBadge')) : t('savedBadge'),
@@ -2836,6 +2902,54 @@ window.__ModuleLoader__.load({
                     { className: 'awbc-issues', key: 'lock-hint' },
                     h('span', { className: 'awbc-issue error' }, '✕ ' + t('boundLocked')),
                   )
+                : null,
+              lockMenu
+                ? (() => {
+                    const w = 300
+                    const left = Math.min(lockMenu.screenX, window.innerWidth - w - 8)
+                    const top = Math.min(lockMenu.screenY, window.innerHeight - 40 - lockState.sessions.length * 26)
+                    return h(
+                      'div',
+                      {
+                        className: 'awbc-menu',
+                        ref: lockMenuRef,
+                        key: 'lock-menu',
+                        style: { left, top, width: w },
+                        onContextMenu: event => event.preventDefault(),
+                        onPointerDown: event => event.stopPropagation(),
+                      },
+                      h('div', { className: 'awbc-sec', style: { margin: '2px 6px 6px' } }, t('lockTitle')),
+                      lockState.sessions.length === 0 ? h('div', { className: 'awbc-hint', style: { margin: '0 6px 6px' } }, t('lockNone')) : null,
+                      lockState.sessions.map(session =>
+                        h(
+                          'div',
+                          { className: 'awbc-lock-row', key: session.sessionId },
+                          h('span', { className: 'awbc-lock-session' }, shortSession(session.sessionId)),
+                          h(
+                            'span',
+                            { className: 'awbc-lock-state' + (session.alive === false ? ' idle' : session.alive ? ' running' : ' unknown') },
+                            session.alive === false ? t('sessionIdle') : session.alive ? t('sessionRunning') : t('sessionUnknown'),
+                          ),
+                          session.alive === false
+                            ? h(
+                                'button',
+                                {
+                                  type: 'button',
+                                  className: 'awbc-mini',
+                                  onClick: () =>
+                                    apiCall({ action: 'unbind', sessionId: session.sessionId }).then(() => {
+                                      refreshLock()
+                                      setLockMenu(null)
+                                    }),
+                                },
+                                t('unbindBtn'),
+                              )
+                            : null,
+                        ),
+                      ),
+                      lockState.degraded ? h('div', { className: 'awbc-hint', style: { margin: '0 6px 6px' } }, t('lockDegraded')) : null,
+                    )
+                  })()
                 : null,
               toast ? h('div', { className: 'awbc-toast', key: 'toast' }, toast) : null,
             ),
