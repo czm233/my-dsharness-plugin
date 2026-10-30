@@ -207,8 +207,9 @@ window.__ModuleLoader__.load({
             title: () => t('tab.title'),
             guide: [{
               id: 'fork-chat',
-              label: t('guide.label'),
-              description: t('guide.desc'),
+              order: 90,
+              title: () => t('guide.label'),
+              description: () => t('guide.desc'),
             }],
           }), 'side-chat: tab type')
         })
