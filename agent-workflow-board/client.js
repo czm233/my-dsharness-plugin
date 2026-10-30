@@ -2375,7 +2375,7 @@ window.__ModuleLoader__.load({
           const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
-          const pts = lanes.get(edge.id) || geo.pts
+          const pts = lanePts.get(edge.id) || geo.pts
           // 平行线分道：中间段垂直错开 lane，首尾仍贴端口
           const lane = laneOffsets.get(edge.id) || 0
           const shifted = lane
