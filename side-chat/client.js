@@ -107,7 +107,7 @@ window.__ModuleLoader__.load({
       const { tab } = props.useTabInfo()
       const parent = props.useSession(value => value)
       const branch = useBranch(tab.id)
-      const t = props.t
+      const t = translator
 
       React.useEffect(() => {
         if (branch) return undefined
@@ -149,13 +149,17 @@ window.__ModuleLoader__.load({
     function BranchTitle(props) {
       const { tab } = props.useTabInfo()
       const branch = useBranch(tab.id)
-      const t = props.t
+      const t = translator
       let label = t('tab.title')
       if (branch && branch.childId) {
         label = sessionDisplayName(ctx, branch.childId)
       }
       return h('span', { style: styles.title }, label)
     }
+
+    /** Closure-bound translator; slot registrations only carry `locale: NS`
+     *  for bookkeeping — components read through this binding. */
+    let translator = (key) => zh[key] || key
 
     const styles = {
       center: {
@@ -191,6 +195,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'side-chat: dictionaries')
 
         const t = ctx.locale.bind(NS)
+        translator = t
 
         // Slot-scoped translator: slot registrations accept a `locale` and the
         // framework hands components a bound `t` prop.
