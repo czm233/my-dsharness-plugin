@@ -799,6 +799,8 @@ window.__ModuleLoader__.load({
 
     // 折线圆角：相邻段交界处用二次贝塞尔倒圆角，直角变圆角，电路板走线观感
     function roundedPath(pts, r = 14) {
+      if (!pts || pts.length === 0) return ''
+      if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`
       let d = `M ${pts[0].x} ${pts[0].y}`
       for (let i = 1; i < pts.length - 1; i++) {
         const p = pts[i - 1]
@@ -879,6 +881,11 @@ window.__ModuleLoader__.load({
       const p2 = portPoint(to, tp)
       const d1 = PORT_DIRS[fp]
       const d2 = PORT_DIRS[tp]
+      // 两点几乎重合（节点叠在一起等极端情况）：退化为一条短直线，避免后续计算越界
+      if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 2) {
+        const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+        return { pts: [p1, mid, p2], axis: 'h' }
+      }
       // 电路板式走线：端口沿法线伸出 24px，再横平竖直达目标端口，直角倒圆角
       const a = { x: p1.x + d1[0] * 24, y: p1.y + d1[1] * 24 }
       const b = { x: p2.x + d2[0] * 24, y: p2.y + d2[1] * 24 }
