@@ -2353,7 +2353,6 @@ window.__ModuleLoader__.load({
         if (ids.length < 2) continue
         ids.forEach((id, i) => laneOffsets.set(id, (i - (ids.length - 1) / 2) * 4))
       }
-      const lanePts = new Map(geosById)
       const edgesLayer = h(
         'svg',
         { className: 'awbc-edge-layer', width: PLANE_W, height: PLANE_H },
@@ -2372,10 +2371,11 @@ window.__ModuleLoader__.load({
           const from = nodeById(edge.from)
           const to = nodeById(edge.to)
           if (!from || !to) return null
+          try {
           const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
-          const pts = lanePts.get(edge.id) || geo.pts
+          const pts = geo.pts
           // 平行线分道：中间段垂直错开 lane，首尾仍贴端口
           const lane = laneOffsets.get(edge.id) || 0
           const shifted = lane
@@ -2392,6 +2392,10 @@ window.__ModuleLoader__.load({
               ? h('text', { className: 'awbc-edge-label' + kind, x: mid.x, y: mid.y - 5, textAnchor: 'middle' }, edge.label)
               : null,
           )
+          } catch {
+            // 单条边渲染异常时跳过该边，绝不让整块画布崩掉
+            return null
+          }
         }),
         linkDrag
           ? (() => {
