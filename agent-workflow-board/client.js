@@ -2334,7 +2334,8 @@ window.__ModuleLoader__.load({
         )
       }
 
-      // 平行线分道：同一走廊（同行/同列的平行线段）按序错开 4px，避免线条重叠分不清
+      // 平行线分道：按「最长段所在的直线」分走廊；走廊内只有主段区间互相重叠的边才让道
+      // （每档 +6px）。首尾相接的链式边区间不重叠，保持 lane 0，不破坏连续观感。
       const geosById = new Map()
       doc.edges.forEach(edge => {
         const from = nodeById(edge.from)
@@ -2342,16 +2343,48 @@ window.__ModuleLoader__.load({
         if (!from || !to) return
         geosById.set(edge.id, edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label))
       })
+      const principalOf = g => {
+        let best = -1
+        let line = 0
+        let lo = 0
+        let hi = 0
+        for (let i = 1; i < g.pts.length; i++) {
+          const a = g.pts[i - 1]
+          const b = g.pts[i]
+          const len = Math.hypot(b.x - a.x, b.y - a.y)
+          if (len > best) {
+            best = len
+            if (g.axis === 'h') {
+              line = a.y
+              lo = Math.min(a.x, b.x)
+              hi = Math.max(a.x, b.x)
+            } else {
+              line = a.x
+              lo = Math.min(a.y, b.y)
+              hi = Math.max(a.y, b.y)
+            }
+          }
+        }
+        return { line, span: [lo, hi] }
+      }
       const corridorGroups = new Map()
       for (const [id, g] of geosById) {
-        const key = g.axis + ':' + (g.axis === 'h' ? Math.round(g.pts.reduce((acc, pt) => acc + pt.y, 0) / g.pts.length / 8) : Math.round(g.pts.reduce((acc, pt) => acc + pt.x, 0) / g.pts.length / 8))
+        const key = g.axis + ':' + Math.round(principalOf(g).line / 8)
         if (!corridorGroups.has(key)) corridorGroups.set(key, [])
         corridorGroups.get(key).push(id)
       }
       const laneOffsets = new Map()
       for (const ids of corridorGroups.values()) {
         if (ids.length < 2) continue
-        ids.forEach((id, i) => laneOffsets.set(id, (i - (ids.length - 1) / 2) * 4))
+        const placed = []
+        for (const id of ids) {
+          const span = principalOf(geosById.get(id)).span
+          let lane = 0
+          const clash = () => placed.some(item => item.lane === lane && span[0] < item.span[1] - 2 && item.span[0] < span[1] - 2)
+          while (clash()) lane++
+          placed.push({ lane, span })
+          if (lane > 0) laneOffsets.set(id, lane * 6)
+        }
       }
       const edgesLayer = h(
         'svg',
