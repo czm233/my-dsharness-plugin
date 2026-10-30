@@ -967,9 +967,19 @@ window.__ModuleLoader__.load({
       let fp = PORTS.includes(fromPort) ? fromPort : 'right'
       let tp = PORTS.includes(toPort) ? toPort : 'left'
       if (from.type === 'router' && (label === '是' || label === '否')) {
-        // 判断节点：出端按分支语义强制（是=右/否=下），入端按「最少拐弯优先、其次最短」选
-        fp = label === '是' ? 'right' : 'bottom'
-        tp = bestPair(from, to, fp).tp
+        // 判断分支：语义出端（是=右/否=下）只作为小幅偏好（-30px，远小于一档拐弯 10000），
+        // 几何明显更优（更少拐弯/更短）的组合照常胜出，不再硬性钉死出端
+        const semanticFp = label === '是' ? 'right' : 'bottom'
+        let best = null
+        for (const f of PORTS) {
+          for (const t of PORTS) {
+            const s = pairScore(from, to, f, t)
+            const score = s.score - (f === semanticFp ? 30 : 0)
+            if (!best || score < best.score) best = { fp: f, tp: t, score }
+          }
+        }
+        fp = best.fp
+        tp = best.tp
       } else {
         // 其他节点：出/入端都按「最少拐弯优先、其次最短」选
         const best = bestPair(from, to)
