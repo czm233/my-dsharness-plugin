@@ -212,7 +212,8 @@ window.__ModuleLoader__.load({
           const percent = pickPercent(item.percentage);
           const type = typeof item.type === 'string' ? item.type.toUpperCase() : '';
           if (percent === null || type === '') continue;
-          limits.push({ type: type, percent: percent });
+          // Keep the whole item: nextResetTime (epoch ms) rides on it for the reset line.
+          limits.push({ type: type, percent: percent, raw: item });
         }
       }
       if (limits.length === 0) {
@@ -474,7 +475,8 @@ window.__ModuleLoader__.load({
         // bar.percent is "used" from the API; the bar and the 剩 X% label both
         // visualize the remaining quota, so fill with 100 - used.
         const left = 100 - clamped;
-        const reset = resetTimeText(bar.raw && bar.raw.nextResetTime);
+        const origin = bar.raw && bar.raw.raw ? bar.raw.raw : bar.raw;
+        const reset = resetTimeText(origin && origin.nextResetTime);
         return h(
           'div',
           { key: key, className: 'cudP_quotaRow', title: JSON.stringify(bar.raw).slice(0, 300) },
