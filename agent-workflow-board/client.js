@@ -1878,7 +1878,7 @@ window.__ModuleLoader__.load({
         const origins = new Map(
           doc.nodes.filter(item => dragIds.includes(item.id)).map(item => [item.id, { x: item.x, y: item.y }]),
         )
-        dragRef.current = { startX: event.clientX, startY: event.clientY, moved: false }
+        dragRef.current = { startX: event.clientX, startY: event.clientY, moved: false, appliedX: 0, appliedY: 0 }
         const onMove = moveEvent => {
           const drag = dragRef.current
           if (!drag) return
@@ -1889,38 +1889,46 @@ window.__ModuleLoader__.load({
           let wx = dx / zoomRef.current
           let wy = dy / zoomRef.current
           // 节点实体化：分轴滑动——撞到节点即被顶住贴边停住（鼠标继续拉不会瞬移穿过），
-          // 沿被撞节点的边缘滑动可以绕出去；先 Y 后 X，对角拖动贴角不甩角
+          // 沿被撞节点的边缘滑动可以绕出去。钳制基于「拖动起点」的绝对坐标逐帧计算，帧间一致不漂移。
           if (!multiIds.includes(node.id)) {
             const GAP = 6
             const w = measureNodeWidth(node.label)
+            const baseX = origins.get(node.id).x
+            const baseY = origins.get(node.id).y
             const others = doc.nodes.filter(item => item.id !== node.id)
             const hitOne = (x, y, o) => x < o.x + measureNodeWidth(o.label) + GAP && x + w + GAP > o.x && y < o.y + NODE_H + GAP && y + NODE_H + GAP > o.y
             const hitAny = (x, y) => others.some(o => hitOne(x, y, o))
-            let nx = node.x + wx
-            let ny = node.y + wy
-            if (hitAny(nx, ny)) {
-              // Y 轴：向下撞 → 停在最高障碍上方；向上撞 → 停在最低障碍下方
-              if (hitAny(node.x, ny)) {
-                const blockers = others.filter(o => hitOne(node.x, ny, o))
-                ny = wy >= 0
-                  ? Math.min(...blockers.map(o => o.y - GAP - NODE_H))
-                  : Math.max(...blockers.map(o => o.y + NODE_H + GAP))
-              }
-              // X 轴（在已钳制的 y 基础上）
-              if (hitAny(nx, ny)) {
-                const blockers = others.filter(o => hitOne(nx, ny, o))
-                nx = wx >= 0
-                  ? Math.min(...blockers.map(o => o.x - GAP - w))
-                  : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP))
-              }
-              // 复查：仍重叠（被夹在中间等）→ 回到上一个合法位置
-              if (hitAny(nx, ny)) {
-                nx = node.x
-                ny = node.y
-              }
+            const rawX = baseX + dx / zoomRef.current
+            const rawY = baseY + dy / zoomRef.current
+            let ax = dragRef.current.appliedX || 0
+            let ay = dragRef.current.appliedY || 0
+            // Y 轴：目标 y 与当前 x 组合若重叠 → 停在障碍边缘（按移动方向就近贴边）
+            if (hitAny(baseX + ax, rawY)) {
+              const blockers = others.filter(o => hitOne(baseX + ax, rawY, o))
+              ay = wy >= 0
+                ? Math.min(...blockers.map(o => o.y - GAP - NODE_H)) - baseY
+                : Math.max(...blockers.map(o => o.y + NODE_H + GAP)) - baseY
+            } else {
+              ay = rawY - baseY
             }
-            wx = nx - node.x
-            wy = ny - node.y
+            // X 轴：在已钳制的 y 基础上
+            if (hitAny(baseX + ax, baseY + ay)) {
+              const blockers = others.filter(o => hitOne(baseX + ax, baseY + ay, o))
+              ax = wx >= 0
+                ? Math.min(...blockers.map(o => o.x - GAP - w)) - baseX
+                : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP)) - baseX
+            } else {
+              ax = rawX - baseX
+            }
+            // 复查：仍重叠（被夹死等极端情况）→ 回到上一个合法位置
+            if (hitAny(baseX + ax, baseY + ay)) {
+              ax = dragRef.current.appliedX || 0
+              ay = dragRef.current.appliedY || 0
+            }
+            dragRef.current.appliedX = ax
+            dragRef.current.appliedY = ay
+            wx = ax
+            wy = ay
           }
           setDoc(prev => ({
             ...prev,
