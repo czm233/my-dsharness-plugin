@@ -1168,6 +1168,43 @@
           }
         }
       ]
+    },
+    {
+      "name": "side-chat",
+      "title": {
+        "en": "Side Chat",
+        "zh": "侧边对话"
+      },
+      "description": {
+        "en": "Adds a right-sidebar guide entry that forks the current session into a real branch session and opens it in an official right-sidebar tab with the full conversation UI.",
+        "zh": "在官方右栏加一个入口：把当前会话 fork 成真实分支会话（左侧列表同步出现、名字加后缀），用完整对话界面在右栏 tab 里继续聊。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "side-chat"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "dsh",
+          "fork",
+          "branch",
+          "sidebar",
+          "chat"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793373490,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "19a1092a",
+            "path": "side-chat"
+          }
+        }
+      ]
     }
   ]
 }
