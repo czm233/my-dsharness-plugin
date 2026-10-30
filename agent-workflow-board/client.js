@@ -1903,7 +1903,7 @@ window.__ModuleLoader__.load({
         const origins = new Map(
           doc.nodes.filter(item => dragIds.includes(item.id)).map(item => [item.id, { x: item.x, y: item.y }]),
         )
-        dragRef.current = { startX: event.clientX, startY: event.clientY, moved: false, appliedX: 0, appliedY: 0 }
+        dragRef.current = { startX: event.clientX, startY: event.clientY, moved: false }
         const onMove = moveEvent => {
           const drag = dragRef.current
           if (!drag) return
@@ -1913,54 +1913,6 @@ window.__ModuleLoader__.load({
           // 屏幕位移 ÷ zoom = 平面位移（缩放后拖动不漂移）。
           let wx = dx / zoomRef.current
           let wy = dy / zoomRef.current
-          // 节点实体化：分轴滑动——撞到节点即被顶住贴边停住（鼠标继续拉不会瞬移穿过），
-          // 沿被撞节点的边缘滑动可以绕出去。钳制基于「拖动起点」的绝对坐标逐帧计算，帧间一致不漂移。
-          if (!multiIds.includes(node.id)) {
-            const GAP = 6
-            const w = measureNodeWidth(node.label)
-            const baseX = origins.get(node.id).x
-            const baseY = origins.get(node.id).y
-            const others = doc.nodes.filter(item => item.id !== node.id)
-            const hitOne = (x, y, o) => x < o.x + measureNodeWidth(o.label) && x + w > o.x && y < o.y + NODE_H && y + NODE_H > o.y
-            const hitAny = (x, y) => others.some(o => hitOne(x, y, o))
-            let ax = dragRef.current.appliedX || 0
-            let ay = dragRef.current.appliedY || 0
-            const rawX = baseX + dx / zoomRef.current
-            const rawY = baseY + dy / zoomRef.current
-            const fromPt = { x: baseX + ax, y: baseY + ay }
-            const toPt = { x: rawX, y: rawY }
-            // 路径规则：当前位置 → 目标位置的直线路径若穿过任何节点 → 顶在被挡一侧
-            //（沿侧面绕出去的路径不受阻，只有穿体才被挡）
-            // 路径穿节点，或终点与节点重叠 → 沿「移动主轴」顶在障碍边缘，另一轴跟随目标
-            const pathOrEndBlocked = others.some(o => segRectHit(fromPt, toPt, o) || hitOne(toPt.x, toPt.y, o))
-            if (pathOrEndBlocked) {
-              const blockers = others.filter(o => segRectHit(fromPt, toPt, o) || hitOne(toPt.x, toPt.y, o))
-              const movingX = Math.abs(toPt.x - fromPt.x) >= Math.abs(toPt.y - fromPt.y)
-              if (movingX) {
-                ax = (wx >= 0
-                  ? Math.min(...blockers.map(o => o.x - GAP - w))
-                  : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP))) - baseX
-                ay = toPt.y - baseY
-              } else {
-                ay = (wy >= 0
-                  ? Math.min(...blockers.map(o => o.y - GAP - NODE_H))
-                  : Math.max(...blockers.map(o => o.y + NODE_H + GAP))) - baseY
-                ax = toPt.x - baseX
-              }
-              // 兜底： blockers 意外为空时保持上一合法位置
-              if (blockers.length === 0) {
-                ax = dragRef.current.appliedX || 0
-                ay = dragRef.current.appliedY || 0
-              }
-            } else {
-              ax = toPt.x - baseX
-              ay = toPt.y - baseY
-            }
-            dragRef.current.appliedX = ax
-            dragRef.current.appliedY = ay
-            wx = ax
-            wy = ay
-          }
           setDoc(prev => ({
             ...prev,
             nodes: prev.nodes.map(item => {
