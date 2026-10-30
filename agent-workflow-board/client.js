@@ -551,6 +551,13 @@ window.__ModuleLoader__.load({
       '.awbc-lock-state{flex:1 1 auto;color:var(--dsw-alias-label-tertiary)}',
       '.awbc-lock-state.running{color:var(--dsw-alias-state-warning-primary,#c78a1d)}',
       '.awbc-lock-state.idle{color:var(--dsw-alias-state-success-primary)}',
+      // 判断分支按钮组：是=绿 / 否=红 / 自定义，选中态填充对应色
+      '.awbc-branch-group{display:flex;gap:4px}',
+      '.awbc-branch-btn{flex:1 1 0;border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:4px 0;border-radius:6px;cursor:pointer;text-align:center}',
+      '.awbc-branch-btn:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-tertiary)}',
+      '.awbc-branch-btn.yes.active{background:rgba(52,199,123,.16);border-color:#34c77b;color:#34c77b}',
+      '.awbc-branch-btn.no.active{background:rgba(229,83,75,.16);border-color:#e5534b;color:#e5534b}',
+      '.awbc-branch-btn.active:not(.yes):not(.no){border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
       // --- status bar ---
       '.awbc-status{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:3px 12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-tertiary);font-size:11px;white-space:nowrap;overflow:hidden}',
       '.awbc-legend{display:inline-flex;align-items:center;gap:5px}',
@@ -2339,12 +2346,24 @@ window.__ModuleLoader__.load({
                 ),
                 selected.type === 'router'
                   ? h(
-                      'select',
-                      { className: 'awbc-input', value: kind, onChange: event => setBranch(event.target.value) },
-                      h('option', { value: '', disabled: true }, t('edgeLabelField')),
-                      h('option', { value: 'yes' }, t('branchYes')),
-                      h('option', { value: 'no' }, t('branchNo')),
-                      h('option', { value: 'custom' }, t('branchCustom')),
+                      'div',
+                      { className: 'awbc-branch-group', key: 'branch' },
+                      [
+                        ['yes', t('branchYes')],
+                        ['no', t('branchNo')],
+                        ['custom', t('branchCustom')],
+                      ].map(([value, text]) =>
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            key: value,
+                            className: 'awbc-branch-btn' + (kind === value ? ' active' : '') + (value === 'yes' ? ' yes' : value === 'no' ? ' no' : ''),
+                            onClick: () => setBranch(value),
+                          },
+                          text,
+                        ),
+                      ),
                     )
                   : h('input', {
                       className: 'awbc-input',
