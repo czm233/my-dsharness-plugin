@@ -458,6 +458,7 @@ window.__ModuleLoader__.load({
         seat.dataset.turnCostSeat = ''
         seat.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;height:calc(28px + var(--dsh-content-font-delta, 0px));vertical-align:middle;'
         let settled = false
+        let lastParent = null
         const attach = () => {
           const cell = anchorRef.current?.closest('[data-turn-tail]') ?? null
           const shipped = cell?.querySelector('button[aria-haspopup=\'dialog\']:not([data-turn-cost-trigger])')
@@ -467,8 +468,15 @@ window.__ModuleLoader__.load({
             if (seat.parentElement !== shipped.parentElement || seat.nextElementSibling !== shipped) {
               shipped.parentElement.insertBefore(seat, shipped)
             }
-            setSlot(prev => (prev === seat ? prev : seat))
             settled = true
+            lastParent = shipped.parentElement
+            setSlot(prev => (prev === seat ? prev : seat))
+          } else if (settled && lastParent && lastParent.isConnected) {
+            // Interrupted turns drop the shipped usage pill; never jump the
+            // seat to the standalone fallback row once it has settled —
+            // hold it in the last known inline position instead.
+            if (seat.parentElement !== lastParent) lastParent.appendChild(seat)
+            setSlot(prev => (prev === seat ? prev : seat))
           } else {
             setSlot(prev => (prev === 'fallback' ? prev : 'fallback'))
           }
