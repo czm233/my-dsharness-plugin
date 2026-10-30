@@ -457,3 +457,5 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 **解法/规则**：
 - 该功能已按用户决定放弃，不要再擅自重做；若未来重启，参考本次教训：先写分轴滑动的离线逐帧模拟（/tmp 模式已验证可行）再动 client.js，并保留 ax/ay 等帧间状态声明。
 - 教训同 #22：装机前用真实文件做逐帧行为模拟，别只查语法。
+- 逐帧模拟已入库：`test/drag-collision-sim.cjs`（A 从下方 30 帧上推撞 B 的完整交互，预期停在 B 底边+GAP 不瞬移）。重启该功能前先跑通/扩展它。
+- 本条与 #22 同日两次事故的共同病根：**把"语法通过"当"功能正确"**。渲染层看图（canvas-snapshot）、交互层跑帧（drag-collision-sim），两类改动各有对应门禁，缺一个就别装机。
