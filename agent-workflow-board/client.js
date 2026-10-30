@@ -1888,30 +1888,39 @@ window.__ModuleLoader__.load({
           // 屏幕位移 ÷ zoom = 平面位移（缩放后拖动不漂移）。
           let wx = dx / zoomRef.current
           let wy = dy / zoomRef.current
-          // 节点实体化：拖动组与其他节点矩形互斥，重叠即沿拖动方向顶开/顶住
+          // 节点实体化：分轴滑动——撞到节点即被顶住贴边停住（鼠标继续拉不会瞬移穿过），
+          // 沿被撞节点的边缘滑动可以绕出去；先 Y 后 X，对角拖动贴角不甩角
           if (!multiIds.includes(node.id)) {
             const GAP = 6
             const w = measureNodeWidth(node.label)
             const others = doc.nodes.filter(item => item.id !== node.id)
-            for (let iter = 0; iter < 3; iter++) {
-              let pushed = false
-              for (const other of others) {
-                const ow = measureNodeWidth(other.label)
-                const nx = node.x + wx
-                const ny = node.y + wy
-                const overlap = nx < other.x + ow + GAP && nx + w + GAP > other.x && ny < other.y + NODE_H + GAP && ny + NODE_H + GAP > other.y
-                if (!overlap) continue
-                const moveLeft = wx < 0
-                const moveUp = wy < 0
-                if (Math.abs(wx) >= Math.abs(wy)) {
-                  wx = moveLeft ? other.x + ow + GAP - node.x : other.x - GAP - w - node.x
-                } else {
-                  wy = moveUp ? other.y + NODE_H + GAP - node.y : other.y - GAP - NODE_H - node.y
-                }
-                pushed = true
+            const hitOne = (x, y, o) => x < o.x + measureNodeWidth(o.label) + GAP && x + w + GAP > o.x && y < o.y + NODE_H + GAP && y + NODE_H + GAP > o.y
+            const hitAny = (x, y) => others.some(o => hitOne(x, y, o))
+            let nx = node.x + wx
+            let ny = node.y + wy
+            if (hitAny(nx, ny)) {
+              // Y 轴：向下撞 → 停在最高障碍上方；向上撞 → 停在最低障碍下方
+              if (hitAny(node.x, ny)) {
+                const blockers = others.filter(o => hitOne(node.x, ny, o))
+                ny = wy >= 0
+                  ? Math.min(...blockers.map(o => o.y - GAP - NODE_H))
+                  : Math.max(...blockers.map(o => o.y + NODE_H + GAP))
               }
-              if (!pushed) break
+              // X 轴（在已钳制的 y 基础上）
+              if (hitAny(nx, ny)) {
+                const blockers = others.filter(o => hitOne(nx, ny, o))
+                nx = wx >= 0
+                  ? Math.min(...blockers.map(o => o.x - GAP - w))
+                  : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP))
+              }
+              // 复查：仍重叠（被夹在中间等）→ 回到上一个合法位置
+              if (hitAny(nx, ny)) {
+                nx = node.x
+                ny = node.y
+              }
             }
+            wx = nx - node.x
+            wy = ny - node.y
           }
           setDoc(prev => ({
             ...prev,
