@@ -845,12 +845,15 @@ window.__ModuleLoader__.load({
       return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom']
     }
 
-    function edgeGeometry(from, to, fromPort, toPort) {
+    function edgeGeometry(from, to, fromPort, toPort, label) {
       let fp = PORTS.includes(fromPort) ? fromPort : 'right'
       let tp = PORTS.includes(toPort) ? toPort : 'left'
       if (from.type === 'router') {
-        // 判断节点：出端是分支语义（是=右/否=下）保持不动，入端按目标相对位置就近选
+        // 判断节点：出端按分支语义强制（是=右/否=下），入端按目标相对位置就近选
+        if (label === '是') fp = 'right'
+        else if (label === '否') fp = 'bottom'
         if (fp === 'right' || fp === 'bottom') tp = nearestPort(to, from.x + NODE_W / 2, from.y + NODE_H / 2)
+        else ;[fp, tp] = bestPorts(from, to)
       } else {
         // 其他节点：出/入端都按相对位置动态取最优
         ;[fp, tp] = bestPorts(from, to)
@@ -2341,7 +2344,7 @@ window.__ModuleLoader__.load({
           const from = nodeById(edge.from)
           const to = nodeById(edge.to)
           if (!from || !to) return null
-          const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort)
+          const geo = edgeGeometry(from, to, edge.fromPort, edge.toPort, edge.label)
           const hot = selectedId === edge.from || selectedId === edge.to
           const kind = edge.label === '是' ? ' yes' : edge.label === '否' ? ' no' : ''
           return h('g', { key: edge.id },
