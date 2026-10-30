@@ -106,6 +106,7 @@ window.__ModuleLoader__.load({
       '.cudP_fill{display:block;height:100%;border-radius:2px;background:var(--dsw-alias-brand-primary)}',
       '.cudP_quotaValue{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;',
       'text-align:right;white-space:nowrap}',
+      '.cudP_quotaReset{display:block;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-size:11px}',
       '.cudP_quotaError{margin:0 0 10px;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}',
       '.cudP_today{margin:0 0 10px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
     ].join('');
@@ -246,6 +247,26 @@ window.__ModuleLoader__.load({
       const calls = num(totalUsage && totalUsage.totalModelCallCount);
       if (tokens === 0 && calls === 0) return { error: 'shape' };
       return { tokens: tokens, calls: calls };
+    }
+
+    /** Compact reset time: today shows HH:mm, otherwise MM-dd HH:mm. */
+    function resetTimeText(epochMs) {
+      if (typeof epochMs !== 'number' || !Number.isFinite(epochMs) || epochMs <= 0) return null;
+      const date = new Date(epochMs);
+      if (Number.isNaN(date.getTime())) return null;
+      const pad = function (value) {
+        return String(value).padStart(2, '0');
+      };
+      const time = pad(date.getHours()) + ':' + pad(date.getMinutes());
+      const now = new Date();
+      if (
+        date.getFullYear() === now.getFullYear() &&
+        date.getMonth() === now.getMonth() &&
+        date.getDate() === now.getDate()
+      ) {
+        return time;
+      }
+      return pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + time;
     }
 
     function UsageBreakdown({ useProjection, t }) {
@@ -453,6 +474,7 @@ window.__ModuleLoader__.load({
         // bar.percent is "used" from the API; the bar and the 剩 X% label both
         // visualize the remaining quota, so fill with 100 - used.
         const left = 100 - clamped;
+        const reset = resetTimeText(bar.raw && bar.raw.nextResetTime);
         return h(
           'div',
           { key: key, className: 'cudP_quotaRow', title: JSON.stringify(bar.raw).slice(0, 300) },
@@ -469,6 +491,9 @@ window.__ModuleLoader__.load({
               title: t('usage.quotaUsed', { percent: clamped.toFixed(1), left: left.toFixed(1) }),
             },
             t('usage.quotaLeft', { left: left.toFixed(1) }),
+            reset === null
+              ? null
+              : h('span', { className: 'cudP_quotaReset' }, t('usage.resetAt', { time: reset })),
           ),
         );
       };
@@ -675,6 +700,7 @@ window.__ModuleLoader__.load({
                 'usage.quotaMcp': 'MCP 月度',
                 'usage.quotaUsed': '已用 {percent}% · 剩 {left}%',
                 'usage.quotaLeft': '剩 {left}%',
+                'usage.resetAt': '{time} 刷新',
                 'usage.quotaInline': '5h 剩 {percent}%',
                 'usage.quotaInlineWeek': '7d 剩 {percent}%',
                 'usage.quotaInlineTitle': 'GLM 套餐额度剩余百分比',
@@ -710,6 +736,7 @@ window.__ModuleLoader__.load({
                 'usage.quotaMcp': 'MCP monthly',
                 'usage.quotaUsed': 'used {percent}% · {left}% left',
                 'usage.quotaLeft': '{left}% left',
+                'usage.resetAt': 'resets {time}',
                 'usage.quotaInline': '5h {percent}% left',
                 'usage.quotaInlineWeek': '7d {percent}% left',
                 'usage.quotaInlineTitle': 'GLM plan quota remaining percentage',
