@@ -864,12 +864,43 @@ window.__ModuleLoader__.load({
       // 电路板式走线：端口沿法线伸出 24px，再横平竖直达目标端口，直角倒圆角
       const a = { x: p1.x + d1[0] * 24, y: p1.y + d1[1] * 24 }
       const b = { x: p2.x + d2[0] * 24, y: p2.y + d2[1] * 24 }
-      const pts = [p1]
-      if (Math.hypot(a.x - p1.x, a.y - p1.y) > 1) pts.push(a)
-      if (Math.hypot(b.x - a.x, b.y - a.y) > 1 && Math.hypot(b.x - p2.x, b.y - p2.y) > 1) pts.push(b)
-      pts.push(p2)
-      const mid = polylineMid(pts)
-      return { d: roundedPath(pts), mx: mid.x, my: mid.y }
+      // 正交阶梯点：横竖分明，杜绝斜线
+      const v1 = d1[1] !== 0
+      const v2 = d2[1] !== 0
+      let pts = [p1, a, b, p2]
+      if (v1 === v2) {
+        // 同轴：反向(上↔下/左↔右)走中位线，同向走 S 阶梯
+        if (v1) {
+          const midY = (a.y + b.y) / 2
+          pts = [p1, a, { x: a.x, y: midY }, { x: b.x, y: midY }, b, p2]
+        } else {
+          const midX = (a.x + b.x) / 2
+          pts = [p1, a, { x: midX, y: a.y }, { x: midX, y: b.y }, b, p2]
+        }
+      } else if (v1) {
+        // 垂直出、水平入：拐点取 (a.x, b.y)
+        pts = [p1, a, { x: a.x, y: b.y }, b, p2]
+      } else {
+        // 水平出、垂直入：拐点取 (b.x, a.y)
+        pts = [p1, a, { x: b.x, y: a.y }, b, p2]
+      }
+      // 去重与去共线：删掉 <1px 的重复点和在直线上毫无作用的中间点
+      const clean = []
+      for (const pt of pts) {
+        const prevPt = clean[clean.length - 1]
+        if (prevPt && Math.hypot(pt.x - prevPt.x, pt.y - prevPt.y) < 1) continue
+        clean.push(pt)
+      }
+      for (let i = 1; i < clean.length - 1; ) {
+        const p = clean[i - 1]
+        const c = clean[i]
+        const n = clean[i + 1]
+        const cross = (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x)
+        if (Math.abs(cross) < 0.5) clean.splice(i, 1)
+        else i++
+      }
+      const mid = polylineMid(clean)
+      return { d: roundedPath(clean), mx: mid.x, my: mid.y }
     }
 
     function pickLane(lanes, label) {
