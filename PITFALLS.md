@@ -429,3 +429,4 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 批量改名后必须 `grep -n 旧名` 确认清零，不能信 sed 的退出码；
 - 无头验证必须**加载真实文件本体**（如 require 整个模块或抠函数时逐字节来自文件），不许手抄一份测；
 - "带边画布崩溃、空画布正常" = 崩溃点在边渲染循环里，先用真实 canvas-*.json 逐边跑一遍能秒定位。
+- **后续（2.14.8 定案）**：真凶有两个——①`lanes.get` 引用错；②修掉①后又暴露 `lanePts.get()` 返回的是整个几何对象 `{pts,axis}` 被当 pts 数组 `.map`。仅当走廊内 ≥2 条边（lane≠0）才走崩溃分支，所以小画布幸存、复杂画布必崩，极具迷惑性。终局解法：写出「stub React/DOM + 真实文件 require + 真实画布 JSON 全量渲染」的 harness（/tmp/run_render.cjs 模式），每次改完渲染层先跑它再装。
