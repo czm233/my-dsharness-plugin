@@ -830,6 +830,31 @@ window.__ModuleLoader__.load({
     // 端口组合评分：最少拐弯优先，其次最短路径。
     // 0 拐弯 = 共线直连；1 拐弯 = 垂直端口 L 形；2 拐弯 = 同轴阶梯/S。
 
+    // 线段与节点矩形相交（Liang-Barsky，外扩 4px）——任意方向的线段都能正确判定
+    function segRectHit(a, b, node) {
+      const pad = 4
+      const x0 = node.x - pad
+      const y0 = node.y - pad
+      const x1 = node.x + measureNodeWidth(node.label) + pad
+      const y1 = node.y + NODE_H + pad
+      let t0 = 0
+      let t1 = 1
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const p = [-dx, dx, -dy, dy]
+      const q = [a.x - x0, x1 - a.x, a.y - y0, y1 - a.y]
+      for (let i = 0; i < 4; i++) {
+        if (p[i] === 0) {
+          if (q[i] < 0) return false
+        } else {
+          const t = q[i] / p[i]
+          if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t }
+          else { if (t < t0) return false; if (t < t1) t1 = t }
+        }
+      }
+      return true
+    }
+
     // 线段是否穿过（外扩4px的）节点矩形：水平段看 y 落带 + x 区间，垂直段对称
     function segHitsNode(a, b, node) {
       const r = { x: node.x, y: node.y, w: measureNodeWidth(node.label), h: NODE_H }
@@ -1900,30 +1925,28 @@ window.__ModuleLoader__.load({
             const hitAny = (x, y) => others.some(o => hitOne(x, y, o))
             const rawX = baseX + dx / zoomRef.current
             const rawY = baseY + dy / zoomRef.current
-            let ax = dragRef.current.appliedX || 0
-            let ay = dragRef.current.appliedY || 0
-            // Y 轴：目标 y 与当前 x 组合若重叠 → 停在障碍边缘（按移动方向就近贴边）
-            if (hitAny(baseX + ax, rawY)) {
-              const blockers = others.filter(o => hitOne(baseX + ax, rawY, o))
-              ay = wy >= 0
-                ? Math.min(...blockers.map(o => o.y - GAP - NODE_H)) - baseY
-                : Math.max(...blockers.map(o => o.y + NODE_H + GAP)) - baseY
+            const fromPt = { x: baseX + ax, y: baseY + ay }
+            const toPt = { x: rawX, y: rawY }
+            // 路径规则：当前位置 → 目标位置的直线路径若穿过任何节点 → 顶在被挡一侧
+            //（沿侧面绕出去的路径不受阻，只有穿体才被挡）
+            const pathBlocked = others.some(o => segRectHit(fromPt, toPt, o))
+            if (pathBlocked) {
+              const blockers = others.filter(o => segRectHit(fromPt, toPt, o))
+              const movingX = Math.abs(toPt.x - fromPt.x) >= Math.abs(toPt.y - fromPt.y)
+              if (movingX) {
+                ax = (wx >= 0
+                  ? Math.min(...blockers.map(o => o.x - GAP - w))
+                  : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP))) - baseX
+                ay = toPt.y - baseY
+              } else {
+                ay = (wy >= 0
+                  ? Math.min(...blockers.map(o => o.y - GAP - NODE_H))
+                  : Math.max(...blockers.map(o => o.y + NODE_H + GAP))) - baseY
+                ax = toPt.x - baseX
+              }
             } else {
-              ay = rawY - baseY
-            }
-            // X 轴：在已钳制的 y 基础上
-            if (hitAny(baseX + ax, baseY + ay)) {
-              const blockers = others.filter(o => hitOne(baseX + ax, baseY + ay, o))
-              ax = wx >= 0
-                ? Math.min(...blockers.map(o => o.x - GAP - w)) - baseX
-                : Math.max(...blockers.map(o => o.x + measureNodeWidth(o.label) + GAP)) - baseX
-            } else {
-              ax = rawX - baseX
-            }
-            // 复查：仍重叠（被夹死等极端情况）→ 回到上一个合法位置
-            if (hitAny(baseX + ax, baseY + ay)) {
-              ax = dragRef.current.appliedX || 0
-              ay = dragRef.current.appliedY || 0
+              ax = toPt.x - baseX
+              ay = toPt.y - baseY
             }
             dragRef.current.appliedX = ax
             dragRef.current.appliedY = ay
