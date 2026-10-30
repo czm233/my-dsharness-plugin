@@ -459,3 +459,14 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 教训同 #22：装机前用真实文件做逐帧行为模拟，别只查语法。
 - 逐帧模拟已入库：`test/drag-collision-sim.cjs`（A 从下方 30 帧上推撞 B 的完整交互，预期停在 B 底边+GAP 不瞬移）。重启该功能前先跑通/扩展它。
 - 本条与 #22 同日两次事故的共同病根：**把"语法通过"当"功能正确"**。渲染层看图（canvas-snapshot）、交互层跑帧（drag-collision-sim），两类改动各有对应门禁，缺一个就别装机。
+
+## 25. 右栏扩展点字段形状凭 README 猜测——一个错误字段令整个右栏白屏（2026-10-30，side-chat 0.1.0）
+
+**现象**：装上 side-chat 0.1.0 后右栏打开一片空白，连官方指南卡片（工作区文件/新建终端/浏览器/更多工具）全部消失；slot 树里插件的槽位声明却都在（注册期无任何报错）。
+
+**根因**：`sidebarRightTabs.register` 的 `guide` entry 字段名与类型是猜的。README 只说 "an entry that registered a `description` shows it under the title"，没说类型。官方实现（ui-sidebar-files / ui-sidebar-terminal 的 client.js）里 entry 是 `{ id, order, title: () => string, description: () => string, icon? }`——`title`/`description` 都是**函数**。插件传了 `label: '字符串'`，渲染期 `entry.title()` 对 undefined 调用抛 TypeError，GuideBody 整个崩掉；指南页是右栏默认页，body 一崩右栏全空。注册期 `register()` 只校验 guide entry id 不重复、kind 冲突，**不校验字段形状**，所以 slot 树"看起来很健康"。
+
+**解法/规则**：
+- 给官方扩展点（slots/sidebars/guide/entries 等）传数据前，必须先从 asar 抽出官方实现确认字段名与类型，禁止凭 README 或 inspect 树的 purpose 文本猜。抽取方法：bash 可直接读 app.asar 二进制，按 asar header（uint32LE@4=header pickle 大小，@8 起 header，dataStart=8+headerPickleSize）定位 `dsh/node_modules/@deepseek-ai/<pkg>/lib/client.js` 抽到 /tmp 再 grep/read。
+- "注册成功"≠"渲染正确"：注册期校验极松，崩在渲染期且会连带官方 UI。官方包加载过的字段用法（如 subagent 的 `SidebarChatTab` props 表）逐字照抄，不自创同义字段。
+- 此类崩溃影响面是整块官方 UI，不是本插件槽位——装机前先在抽出的官方源码里核对一遍将传入的每个字段。
