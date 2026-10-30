@@ -430,3 +430,20 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 无头验证必须**加载真实文件本体**（如 require 整个模块或抠函数时逐字节来自文件），不许手抄一份测；
 - "带边画布崩溃、空画布正常" = 崩溃点在边渲染循环里，先用真实 canvas-*.json 逐边跑一遍能秒定位。
 - **后续（2.14.8 定案）**：真凶有两个——①`lanes.get` 引用错；②修掉①后又暴露 `lanePts.get()` 返回的是整个几何对象 `{pts,axis}` 被当 pts 数组 `.map`。仅当走廊内 ≥2 条边（lane≠0）才走崩溃分支，所以小画布幸存、复杂画布必崩，极具迷惑性。终局解法：写出「stub React/DOM + 真实文件 require + 真实画布 JSON 全量渲染」的 harness（/tmp/run_render.cjs 模式），每次改完渲染层先跑它再装。
+
+## 23. qlmanage 转 SVG 缩略图会挂起不退出——后台任务堆到 10 个（2026-10-30）
+
+**现象**：渲染验证循环用 `qlmanage -t -s 1400 -o /tmp x.svg` 转 PNG，部分 SVG 会让 qlmanage 卡住不退出（缩略图其实已生成），bash 60 秒超时后被转入后台任务；同样的命令重跑了 10 次，DSH 界面里堆出 10 个后台任务被用户看到。
+
+**根因**：
+1. 不知道 qlmanage 对某些 SVG 会挂起（输出已落盘、进程不退出）；
+2. 第一次挂起后没有 job_list/ps 排查，也没加超时包装，后续每次截图验证原样重跑，任务滚动累积；
+3. 验证循环里没有"事后清理后台任务"的收尾动作。
+
+**解法/规则**：
+- macOS 无 `timeout` 命令（coreutils 未装），用后台+定时 kill 包装（10 秒必退，PNG 早已落盘不受影响）：
+  ```bash
+  qlmanage -t -s 1400 -o /tmp x.svg >/dev/null 2>&1 & QP=$!
+  sleep 10; kill $QP 2>/dev/null
+  ```
+- 会话收尾规则：凡外部命令出现过一次挂起，立即 job_list 排查 + pkill 清理 + 换带超时的写法，禁止原样重跑。
