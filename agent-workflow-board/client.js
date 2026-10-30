@@ -850,15 +850,20 @@ window.__ModuleLoader__.load({
     // 线段是否穿过（外扩4px的）节点矩形：水平段看 y 落带 + x 区间，垂直段对称
     function segHitsNode(a, b, node) {
       const r = { x: node.x, y: node.y, w: measureNodeWidth(node.label), h: NODE_H }
-      if (a.y === b.y && a.x !== b.x) {
+      const dx = Math.abs(b.x - a.x)
+      const dy = Math.abs(b.y - a.y)
+      // 近水平（垂直偏差 ≤12px）按水平段判定，近垂直同理——微斜的直连线也要能检出穿卡
+      if (dy <= 12 && dx > 4) {
+        const y = (a.y + b.y) / 2
         const lo = Math.min(a.x, b.x)
         const hi = Math.max(a.x, b.x)
-        return b.y > r.y - 4 && b.y < r.y + r.h + 4 && hi > r.x - 4 && lo < r.x + r.w + 4
+        return y > r.y - 4 && y < r.y + r.h + 4 && hi > r.x - 4 && lo < r.x + r.w + 4
       }
-      if (a.x === b.x && a.y !== b.y) {
+      if (dx <= 12 && dy > 4) {
+        const x = (a.x + b.x) / 2
         const lo = Math.min(a.y, b.y)
         const hi = Math.max(a.y, b.y)
-        return a.x > r.x - 4 && a.x < r.x + r.w + 4 && hi > r.y - 4 && lo < r.y + r.h + 4
+        return x > r.x - 4 && x < r.x + r.w + 4 && hi > r.y - 4 && lo < r.y + r.h + 4
       }
       return false
     }
@@ -867,9 +872,10 @@ window.__ModuleLoader__.load({
     function routeAroundNodes(pts, axis, nodes, skipA, skipB) {
       let cur = pts
       const clear = 14
+      const usedLines = [] // 已使用的绕行线：后续绕行就近吸附，避免同一批绕行出现 1~2px 的小台阶
       for (let round = 0; round < 6; round++) {
         let changed = false
-        for (let i = 1; i < cur.length - 2; i++) {
+        for (let i = 0; i < cur.length - 1; i++) {
           const a = cur[i]
           const b = cur[i + 1]
           if (Math.hypot(b.x - a.x, b.y - a.y) < 30) continue
@@ -885,6 +891,9 @@ window.__ModuleLoader__.load({
               const belowMax = Math.max(...hits.map(n => n.y + NODE_H)) + clear
               const aboveMin = Math.min(...hits.map(n => n.y)) - clear
               y = Math.abs(y - belowMax) <= Math.abs(y - aboveMin) ? belowMax : aboveMin
+              const snapY = usedLines.find(u => Math.abs(u - y) <= 4)
+              if (snapY !== undefined) y = snapY
+              else usedLines.push(y)
             }
             if (y !== a.y) {
               cur = [...cur.slice(0, i + 1), { x: a.x, y }, { x: b.x, y }, ...cur.slice(i + 1)]
@@ -901,6 +910,9 @@ window.__ModuleLoader__.load({
               const rightMax = Math.max(...hits.map(n => n.x + measureNodeWidth(n.label))) + clear
               const leftMin = Math.min(...hits.map(n => n.x)) - clear
               x = Math.abs(x - rightMax) <= Math.abs(x - leftMin) ? rightMax : leftMin
+              const snapX = usedLines.find(u => Math.abs(u - x) <= 4)
+              if (snapX !== undefined) x = snapX
+              else usedLines.push(x)
             }
             if (x !== a.x) {
               cur = [...cur.slice(0, i + 1), { x, y: a.y }, { x, y: b.y }, ...cur.slice(i + 1)]
