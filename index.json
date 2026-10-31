@@ -1067,7 +1067,7 @@
       },
       "description": {
         "en": "Adds a right-sidebar guide entry that forks the current session into a real branch session and opens it in an official right-sidebar tab with the full conversation UI.",
-        "zh": "在官方右栏加一个入口：把当前会话 fork 成真实分支会话（左侧列表同步出现、名字加后缀），用完整对话界面在右栏 tab 里继续聊；关闭 tab 时自动归档会话（CLOSE_MODE 可切回弹框确认）。"
+        "zh": "在官方右栏加一个入口：把当前会话 fork 成真实分支会话（左侧列表同步出现、名字加后缀），用完整对话界面在右栏 tab 里继续聊；关闭 tab 时自动归档会话（CLOSE_MODE 可切回弹框确认）；同一个 tab 始终绑定同一分支会话，切会话或重载不会重复 fork。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -1084,6 +1084,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.2.2",
+          "publishTimestamp": 1793456733,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "217fb24",
+            "path": "side-chat"
+          }
+        },
         {
           "version": "0.2.1",
           "publishTimestamp": 1793428191,
