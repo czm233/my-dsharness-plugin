@@ -18,6 +18,7 @@ class Node {
     this.className = ''
     this.id = ''
     this.style = { display: '' }
+    this.listeners = new Map()
     // 浏览器元素的 dataset 是实时视图：这里用 Proxy 让 dataset.xxx 等价于 data-xxx 属性。
     this.dataset = new Proxy({}, {
       set: (_, key, value) => { this.setAttribute('data-' + key, value); return true },
@@ -91,6 +92,18 @@ class Node {
       node = node._parent
     }
     return null
+  }
+  addEventListener(type, handler) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set())
+    this.listeners.get(type).add(handler)
+  }
+  removeEventListener(type, handler) {
+    this.listeners.get(type)?.delete(handler)
+  }
+  /** 触发绑定的监听器（测试用）。 */
+  fire(type, event = {}) {
+    const handlers = this.listeners.get(type)
+    if (handlers) for (const handler of Array.from(handlers)) handler(event)
   }
   focus() {}
   setSelectionRange() {}

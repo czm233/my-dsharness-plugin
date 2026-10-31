@@ -212,8 +212,10 @@ async function main() {
   const actionEl = roots[0].container
   check('「修改」按钮进的是官方操作行（复制按钮旁边）', actionEl.parentElement === tree.second.actionsRow,
     `parent=${actionEl.parentElement && actionEl.parentElement.getAttribute('class')}`)
-  check('「修改」按钮沿用复制按钮的类名', actionEl.className === tree.second.copyButton.getAttribute('class'),
-    `${actionEl.className} vs ${tree.second.copyButton.getAttribute('class')}`)
+  const copyClass = tree.second.copyButton.getAttribute('class')
+  check('「修改」按钮带上复制按钮的类名（并附兜底类）',
+    actionEl.className === `${copyClass} dsh-edit-restart-action`,
+    `${actionEl.className} vs ${copyClass}`)
   check('落点带装饰 class', tree.second.column.classList.contains('dsh-edit-restart-column'))
   check('两条用户消息的气泡列都打上了 ready 标记',
     tree.content.querySelectorAll('[data-edit-restart-ready]').length === 2)
@@ -231,10 +233,10 @@ async function main() {
 
   console.log('[3] 点「修改」→ 定位 → 发送 → fork 切点')
   const fakeEvent = { stopPropagation() {}, preventDefault() {} }
-  const onClick = actionEl.onClick || (actionEl.children[0] && actionEl.children[0].onClick)
-  check('「修改」按钮有点击处理器', typeof onClick === 'function')
+  check('「修改」按钮绑定了点击监听', typeof actionEl.fire === 'function' && actionEl.listeners.get('click')?.size > 0)
   flushMutations()
-  await onClick(fakeEvent)
+  actionEl.fire('click', fakeEvent)
+  for (let tick = 0; tick < 6; tick += 1) await Promise.resolve()
   for (let tick = 0; tick < 6; tick += 1) await Promise.resolve()
 
   const layerRoot = roots[1].container

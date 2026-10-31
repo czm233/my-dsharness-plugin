@@ -207,8 +207,13 @@ window.__ModuleLoader__.load({
   color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
       `[${LAYER_ATTR}] .${P}-send{background:var(--dsw-alias-button-primary-fill,#4c8bf5);color:#fff;}`,
       `[${LAYER_ATTR}] button:disabled{opacity:.5;cursor:default;}`,
-      // 「修改」按钮：并进官方操作行，className 直接复制官方按钮（见 ActionButton），这里只兜底尺寸
-      `[${HOST_ATTR}] [class*="_actions"] > button[${ACTION_ATTR}]{flex:0 0 auto;}`,
+      // 「修改」按钮：类名照抄官方复制按钮；拿不到时用下面这套兜底，长得和它一致
+      `.${P}-action{appearance:none;-webkit-appearance:none;background:0 0;border:0;padding:6px;margin:0;
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer;
+  width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
+  border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);font:inherit;line-height:0;}`,
+      `.${P}-action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);}`,
+      `.${P}-action svg{width:calc(15px + var(--dsh-content-font-delta,0px));height:calc(15px + var(--dsh-content-font-delta,0px));display:block;}`,
       // 已修改标记
       `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}]{order:4 !important;display:none;
   width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
@@ -228,21 +233,10 @@ window.__ModuleLoader__.load({
     }
 
     // ---- 「修改」按钮 ----
-    function ActionButton(props) {
-      const { t, onOpen, className } = props
-      return h('button', {
-        type: 'button',
-        className,
-        [ACTION_ATTR]: '',
-        title: t('action'),
-        'aria-label': t('action'),
-        onClick: (event) => {
-          event.stopPropagation()
-          event.preventDefault()
-          onOpen()
-        },
-      }, h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
-        h('path', { d: PENCIL, stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round' })))
+    /** 只画铅笔图标：真正的 <button> 由 apply 里创建，样式与点击都不经过 React。 */
+    function PencilGlyph() {
+      return h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true' },
+        h('path', { d: PENCIL, stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round' }))
     }
 
     /** 编辑框：回车发送（direct），或点「保存草稿」交给 Host（save）。 */
@@ -352,6 +346,10 @@ window.__ModuleLoader__.load({
       const slotOf = (hit) => hit.row
 
       const actionEl = document.createElement('button')
+      actionEl.type = 'button'
+      actionEl.setAttribute(ACTION_ATTR, '')
+      actionEl.setAttribute('aria-label', t('action'))
+      actionEl.title = t('action')
       const layerEl = document.createElement('div')
       const markerEl = document.createElement('button')
       markerEl.type = 'button'
@@ -625,24 +623,25 @@ window.__ModuleLoader__.load({
         report(`scan session=${next} users=${items.length} actionRow=${describe(latest.actions)}`)
         // 按钮只保留一个，挂进最新一条消息的官方操作行
         if (actionEl.parentElement !== latest.actions) latest.actions.appendChild(actionEl)
-        actionEl.className = latest.copyClass
+        // 与复制按钮同一套类名（哈希前缀随版本变，所以直接照抄它的 class）
+        const wanted = latest.copyClass ? `${latest.copyClass} ${P}-action` : `${P}-action`
+        if (actionEl.className !== wanted) actionEl.className = wanted
         if (!actionReady) {
           actionReady = true
-          actionRoot.render(h(ActionButton, {
-            t,
-            onOpen: () => {
-              // 从按钮往上找它的气泡列（不依赖 closest 的属性子串选择器）
-              let row = actionEl.parentElement
-              while (row && !hasClassLike(row, '_userRow')) row = row.parentElement
-              if (row === null) return
-              diag('click', { row: describe(row), index: row.getAttribute(INDEX_ATTR) })
-              openEditor(row, Number(row.getAttribute(INDEX_ATTR))).catch((error) => {
-                console.warn(LOG, 'open editor failed', error)
-                diag('open editor failed (visible)', String(error?.message ?? error))
-                showError(row, String(error?.message ?? error))
-              })
-            },
-          }))
+          actionRoot.render(h(PencilGlyph))
+          actionEl.addEventListener('click', (event) => {
+            event.stopPropagation()
+            event.preventDefault()
+            let row = actionEl.parentElement
+            while (row && !hasClassLike(row, '_userRow')) row = row.parentElement
+            if (row === null) return
+            diag('click', { row: describe(row), index: row.getAttribute(INDEX_ATTR) })
+            openEditor(row, Number(row.getAttribute(INDEX_ATTR))).catch((error) => {
+              console.warn(LOG, 'open editor failed', error)
+              diag('open editor failed (visible)', String(error?.message ?? error))
+              showError(row, String(error?.message ?? error))
+            })
+          })
         }
         if (current !== null) {
           if (current.slot.isConnected === false) {
@@ -672,7 +671,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.10.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.11.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
