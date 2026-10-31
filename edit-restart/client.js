@@ -187,10 +187,12 @@ window.__ModuleLoader__.load({
 
     const CSS = [
       // 编辑器在流内展开（就是气泡被替换成输入区），高度随内容长
+      // 宽度必须挂在真正参与布局的外层容器上，且只用 px 计算：
+      // 百分比会相对于「由内容决定宽度」的父容器求解，等于没给宽度，于是缩成竖条。
+      `[${LAYER_HOST_ATTR}]{box-sizing:border-box;align-self:flex-end;
+  width:calc(var(--dsh-chat-content-width,748px) * .702);max-width:100%;}`,
       `[${LAYER_ATTR}]{box-sizing:border-box;display:flex;flex-direction:column;gap:6px;
-  align-self:flex-end;padding:10px 12px 8px;border-radius:var(--dsw-radius-xl,14px);
-  /* 和官方气泡同一套宽度公式：横向吃满可读宽度，而不是缩成一条竖条 */
-  width:min(calc(var(--dsh-chat-content-width,748px) * .702), 82%);max-width:100%;
+  width:100%;padding:10px 12px 8px;border-radius:var(--dsw-radius-xl,14px);
   background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
   border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
       `[${LAYER_ATTR}][data-error="true"]{position:static;background:transparent;border-color:transparent;padding:0;
@@ -417,6 +419,27 @@ window.__ModuleLoader__.load({
 
       const editedKey = () => `${sessionId}|${current?.index}`
 
+      /**
+       * 编辑区宽度兜底：CSS 用 --dsh-chat-content-width 算宽（约 525px）；
+       * 若该变量在当前装配里没有值，就按气泡列自身宽度取 70% 并给下限，
+       * 避免又退回成一条竖高条。
+       */
+      function applyEditorWidth(layer, row) {
+        const base = row && typeof row.getBoundingClientRect === 'function'
+          ? row.getBoundingClientRect().width
+          : 0
+        const computed = typeof window.getComputedStyle === 'function'
+          ? parseFloat(window.getComputedStyle(layer).width)
+          : NaN
+        if (Number.isFinite(computed) && computed >= 240) {
+          layer.style.width = ''
+          return
+        }
+        const fallback = Math.max(240, Math.round((base > 0 ? base : 748) * 0.702))
+        layer.style.width = `${fallback}px`
+        diag('editor width fallback', { base: Math.round(base), fallback })
+      }
+
       function closeEditor() {
         if (current === null) return
         if (current.bubble && current.bubble.isConnected !== false) {
@@ -585,6 +608,8 @@ window.__ModuleLoader__.load({
           slot.appendChild(layerEl)
         }
         layerEl.style.position = 'static'
+        layerEl.style.width = ''
+        applyEditorWidth(layerEl, slot)
         const actionsRow = hit ? hit.actions : null
         if (actionsRow && actionEl.parentElement !== actionsRow) actionsRow.appendChild(actionEl)
         layerRoot.render(h(MessageLayer, {
@@ -679,7 +704,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.19.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.20.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
