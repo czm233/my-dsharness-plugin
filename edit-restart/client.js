@@ -8,13 +8,13 @@
  *      搬的永远只有自己渲染出来的节点。
  *
  * 交互：
- *   1. 气泡下方官方复制行旁边出现一个「修改」按钮（挂在最新一条用户消息上）；
+ *   1. 用户消息的复制行旁边出现一个「修改」按钮（挂在最新一条用户消息上）；
  *   2. 点它就地展开编辑框（气泡列竖排：气泡 → 修改 → 复制 → 编辑框 → 标记）；
  *   3. 点发送：按这条消息所在轮次的 turn/start 原生 fork 出新会话，再把改过的文本
  *      作为新会话第一条消息发出（原会话原样保留），然后切到分支会话；
  *   4. 改过的那条消息在本次页面加载内保留「已修改」标记。
  *
- * 定位方式：气泡 index = 它在当前会话里的第几条人发消息（人发消息才有复制行），
+ * 定位方式：消息 index = 它在当前会话里的第几条用户消息（官方气泡列 *_userRow），
  * 会话记录里按同样规则数 append 的人发 user/message；对不上就明确报错，不会误改别的消息。
  */
 
@@ -71,86 +71,50 @@ window.__ModuleLoader__.load({
     /** 正在重发的源会话 id。 */
     const resending = new Set()
 
-    // ---- 官方 DOM 的发现与校验 ----
-    /** 元素标签名（大小写不敏感；不依赖本地名对 SVG 的处理）。 */
+    // ---- 官方 DOM 的发现与校验（0.2.1-rc.5 实测结构）----
+    // 一条用户消息的真实 DOM：
+    //   [class*="_userRow"]（气泡列：竖排 flex、右对齐）
+    //     ├─ [class*="_userStack"]（气泡本体：文字/附件）
+    //     └─ [class*="_actions"]（操作行：复制等图标按钮）
+    // 哈希前缀随版本变，只认类名后缀。
     const tagOf = (node) => String(node?.localName ?? node?.tagName ?? '').toLowerCase()
     const isTag = (node, tag) => !!node && node.nodeType === 1 && tagOf(node) === tag
-
-    /** 官方复制行：只剩一个带单个 svg 的按钮，没有其它可见子节点。 */
-    function isCopyRow(row) {
-      if (!row || row.nodeType !== 1) return false
-      if (row.hasAttribute('data-edit-restart-row') || row.hasAttribute('data-clock')) return false
-      const kids = Array.from(row.children)
-      const buttons = kids.filter((child) => isTag(child, 'button'))
-      if (buttons.length !== 1) return false
-      const onlyIcons = buttons[0].children.every((child) => isTag(child, 'svg'))
-      return kids.length === 1 && onlyIcons
-    }
-
-    /** 距离元素最近的聊天行（分组行不算）。 */
-    function flowItemOf(el) {
-      let node = el.parentElement
-      while (node) {
-        if (node.hasAttribute('data-chat-flow-key')) {
-          return node.hasAttribute('data-chat-group-key') ? null : node
-        }
-        node = node.parentElement
-      }
-      return null
-    }
-
-    /** 上一个兄弟元素（只用 children 与 index，不依赖原型的访问器）。 */
-    function previousSibling(el) {
-      const parent = el.parentElement
-      if (!parent) return null
-      const list = Array.from(parent.children)
-      const at = list.indexOf(el)
-      return at > 0 ? list[at - 1] : null
-    }
+    const classListOf = (node) => String(node?.getAttribute?.('class') || '').split(/\s+/).filter(Boolean)
+    const hasClassLike = (node, suffix) => classListOf(node).some((name) => name.endsWith(suffix))
 
     /**
-     * 从复制行往回摸出 [气泡, 容器]；结构不符返回 null（调用方不得装饰）。
-     * 支持两种官方结构：
-     *   column —— 气泡在 userRow 里按「气泡 / 按钮行 / 复制行」竖排；
-     *   linear —— 气泡、按钮行、复制行是同一个行容器的兄弟。
-     * 装好后由 scan 在「气泡所在的那一层容器」挂 class，CSS 负责竖排顺序。
+     * 认出一条用户消息：气泡列（_userRow）、气泡本体（_userStack）、操作行（含按钮）与按钮列表。
+     * 结构对不上一律返回 null，调用方不得装饰。
      */
-    function bubbleAndColumn(row) {
-      // 从复制行往回逐层找气泡本体：官方结构里它就是「只包正文的那一格」。
-      let node = previousSibling(row)
-      let buttonRow = node
-      for (let depth = 0; node !== null && depth < 2; depth += 1) {
-        if (!isTag(node, 'div')) return null
-        if (node.children.length === 1 && node.querySelector('button') === null) {
-          const parent = buttonRow.parentElement
-          if (parent === null || !Array.from(parent.children).includes(row)) return null
-          return { bubble: node, buttonRow, column: parent, layout: depth === 0 ? 'column' : 'linear' }
+    function userMessageIn(row) {
+      if (!hasClassLike(row, '_userRow')) return null
+      let bubble = null
+      let actions = null
+      for (const child of Array.from(row.children)) {
+        if (hasClassLike(child, '_userStack') && bubble === null && child.querySelector('button') === null) {
+          bubble = child
+          continue
         }
-        // 带按钮的这一层是恢复行；再往前一格就是气泡本体。
-        if (node.querySelector('button') === null) return null
-        buttonRow = node
-        node = previousSibling(node)
+        if (actions === null && child.querySelector('button') !== null) actions = child
       }
-      return null
+      if (bubble === null || actions === null) return null
+      const buttons = Array.from(actions.querySelectorAll('button'))
+      if (buttons.length === 0) return null
+      return { row, bubble, actions, buttons }
     }
 
-    /**
-     * 枚举某个会话内容区里每一条人发消息（人发消息才有复制行），
-     * 返回顺序即它们在当前会话里的先后。
-     */
+    /** 枚举当前会话内容区里每一条用户消息（返回顺序即先后）。 */
     function scanChat(host) {
       const found = []
-      for (const row of host.querySelectorAll('div')) {
-        // 只认「同一条消息的两种行」：官方操作行本身不能是已装好的 chat 行，
-        // 且里面不能还套着复制行（拿 DOM 里的任意 div 来点已装好的答案也不漏）。
-        if (row.hasAttribute('data-chat-flow-key')) continue
-        if (!isCopyRow(row)) continue
-        const hit = bubbleAndColumn(row)
-        if (hit !== null) found.push({ ...hit, row })
+      for (const node of host.querySelectorAll('div')) {
+        if (!hasClassLike(node, '_userRow')) continue
+        const hit = userMessageIn(node)
+        if (hit !== null) found.push(hit)
       }
       return found
     }
 
+    /** 消息所属会话：取最近的 data-conversation-session 宿主。 */
     const sessionIdOfHost = (host) => {
       const value = host.getAttribute('data-conversation-session')
       return value === null || value === '' ? null : value
@@ -217,7 +181,8 @@ window.__ModuleLoader__.load({
     const CSS = [
       // 气泡列竖排：气泡(默认 0) → 修改(1) → 复制(2) → 编辑框(3) → 标记(4)
       `.${COLUMN_CLASS}{gap:6px;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > [data-clock="start"]:has(> [aria-label]){order:2 !important;}`,
+      // 操作行（复制按钮那一格）排在「修改」按钮后面：气泡 → 修改 → 复制
+      `[${HOST_ATTR}] .${COLUMN_CLASS} > [class*="_actions"]{order:2 !important;}`,
       `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}]{
   order:1 !important;width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
   border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;
@@ -349,8 +314,8 @@ window.__ModuleLoader__.load({
       document.head.appendChild(styleEl)
 
       // 三个固定 React 根：修改按钮、编辑框、已修改标记（同一时刻只开一个编辑框）。
-      // 装饰落点：column 结构落在气泡列；linear 结构落在该行的 flowItem 上。
-      const slotOf = (hit) => (hit.layout === 'linear' ? (flowItemOf(hit.buttonRow) ?? hit.column) : hit.column)
+      // 装饰落点就是官方气泡列（_userRow）：气泡本体与操作行都在它里面。
+      const slotOf = (hit) => hit.row
 
       const actionEl = document.createElement('button')
       const layerEl = document.createElement('div')
@@ -492,7 +457,6 @@ window.__ModuleLoader__.load({
         host = contentHost
         items.forEach((item, index) => {
           const slot = slotOf(item)
-          if (slot.getAttribute('data-edit-restart-layout') === null) slot.setAttribute('data-edit-restart-layout', item.layout)
           if (slot.hasAttribute(READY_ATTR)) return
           slot.setAttribute(READY_ATTR, '')
           slot.setAttribute(INDEX_ATTR, String(index))

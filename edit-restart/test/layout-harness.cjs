@@ -5,12 +5,12 @@
  * 用法：node edit-restart/test/layout-harness.cjs
  * 退出码：全绿 0；任何断言失败 1。
  *
- * 假 DOM 复刻的是 2026-10-30 实际观测到的 Chat 结构：一条人发消息 =
- *   正文气泡 → 恢复行（文字 + 复制/分支按钮）→ 官方复制行（只剩一个图标按钮），
- * 三者是同一个行容器的兄弟；助手行带 data-clock，必须被排除。
+ * 假 DOM 复刻 0.2.1-rc.5 真实的 Chat 结构：一条用户消息 =
+ *   气泡列（*_userRow）里放气泡本体（*_userStack）与操作行（*_actions，含复制按钮），
+ * 助手消息没有 _userRow，必须不被认成用户消息。
  *
  * 覆盖：
- *   1. 复制行识别（用户行真、助手行排除）；线性结构回溯得到正确的气泡与行容器；
+ *   1. 认出用户消息（气泡列/气泡本体/操作行），助手消息不误认；
  *   2. 唯一「修改」按钮挂在最新消息的装饰落点上，落点带装饰 class；
  *   3. 切换会话后按钮迁到新会话；
  *   4. 点「修改」→ 按「第 index 条人发消息」定位 → fork 切点 = 该消息自己那一轮的 turn/start
@@ -117,7 +117,7 @@ if (anchor < 0) {
   console.error('ANCHOR NOT FOUND: 模块级 "    return {" 不在了，client.js 结构变了，先更新本 harness 的注入锚点')
   process.exit(1)
 }
-lines.splice(anchor, 0, '    window.__test = { isCopyRow, scanChat, bubbleAndColumn, turnStartFor, humanMessage, isHumanMessage, editableText }')
+lines.splice(anchor, 0, '    window.__test = { scanChat, userMessageIn, turnStartFor, humanMessage, isHumanMessage, editableText }')
 const tmp = path.join(os.tmpdir(), 'edit-restart-harness.cjs')
 fs.writeFileSync(tmp, lines.join('\n'))
 require(tmp)
@@ -171,21 +171,18 @@ async function main() {
   for (const fn of rafQueue) fn()
   rafQueue = []
 
-  check('复制行识别：用户行', T.isCopyRow(tree.first.actionsRow) === true)
-  check('复制行识别：助手行（带 data-clock）排除',
-    T.isCopyRow(tree.content.querySelector('[data-clock="end"]')) === false)
-
   const scanned = T.scanChat(tree.content)
-  check('扫描到 2 条人发消息', scanned.length === 2, `got ${scanned.length}`)
-  check('线性结构回溯得到正确气泡与行容器', scanned.length === 2
-    && scanned[0].bubble === tree.first.bubble && scanned[0].column === tree.first.column
-    && scanned[1].bubble === tree.second.bubble && scanned[1].layout === 'linear')
+  check('扫描到 2 条用户消息', scanned.length === 2, `got ${scanned.length}`)
+  check('认出气泡列/气泡本体/操作行', scanned.length === 2
+    && scanned[0].row === tree.first.column && scanned[0].bubble === tree.first.bubble
+    && scanned[0].actions === tree.first.actionsRow
+    && scanned[1].bubble === tree.second.bubble)
 
   const actionEl = roots[0].container
-  check('唯一的「修改」按钮挂在最新消息的落点上', actionEl.parentElement === tree.second.row,
-    `parent=${actionEl.parentElement && actionEl.parentElement.getAttribute('data-chat-flow-key')}`)
-  check('落点带装饰 class', tree.second.row.classList.contains('dsh-edit-restart-column'))
-  check('两条人发消息都打上了 ready 标记', tree.content.querySelectorAll('[data-edit-restart-ready]').length === 2)
+  check('唯一的「修改」按钮挂在最新消息的气泡列里', actionEl.parentElement === tree.second.column)
+  check('落点带装饰 class', tree.second.column.classList.contains('dsh-edit-restart-column'))
+  check('两条用户消息的气泡列都打上了 ready 标记',
+    tree.content.querySelectorAll('[data-edit-restart-ready]').length === 2)
 
   console.log('[2] 切换会话：按钮迁到新会话')
   tree.content.remove()
@@ -196,8 +193,7 @@ async function main() {
   rafQueue = []
   for (const fn of pending) fn()
   check('切换后触发了重新扫描', pending.length > 0)
-  check('按钮迁到新会话的最新消息落点', actionEl.parentElement === other.second.row,
-    `parent=${actionEl.parentElement && actionEl.parentElement.getAttribute('data-chat-flow-key')}`)
+  check('按钮迁到新会话的最新消息气泡列里', actionEl.parentElement === other.second.column)
 
   console.log('[3] 点「修改」→ 定位 → 发送 → fork 切点')
   const fakeEvent = { stopPropagation() {}, preventDefault() {} }
@@ -209,8 +205,8 @@ async function main() {
 
   const layerRoot = roots[1].container
   const layer = layerRoot.children[0]
-  check('编辑框出现在目标消息的落点里', layer !== undefined && layer.getAttribute('data-active') === 'true'
-    && layerRoot.parentElement === other.second.row)
+  check('编辑框出现在目标消息的气泡列里', layer !== undefined && layer.getAttribute('data-active') === 'true'
+    && layerRoot.parentElement === other.second.column)
   const textarea = layer && layer.querySelector('textarea')
   check('编辑框回填的是第 2 条人发消息的正文', textarea !== undefined && textarea.value === '教我 C++',
     JSON.stringify(textarea && textarea.value))

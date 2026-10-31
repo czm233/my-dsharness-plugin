@@ -102,36 +102,34 @@ function match(node, selector) {
 }
 
 /**
- * 造一棵「一条人发消息」的真实行：正文气泡 → 恢复行（文字 + 复制/分支按钮）→ 官方复制行。
- * @returns {{row, column, bubble, buttonRow, actionsRow, copyButton}}
+ * 造一条用户消息的真实结构：flow 行 > 气泡列(_userRow) > 气泡本体(_userStack) + 操作行(_actions)。
+ * @returns {{row, column, bubble, actionsRow, copyButton}}
  */
 function makeUserRow(flowKey, parent) {
   const row = new Node('div')
   row.setAttribute('data-chat-flow-key', flowKey)
   row.setAttribute('data-chat-flow-kind', 'user')
+  // 气泡列：官方 _userRow（竖排 flex、右对齐）
   const column = new Node('div')
+  column.setAttribute('class', 'AbCdEf_userRow')
+  // 气泡本体：官方 _userStack
   const bubble = new Node('div')
+  bubble.setAttribute('class', 'AbCdEf_userStack')
   const bubbleText = new Node('div')
   bubbleText.appendChild(new Node('span'))
   bubble.appendChild(bubbleText)
-  const buttonRow = new Node('div')
-  buttonRow.appendChild(new Node('span'))
-  for (const name of ['copy', 'branch']) {
-    const button = new Node('button')
-    button.setAttribute('aria-label', name)
-    button.appendChild(new Node('svg'))
-    buttonRow.appendChild(button)
-  }
+  // 操作行：官方 _actions（复制按钮；带 data-clock="start"）
   const actionsRow = new Node('div')
+  actionsRow.setAttribute('class', 'AbCdEf_actions')
+  actionsRow.setAttribute('data-clock', 'start')
   const copyButton = new Node('button')
   copyButton.appendChild(new Node('svg'))
   actionsRow.appendChild(copyButton)
   column.appendChild(bubble)
-  column.appendChild(buttonRow)
   column.appendChild(actionsRow)
   row.appendChild(column)
   parent.appendChild(row)
-  return { row, column, bubble, buttonRow, actionsRow, copyButton }
+  return { row, column, bubble, actionsRow, copyButton }
 }
 
 /** 造一个会话内容区：两条用户消息中间夹一条助手回复。 */
