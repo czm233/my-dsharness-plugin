@@ -538,9 +538,14 @@ window.__ModuleLoader__.load({
           }
           editedAt.set(`${id}|${index}`, childId)
           try {
-            await withSession(childId, async (session) => {
-              await session.prompt([{ type: 'text', text }], 'plain')
+            const promptResult = await withSession(childId, async (session) => {
+              return await session.prompt([{ type: 'text', text }], 'queue')
             })
+            if (!promptResult?.ok) {
+              const message = String(promptResult?.error?.message ?? promptResult?.error?.code ?? 'prompt failed')
+              diag('prompt not ok', { childId, message })
+              throw new Error(t('sendFailed').replace('{message}', message))
+            }
             diag('prompt ok', { childId })
           } catch (failure) {
             throw new Error(t('sendFailed').replace('{message}', String(failure?.message ?? failure)))
