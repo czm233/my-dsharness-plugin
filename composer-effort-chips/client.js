@@ -25,39 +25,25 @@ window.__ModuleLoader__.load({
     // composer instance in the page.
     const lastSelectionByProvider = new Map();
 
-    const chipBase = {
-      appearance: 'none',
-      border: 'none',
-      borderRadius: 999,
-      padding: '2px 10px',
-      fontSize: 12,
-      lineHeight: '18px',
-      cursor: 'pointer',
-      whiteSpace: 'nowrap',
-      flex: 'none',
-      background: 'transparent',
-      color: 'var(--dsw-alias-label-tertiary, #999)',
-    };
-    const chipActive = {
-      ...chipBase,
-      background: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.25))',
-      color: 'var(--dsw-alias-label-primary, inherit)',
-      fontWeight: 600,
-    };
+    // 不加 overflow 裁剪：下拉菜单是 position:absolute 向上弹出的，
+    // overflow:hidden/auto 会把菜单切掉，表现为「按钮点不开」。
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
       gap: 4,
       minWidth: 0,
       maxWidth: '100%',
-      overflowX: 'auto',
-      overflowY: 'hidden',
-      scrollbarWidth: 'thin',
+      flex: '0 1 auto',
     };
 
     function groupLabel(group) {
       return group.name || group.label || group.title || group.id;
     }
+
+    // 渠道 / 模型按钮：各自一个最大宽度，超出时文字省略。
+    // minWidth:0 是省略生效的前提——flex 子项默认最小宽等于内容宽，
+    // 没有它 textOverflow:ellipsis 永远不会触发。
+    const PICKER_MAX_WIDTH = 130;
 
     const pickerButtonBase = {
       appearance: 'none',
@@ -68,11 +54,13 @@ window.__ModuleLoader__.load({
       lineHeight: '18px',
       cursor: 'pointer',
       whiteSpace: 'nowrap',
-      flex: 'none',
+      flex: '0 1 auto',
       display: 'inline-flex',
       alignItems: 'center',
       gap: 4,
-      maxWidth: 180,
+      minWidth: 0,
+      maxWidth: PICKER_MAX_WIDTH,
+      overflow: 'hidden',
       background: 'transparent',
       color: 'var(--dsw-alias-label-tertiary, #999)',
     };
@@ -83,8 +71,10 @@ window.__ModuleLoader__.load({
       fontWeight: 600,
     };
     const pickerValueStyle = {
+      minWidth: 0,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
@@ -389,42 +379,32 @@ window.__ModuleLoader__.load({
         });
       };
 
+      const activeChip = effortChips.find((chip) =>
+        chip.effort === undefined
+          ? effectiveEffort === undefined
+          : chip.effort === effectiveEffort,
+      ) || effortChips[0];
+
+      // 档位收成一个下拉：按钮显示当前档位名，点开选择。
       return h(
         'div',
         { style: rowStyle, 'data-composer-effort-chips': true },
         effortChips.length > 0 &&
-          h(
-            'div',
-            {
-              key: 'efforts',
-              style: {
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-                flex: 'none',
-                opacity: disabled ? 0.6 : 1,
-              },
-              role: 'group',
-              'aria-label': t('effortLabel'),
-            },
-            effortChips.map((chip) => {
-              const active =
-                chip.effort === undefined
-                  ? effectiveEffort === undefined
-                  : chip.effort === effectiveEffort;
-              return h(
-                'button',
-                {
-                  key: chip.key,
-                  type: 'button',
-                  style: active ? chipActive : chipBase,
-                  disabled,
-                  onClick: () => pickEffort(chip.effort),
-                },
-                chip.label,
-              );
-            }),
-          ),
+          h(Dropdown, {
+            key: 'effort-dropdown',
+            label: t('effortLabel'),
+            value: activeChip ? activeChip.label : '—',
+            disabled,
+            ariaLabel: t('effortLabel'),
+            options: effortChips.map((chip) => ({
+              key: chip.key,
+              label: chip.label,
+              active: chip.effort === undefined
+                ? effectiveEffort === undefined
+                : chip.effort === effectiveEffort,
+              onPick: () => pickEffort(chip.effort),
+            })),
+          }),
       );
     }
 
