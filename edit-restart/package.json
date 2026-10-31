@@ -1,6 +1,6 @@
 {
   "name": "@local/edit-restart",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "修改重发：在任意用户消息上点「修改」，改完发送后按这条消息之前的上下文分出新的分支会话并发出，原会话保留。",

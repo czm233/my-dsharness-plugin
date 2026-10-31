@@ -101,6 +101,13 @@ async function sendDraft(ctx, draft) {
 }
 
 export function apply(ctx) {
+  // 把当前 Host 进程的 ctx 暴露给同进程的诊断脚本（桌面端没有控制台，只能由进程内脚本代调 RPC）。
+  try {
+    globalThis.__editRestartCtx = ctx
+    const host = ctx.get('typertGateway') ?? ctx.get('connection')?.gateway
+    if (host) globalThis.__editRestartGateway = host
+  } catch (_noCtx) { /* 非标准装配下忽略 */ }
+
   ctx.inject(['connection'], (child) => {
     // 启动即写一条心跳：既能确认 Host 半被载入，也方便对时。
     appendLog(['host loaded']).catch(() => {})
