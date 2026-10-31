@@ -1251,6 +1251,16 @@
             "commit": "2be33b4ee9b60019c7638a2b7328e7449ec27cee",
             "path": "edit-restart"
           }
+        },
+        {
+          "version": "0.12.0",
+          "publishTimestamp": 1793455873,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ab7d6a473fe30dd6dd6979f13ca02a2369598fcd",
+            "path": "edit-restart"
+          }
         }
       ]
     }
