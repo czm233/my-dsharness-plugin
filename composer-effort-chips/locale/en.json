@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Quick Effort Gears",
-    "description": "Flattens reasoning effort into a row of gears left of the send button, click to shift instantly. Also owns the channel and model pickers, each showing only its current value to save width."
+    "description": "Flattens reasoning effort into a row of gears left of the send button; also owns the channel and model pickers. Degrades automatically when width runs out: efforts collapse into a dropdown, then the pickers narrow, never clipped."
   },
   "providerDefault": "Default",
   "effortLabel": "Reasoning effort"
