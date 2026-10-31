@@ -48,6 +48,10 @@ window.__ModuleLoader__.load({
 
     // 不加 overflow 裁剪：下拉菜单是 position:absolute 向上弹出的，
     // overflow:hidden/auto 会把菜单切掉，表现为「按钮点不开」。
+    //
+    // 关键：maxWidth:100% + minWidth:0 + flex 可收缩，让这一排老老实实待在
+    // 父级给的宽度里。溢出量由浏览器自己算（scrollWidth vs clientWidth），
+    // 不需要我们猜祖先链条——之前正是猜错了祖先（它宽度不随窗口变化）。
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
@@ -55,6 +59,7 @@ window.__ModuleLoader__.load({
       minWidth: 0,
       maxWidth: '100%',
       flex: '0 1 auto',
+      width: 'auto',
     };
 
     // ------------------------------------------------------------------
@@ -100,67 +105,23 @@ window.__ModuleLoader__.load({
       return chipWidthCache.value;
     }
 
-    // 沿祖先链向上找「真正有宽度」的容器。
+    // 这一排被挤压得多厉害 = 自然宽度 − 可见宽度。
     //
-    // 实测发现：我们这一排的直接父级可能是个 width 为 0 的包装层
-    // （probe 里 parentW=0），用它算可用宽度永远是 0，判定直接跳过。
-    // 所以要上溯到第一个有确定宽度的祖先，作为「整行」来量。
-    function findRowHost(el) {
-      let node = el ? el.parentElement : null;
-      let hops = 0;
-      let firstPositive = null;
-      while (node && hops < 6) {
-        hops += 1;
-        const rect = node.getBoundingClientRect();
-        if (rect.width > 0) {
-          firstPositive = firstPositive || node;
-          // 有宽度、且能容纳不止我们一个子节点 → 就是这一行。
-          if (node.children.length > 1 || rect.width > el.getBoundingClientRect().width) {
-            return node;
-          }
-        }
-        node = node.parentElement;
-      }
-      return firstPositive || (el ? el.parentElement : null);
-    }
-
-    function availableForRow(el) {
+    // 这是唯一不需要猜祖先的做法：浏览器自己算好了溢出，我们直接读。
+    // 之前几次失败全是因为去猜「哪一层才是决定宽度的那层」——猜中的那层
+    // 宽度并不随窗口变化（probe 里 hostW 恒为 584）。
+    //
+    // 展开时：胶囊不压缩（flex:none），溢出量 > 0 就说明放不下 → 收起。
+    // 收起时：下拉本身很窄，不会溢出；此时用「胶囊需要多宽 vs 整行多宽」
+    // 判断能不能展回去。
+    function overflowOf(el) {
       if (!el) return 0;
-      const host = findRowHost(el);
-      if (!host) return 0;
-      const hostRect = host.getBoundingClientRect();
-      if (hostRect.width <= 0) return 0;
-
-      // 可用宽度 = 整行宽度 − 别人占的宽度。
-      //
-      // 关键：不能写成「行宽 − 左占位 − 右占位」。那个式子算的是我们自己
-      // 当前占了多少，收起后自己变窄 → 结果变小 → 判定以为空间不足 →
-      // 永远展不回去（实测 collapsed=true 时 have 只剩 32px 就是这么来的）。
-      //
-      // 正确做法：把「别人」定义为整行里除我们之外的直接子节点，
-      // 逐个子树量它们的实际宽度。我们自己的宽度不参与扣减，
-      // 所以收起/展开两种形态下算出的可用值完全一致。
-      let others = 0;
-      const walk = (node) => {
-        if (!node || node === el) return false;
-        // 如果这个子树包含我们，就往下找，不要整块算成「别人」。
-        if (node.contains && node.contains(el)) {
-          for (const child of node.children) {
-            if (walk(child)) return true;
-          }
-          return false;
-        }
-        const rect = node.getBoundingClientRect();
-        if (rect.width > 0) others += rect.width;
-        return true;
-      };
-      for (const child of host.children) walk(child);
-
-      // 兄弟之间的间距（官方工具栏 gap 约 8~12px），保守扣 8px。
-      const padding = 8;
-      const available = hostRect.width - others - padding;
-      return available > 0 ? available : 0;
+      const natural = el.scrollWidth || 0;
+      const visible = el.clientWidth || 0;
+      if (natural <= 0 || visible <= 0) return 0;
+      return natural - visible;
     }
+
 
     /** 观察这一排，决定档位是否收成下拉。 */
     function useCollapsed(ref, deps) {
@@ -176,26 +137,35 @@ window.__ModuleLoader__.load({
         const evaluate = () => {
           frame = 0;
           const need = measureChipWidths(el);
-          const have = availableForRow(el);
-          probeRecord(el, need, have, collapsedRef.current);
-          if (!need || !have) return;
-          if (!collapsedRef.current && need - have > COLLAPSE_SLACK) setCollapsed(true);
-          else if (collapsedRef.current && have - need > EXPAND_SLACK) setCollapsed(false);
+          const overflow = overflowOf(el);
+          probeRecord(el, need, { overflow, visible: el.clientWidth }, collapsedRef.current);
+          if (!need) return;
+
+          if (!collapsedRef.current) {
+            // 展开态：放不下就收起。
+            // 溢出是浏览器算的，不依赖任何祖先宽度。
+            if (overflow > COLLAPSE_SLACK) setCollapsed(true);
+            return;
+          }
+          // 收起态：判断能不能展回去。
+          // 下拉很窄不会溢出，所以看「胶囊需要多宽 ≤ 现在这排有多宽」。
+          const visible = el.clientWidth || 0;
+          if (visible > 0 && visible - need > EXPAND_SLACK) setCollapsed(false);
         };
         const schedule = () => {
           if (frame === 0) frame = requestAnimationFrame(evaluate);
         };
         const observer = new ResizeObserver(schedule);
-        // 观察整行（而不是可能为 0 宽的包装层）：宽度变化来自这里。
-        const host = findRowHost(el);
-        if (host) observer.observe(host);
+        // 观察自己就够了：溢出量由自身 scrollWidth/clientWidth 决定。
         observer.observe(el);
-        // 再观察整行的父级：右栏开合时变的是外层列容器。
-        const outer = host ? host.parentElement : null;
-        if (outer) observer.observe(outer);
+        // 再跟着几个外层容器走：它们变宽窄时我们不一定触发 resize 通知。
+        let node = el.parentElement;
+        for (let i = 0; i < 4 && node; i += 1) {
+          observer.observe(node);
+          node = node.parentElement;
+        }
         if (typeof window !== 'undefined') window.addEventListener('resize', schedule);
-        // 兜底轮询：收起/展开互换后尺寸可能不再变化，观察器不会再触发，
-        // 用低频复查保证两种形态在任何时刻都能互相切换。
+        // 兜底轮询：形态互换后尺寸可能不再变化，观察器不会再触发。
         const timer = setInterval(evaluate, 700);
         schedule();
         return () => {
@@ -232,15 +202,13 @@ window.__ModuleLoader__.load({
       }
       const row = el ? el.querySelector('[data-composer-effort-chips-row]') : null;
       const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
-      const host = el ? findRowHost(el) : null;
       probeBuffer.push({
         need: Math.round(need),
-        have: Math.round(have),
+        overflow: Math.round(have.overflow || 0),
+        visible: Math.round(have.visible || 0),
+        scrollW: el ? el.scrollWidth : 0,
         collapsed,
         parentW: parent ? Math.round(parent.getBoundingClientRect().width) : 0,
-        hostW: host ? Math.round(host.getBoundingClientRect().width) : 0,
-        hostTag: host ? (host.getAttribute('data-composer-effort-chips') !== null ? 'chips' : 'outer') : 'none',
-        hostChildren: host ? host.children.length : 0,
         selfW: el ? Math.round(el.getBoundingClientRect().width) : 0,
         siblings: siblingInfo,
         chipSizes,
