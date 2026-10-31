@@ -153,7 +153,7 @@ const fakeSession = {
   events: { getSnapshot: () => ({ entries: events.map((event) => ({ event })) }) },
   getSnapshot: () => ({ running: false, hasMore: false }),
   loadThrough: async () => {},
-  prompt: async (content, mode) => { calls.prompt.push({ content, mode }) },
+  prompt: async (content, mode) => { calls.prompt.push({ content, mode }); return { ok: true } },
 }
 // 复刻官方 client service 形状：using 的回调参数是 reference（不是 Session），
 // 真正的 Session 只能通过 scope(id) + sessionOf(ctx) 拿到。
