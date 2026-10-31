@@ -44,16 +44,15 @@ window.__ModuleLoader__.load({
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
-    // 这一排本身不滚动：宽度不够时靠「降级」腾出空间，不是靠横向滚动条。
-    // flexShrink 允许它被父容器压缩，minWidth:0 是压缩生效的前提。
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
       gap: 4,
       minWidth: 0,
       maxWidth: '100%',
-      flex: '0 1 auto',
-      overflow: 'hidden',
+      overflowX: 'auto',
+      overflowY: 'hidden',
+      scrollbarWidth: 'thin',
     };
 
     function groupLabel(group) {
@@ -69,8 +68,7 @@ window.__ModuleLoader__.load({
       lineHeight: '18px',
       cursor: 'pointer',
       whiteSpace: 'nowrap',
-      flex: '0 1 auto',
-      minWidth: 0,
+      flex: 'none',
       display: 'inline-flex',
       alignItems: 'center',
       gap: 4,
@@ -84,10 +82,9 @@ window.__ModuleLoader__.load({
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
-    // 不再用省略号硬截断：宽度不够时靠降级少显示内容，而不是打点。
     const pickerValueStyle = {
-      minWidth: 0,
       overflow: 'hidden',
+      textOverflow: 'ellipsis',
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
@@ -132,7 +129,7 @@ window.__ModuleLoader__.load({
     };
 
     function Dropdown(props) {
-      const { label, value, disabled, options, onPick, ariaLabel, narrow, compact } = props;
+      const { label, value, disabled, options, onPick, ariaLabel } = props;
       const [open, setOpen] = React.useState(false);
       const rootRef = React.useRef(null);
       React.useEffect(() => {
@@ -152,19 +149,12 @@ window.__ModuleLoader__.load({
       }, [open]);
       return h(
         'div',
-        { style: { position: 'relative', flex: '0 1 auto', minWidth: 0 }, ref: rootRef },
+        { style: { position: 'relative', flex: 'none' }, ref: rootRef },
         h(
           'button',
           {
             type: 'button',
-            style: narrow
-              ? {
-                  ...(open ? pickerButtonOpen : pickerButtonBase),
-                  padding: '2px 4px',
-                  minWidth: 0,
-                  maxWidth: 88,
-                }
-              : (open ? pickerButtonOpen : pickerButtonBase),
+            style: open ? pickerButtonOpen : pickerButtonBase,
             disabled,
             'aria-label': ariaLabel,
             'aria-expanded': open,
@@ -178,364 +168,26 @@ window.__ModuleLoader__.load({
             'div',
             { style: menuStyle, role: 'listbox' },
             options.length === 0 && h('div', { style: { padding: '5px 8px', fontSize: 12, opacity: 0.6 } }, '—'),
-            options.map((option, index) => {
-              // 合并菜单里按渠道/模型分组：组标题在组内第一项前面插入一次。
-              const header = compact && option.group && option.group !== options[index - 1]?.group
-                ? h('div', {
-                    key: `group:${option.group}`,
-                    style: { padding: '4px 8px 2px', fontSize: 11, opacity: 0.55 },
-                  }, option.group)
-                : null;
-              return [
-                header,
-                h(
-                  'button',
-                  {
-                    key: option.key,
-                    type: 'button',
-                    role: 'option',
-                    'aria-selected': option.active,
-                    style: option.active ? menuItemActive : menuItemBase,
-                    title: option.label,
-                    onClick: () => {
-                      setOpen(false);
-                      option.onPick();
-                    },
+            options.map((option) =>
+              h(
+                'button',
+                {
+                  key: option.key,
+                  type: 'button',
+                  role: 'option',
+                  'aria-selected': option.active,
+                  style: option.active ? menuItemActive : menuItemBase,
+                  title: option.label,
+                  onClick: () => {
+                    setOpen(false);
+                    option.onPick();
                   },
-                  (option.active ? '● ' : '') + option.label,
-                ),
-              ];
-            }),
+                },
+                (option.active ? '● ' : '') + option.label,
+              ),
+            ),
           ),
       );
-    }
-
-    // ---------------------------------------------------------------------
-    // 工具栏宽度降级
-    //
-    // 窄屏 / 右栏挤占时，整排按钮放不下会被裁掉。按可用宽度分三档降级：
-    //   full    —— 全展开：渠道 + 模型 + 全部档位胶囊
-    //   compact —— 档位收成一个下拉（渠道/模型保持）
-    //   tight   —— 渠道/模型/档位全部收成下拉，只占最少的宽度
-    //
-    // 判定用「实测内容宽 vs 可用宽」，带滞回（hysteresis）避免在临界点抖动：
-    // 降级要超出 6px 才触发，回升要富余 24px 才恢复，两者之间有 18px 死区。
-    // 宽度来源是这一排的父容器（ResizeObserver），拿不到时退回视口宽度。
-    // ---------------------------------------------------------------------
-    const MODE_FULL = 'full';
-    const MODE_COMPACT = 'compact';
-    const MODE_TIGHT = 'tight';
-    const DEMOTE_SLACK = 6;
-    const PROMOTE_SLACK = 24;
-
-    // 每一档「渲染出来需要多宽」，只记实测值。
-    //
-    // 未渲染过的档位宽度未知（0）。未知时保守按「放不下」处理：
-    // 升档要求目标档已知且确实放得下，降档只看当前档已知宽度。
-    // 这样升/降都基于同一份实测数据，不会在边界上互相打架。
-    //
-    // 初始档位由 CSS 决定（full 先渲染），所以 full 总能拿到实测；
-    // 页面从窄变宽时，full 早在首次渲染时量过了。
-    const widthByMode = { [MODE_FULL]: 0, [MODE_COMPACT]: 0, [MODE_TIGHT]: 0 };
-
-    /** 读出当前档位的实测宽度并记入缓存。 */
-    function measureMode(el, mode) {
-      if (!el) return;
-      const choices = el.querySelector('[data-composer-effort-choices]');
-      if (!choices) return;
-      // scrollWidth 可能被父级 overflow 裁成可视宽度，所以再按子项宽度
-      // 累加一次取较大值——胶囊是 flex:none，累加结果就是真实自然宽度。
-      let sum = 0;
-      for (const child of choices.children) {
-        const rect = child.getBoundingClientRect();
-        sum += rect.width;
-      }
-      const gap = children => Math.max(0, children - 1) * 4;
-      const summed = sum > 0 ? sum + gap(choices.children.length) : 0;
-      const width = Math.max(choices.scrollWidth, summed);
-      if (Number.isFinite(width) && width > 0) widthByMode[mode] = width;
-    }
-
-    // 未实测档位的估算宽度：按 full 宽度折算。
-    //
-    // full = 渠道 + 模型 + 每个档位一个胶囊；compact 把所有胶囊收成一个
-    // 下拉；tight 再把渠道/模型压窄。比例是粗估，只用于决定首次该去哪档，
-    // 一旦该档被渲染过就改用实测值。
-    function estimateFor(mode, fullWidth) {
-      if (mode === MODE_FULL) return fullWidth;
-      if (fullWidth <= 0) return mode === MODE_COMPACT ? 260 : 190;
-      if (mode === MODE_COMPACT) return Math.round(fullWidth * 0.62);
-      return Math.round(fullWidth * 0.48);
-    }
-
-    // 各档宽度：实测过就用实测值（永不回退到估算），没测过才用估算。
-    //
-    // 这是消除振荡的关键——估算和实测有落差，若两者混用，升档按估算
-    // 判定「放得下」、升过去实测发现放不下又降回，就会在两个档间来回跳。
-    // 一旦某档被实测过，它的宽度就固定下来，判定标准不再变化。
-    function widthsSnapshot() {
-      const full = widthByMode[MODE_FULL];
-      return {
-        [MODE_FULL]: full,
-        [MODE_COMPACT]: widthByMode[MODE_COMPACT] || estimateFor(MODE_COMPACT, full),
-        [MODE_TIGHT]: widthByMode[MODE_TIGHT] || estimateFor(MODE_TIGHT, full),
-      };
-    }
-
-    function invalidateWidths() {
-      widthByMode[MODE_FULL] = 0;
-      widthByMode[MODE_COMPACT] = 0;
-      widthByMode[MODE_TIGHT] = 0;
-    }
-
-    // 判断核心：问「目标档放得下吗」，不问「当前档放得下吗」。
-    //
-    // 拿当前档判断会死循环：compact 只要 300px，380px 时判定放得下 →
-    // 升到 full（要 420px）→ 放不下 → 降回 compact → 又判定放得下 …
-    //
-    // 规则（order = tight < compact < full，宽度递增）：
-    //   1. 能升就升到「最高的、确实放得下的」那一档；
-    //      宽度未知的档位保守当作放不下，避免把内容挤出去。
-    //   2. 否则降：当前档放不下（超出 DEMOTE_SLACK）就降一档，
-    //      最低到 tight。
-    // 升档要求比降档更宽松一点点没有意义——所以升档直接用「放得下」，
-    // 降档留 DEMOTE_SLACK 的容差，形成稳定的滞回。
-    //
-    // 未知宽度（0）来自「这一档还没渲染过」。为避免永远升不上去，
-    // 调用方会在必要时做一次「试探性升档」：升过去量一次，放不下再回来。
-    //
-    // @param widths 各档实测宽度 {full, compact, tight}，0 表示未知
-    function nextMode(mode, widths, available) {
-      if (!available) return mode;
-      const order = [MODE_TIGHT, MODE_COMPACT, MODE_FULL];
-      const index = order.indexOf(mode);
-
-      // 1. 升档：逐级升，每级都要求目标档实测放得下。
-      //    一次跨两级（tight→full）视觉跳变太大，而且 full 放不下时
-      //    要整段回退；逐级升的每一步都稳定。
-      const up = order[index + 1];
-      if (up !== undefined) {
-        const upWidth = widths[up];
-        // 升档要求目标档不仅放得下，还要留出 PROMOTE_SLACK 的余量；
-        // 降档留 DEMOTE_SLACK 的容差。两者之间是死区，宽度在临界点
-        // 小幅抖动时档位不变（对称滞回）。
-        if (upWidth > 0 && available - upWidth >= PROMOTE_SLACK) return up;
-      }
-
-      // 2. 降档：当前档放不下，降一档。
-      const currentWidth = widths[mode];
-      if (currentWidth > 0 && currentWidth - available > DEMOTE_SLACK) {
-        return order[Math.max(0, index - 1)];
-      }
-      return mode;
-    }
-
-    // 降级档位是全页共享的：同一时刻侧边栏/窗口宽度对所有 composer 一致。
-    // 由一个测量者写入，两个渲染器订阅。
-    const fitStore = (() => {
-      let mode = MODE_FULL;
-      const listeners = new Set();
-      return {
-        get: () => mode,
-        set(next) {
-          if (next === mode) return;
-          mode = next;
-          listeners.forEach((fn) => fn());
-        },
-        subscribe(fn) {
-          listeners.add(fn);
-          return () => listeners.delete(fn);
-        },
-      };
-    })();
-
-    function useFitStore() {
-      const subscribe = React.useCallback((fn) => fitStore.subscribe(fn), []);
-      const getSnapshot = React.useCallback(() => fitStore.get(), []);
-      if (useSyncExternalStore) return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-      const [value, setValue] = React.useState(getSnapshot);
-      React.useEffect(() => {
-        setValue(getSnapshot());
-        return fitStore.subscribe(() => setValue(getSnapshot()));
-      }, []);
-      return value;
-    }
-
-    /**
-     * 找出真正决定「这一排能占多宽」的容器。
-     *
-     * 官方结构（ui-conversation InputBar）：
-     *   div.toolbar  >  div.row(width:100%)  >  ...  >  div.standardControls
-     *                                                   └─ 我们的两个注册项
-     * standardControls 是 display:flex; min-width:0，宽度由内容撑开，
-     * 它的 clientWidth 永远等于内容宽——用它判断会永远判「放得下」。
-     * 真正被约束的是上面的 row（width:100%）。
-     *
-     * 判据：上溯到第一个「宽度由外部决定」的祖先——它的 clientWidth
-     * 不会随内容变化，而且能容纳我们这一排。最多上溯 8 层。
-     */
-    function findMeasuredHost(el) {
-      const own = el.getBoundingClientRect().width || 0;
-      let node = el.parentElement;
-      let best = node || el;
-      let hops = 0;
-      while (node && hops < 8) {
-        hops += 1;
-        const width = node.clientWidth;
-        if (width > 0) {
-          const style = typeof getComputedStyle === 'function' ? getComputedStyle(node) : null;
-          // 百分比宽 / 固定宽 = 由外部约束；被内容撑开的元素这两个都不是。
-          const constrained = style !== null && (/^\d+(\.\d+)?px$/.test(style.width) || style.width === '100%');
-          if (constrained && width >= own) {
-            best = node;
-            // 再上溯一层通常是带左右内边距的行，可用宽度以它为准。
-            const up = node.parentElement;
-            if (up && up.clientWidth > 0 && up.clientWidth >= width) return up;
-            return node;
-          }
-        }
-        node = node.parentElement;
-      }
-      return best;
-    }
-
-    /**
-     * 算出「这一排还能占多宽」。
-     *
-     * 行宽减去两端的固定占位：
-     *   - 左侧：从行起点到我们这排左边界的距离（+、权限、计划等）
-     *   - 右侧：从我们这排右边界到行末尾的距离（发送按钮等）
-     * 这两个距离不含我们自己，所以 window = host.clientWidth - left - right
-     * 就是纯粹留给我们的空间。再稍微扣一点避免贴边。
-     */
-    function availableWidth(el, host) {
-      if (!host || host.clientWidth <= 0) return 0;
-      const hostRect = host.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      if (hostRect.width <= 0) return host.clientWidth;
-      const left = Math.max(0, elRect.left - hostRect.left);
-      const right = Math.max(0, hostRect.right - elRect.right);
-      const padding = 8;
-      return Math.max(0, host.clientWidth - left - right - padding);
-    }
-
-    /**
-     * 观察宿主容器宽度，产出当前应处的降级档。
-     * @param rootRef 这一排的 DOM 节点
-     */
-    function useFitMode(rootRef, contentKey) {
-      const mode = useFitStore();
-      const modeRef = React.useRef(mode);
-      modeRef.current = mode;
-
-      // 诊断：把最近一次测量结果暴露到 window，便于在控制台核对。
-      React.useEffect(() => {
-        if (typeof window === 'undefined') return undefined;
-        window.__effortChipsDebug = window.__effortChipsDebug || { events: [] };
-        return undefined;
-      }, []);
-
-      // 档位数量/文字变了（换模型）：各档宽度全部失效，重新测。
-      React.useEffect(() => {
-        invalidateWidths();
-      }, [contentKey]);
-
-      React.useEffect(() => {
-        if (typeof ResizeObserver === 'undefined') return undefined;
-        const el = rootRef.current;
-        if (!el) return undefined;
-        // 直接父容器（官方 standardControls）是 display:flex; min-width:0，
-        // 宽度由内容撑开——它的 clientWidth 永远等于内容宽，用它判断会永远
-        // 判「放得下」。所以要往上找到真正被约束的那一层（输入框行 width:100%）。
-        const host = findMeasuredHost(el);
-        let frame = 0;
-        const evaluate = () => {
-          frame = 0;
-          // 可用宽度不是整行宽度：左边「+ / 权限 / 计划」、右边发送按钮
-          // 等都在同一行里占位。用「我们这排的右边界 - 左边界能延伸到的位置」
-          // 来算，再留出发送按钮等固定占位。
-          const available = availableWidth(el, host);
-          // 先记下当前档的实测宽度，再用「各档宽度 vs 可用宽度」决定去哪档。
-          measureMode(el, modeRef.current);
-          const widths = widthsSnapshot();
-          const next = nextMode(modeRef.current, widths, available);
-          if (typeof window !== 'undefined' && window.__effortChipsDebug) {
-            const dbg = window.__effortChipsDebug;
-            dbg.events.push({
-              t: Date.now(),
-              mode: modeRef.current,
-              available: Math.round(available),
-              widths: { full: Math.round(widths[MODE_FULL]), compact: Math.round(widths[MODE_COMPACT]), tight: Math.round(widths[MODE_TIGHT]) },
-              host: host ? host.className : null,
-              hostWidth: host ? host.clientWidth : 0,
-              next,
-            });
-            if (dbg.events.length > 40) dbg.events.shift();
-          }
-          if (next !== modeRef.current) {
-            fitStore.set(next);
-            return;
-          }
-          // 还没量到任何宽度（DOM 尚未布局完，或内容还没渲染）→ 稍后重试，
-          // 否则会永远停在初始档位。
-          if (!widths[MODE_FULL] || !available) {
-            if (typeof window !== 'undefined') {
-              window.setTimeout(schedule, 120);
-            }
-          }
-        };
-        const schedule = () => {
-          if (frame === 0) frame = requestAnimationFrame(evaluate);
-        };
-        const observer = new ResizeObserver(schedule);
-        // 观察 host 自身和它上面两层：右栏挤压时变的是更外层的列容器，
-        // host 的 clientWidth 会跟着变但自身不一定收到 resize 通知。
-        observer.observe(host);
-        let probe = host.parentElement;
-        for (let i = 0; i < 2 && probe; i += 1) {
-          observer.observe(probe);
-          probe = probe.parentElement;
-        }
-        observer.observe(el);
-        // 档位区在胶囊↔下拉之间切换时会换成新节点，每次渲染重新挂观察。
-        const choices = el.querySelector('[data-composer-effort-choices]');
-        if (choices) observer.observe(choices);
-        // 兜底：右栏挤压 / 侧边栏展开时变化的是外层容器，host 本身不一定
-        // 收到通知（它的宽度由父级决定）。所以再看 window 的 resize。
-        const onResize = () => {
-          schedule();
-          // 尺寸变了，各档实测宽度可能已过时，下一次 evaluate 会重新量当前档。
-        };
-        if (typeof window !== 'undefined') window.addEventListener('resize', onResize);
-        schedule();
-        return () => {
-          if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
-          observer.disconnect();
-          if (frame !== 0) cancelAnimationFrame(frame);
-        };
-      }, [rootRef, mode]);
-
-      return mode;
-    }
-
-    /** 档位收成下拉：按钮显示当前档位名，点开选。 */
-    function EffortDropdown(props) {
-      const { chips, effectiveEffort, disabled, label, onPick } = props;
-      const active = chips.find((chip) =>
-        chip.effort === undefined ? effectiveEffort === undefined : chip.effort === effectiveEffort,
-      );
-      return h(Dropdown, {
-        label,
-        value: active ? active.label : '—',
-        disabled,
-        ariaLabel: label,
-        options: chips.map((chip) => ({
-          key: chip.key,
-          label: chip.label,
-          active: chip === active,
-          onPick: () => onPick(chip.effort),
-        })),
-      });
     }
 
     function ChannelModelPickers(props) {
@@ -626,68 +278,28 @@ window.__ModuleLoader__.load({
         },
       }));
 
-      const mode = useFitStore();
-      const narrow = mode === MODE_TIGHT;
-      // 合并档显示的短标签：渠道名取前 4 字，模型名取前 6 字。
-      const shortText = (text, max) => {
-        const value = String(text || '');
-        return value.length > max ? value.slice(0, max) : value;
-      };
-      const combinedLabel = () => {
-        const channel = shortText(currentGroup ? groupLabel(currentGroup) : '—', 3);
-        const model = shortText(currentModel ? (currentModel.name || currentModel.id) : '—', 6);
-        return `${channel} · ${model}`;
-      };
-
       return h(
         'div',
         {
-          style: {
-            display: 'flex',
-            alignItems: 'center',
-            gap: narrow ? 2 : 4,
-            flex: '0 1 auto',
-            minWidth: 0,
-            overflow: 'hidden',
-            opacity: disabled ? 0.6 : 1,
-          },
+          style: { display: 'flex', alignItems: 'center', gap: 4, flex: 'none', opacity: disabled ? 0.6 : 1 },
           'data-composer-channel-model-pickers': true,
-          'data-fit-mode': mode,
         },
-        // compact：渠道 + 模型两个按钮，只显示当前值。
-        // tight：合并成一个按钮，点开是「渠道 → 模型」两组，极致省宽度。
-        narrow
-          ? h(Dropdown, {
-              key: 'combined',
-              label: `${t('channelLabel')} / ${t('modelLabel')}`,
-              value: combinedLabel(),
-              disabled,
-              options: [
-                ...channelOptions.map((option) => ({ ...option, group: t('channelLabel') })),
-                ...modelOptions.map((option) => ({ ...option, group: t('modelLabel') })),
-              ],
-              ariaLabel: `${t('channelLabel')} / ${t('modelLabel')}`,
-              narrow: true,
-              compact: true,
-            })
-          : h(React.Fragment, null,
-              h(Dropdown, {
-                key: 'channel',
-                label: t('channelLabel'),
-                value: currentGroup ? groupLabel(currentGroup) : '—',
-                disabled,
-                options: channelOptions,
-                ariaLabel: t('channelLabel'),
-              }),
-              h(Dropdown, {
-                key: 'model',
-                label: t('modelLabel'),
-                value: currentModel ? currentModel.name || currentModel.id : '—',
-                disabled,
-                options: modelOptions,
-                ariaLabel: t('modelLabel'),
-              }),
-            ),
+        h(Dropdown, {
+          key: 'channel',
+          label: t('channelLabel'),
+          value: currentGroup ? groupLabel(currentGroup) : '—',
+          disabled,
+          options: channelOptions,
+          ariaLabel: t('channelLabel'),
+        }),
+        h(Dropdown, {
+          key: 'model',
+          label: t('modelLabel'),
+          value: currentModel ? currentModel.name || currentModel.id : '—',
+          disabled,
+          options: modelOptions,
+          ariaLabel: t('modelLabel'),
+        }),
       );
     }
 
@@ -777,18 +389,9 @@ window.__ModuleLoader__.load({
         });
       };
 
-      // 这一排是多项选择器的共同测量点：先量出「全展开需要多宽」，
-      // 再与父容器实际可用宽度比较，得出降级档。档位多时它最宽，
-      // 所以由它当测量者是安全的。
-      const rootRef = React.useRef(null);
-      // 档位集合变了（换模型 / 档位文案变化）就要重测全展开宽度。
-      const contentKey = effortChips.map((chip) => chip.label).join('|');
-      const mode = useFitMode(rootRef, contentKey);
-      const stacked = mode !== MODE_FULL;
-
       return h(
         'div',
-        { style: rowStyle, 'data-composer-effort-chips': true, ref: rootRef },
+        { style: rowStyle, 'data-composer-effort-chips': true },
         effortChips.length > 0 &&
           h(
             'div',
@@ -798,44 +401,29 @@ window.__ModuleLoader__.load({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                // full 档：胶囊不可压缩（保持自然宽度，测量才准）；
-                // 折叠档：整个区可收缩，避免顶出输入框。
-                flex: stacked ? '0 1 auto' : 'none',
-                minWidth: 0,
-                overflow: 'hidden',
+                flex: 'none',
                 opacity: disabled ? 0.6 : 1,
               },
               role: 'group',
               'aria-label': t('effortLabel'),
-              // 测量基准：这里的子项始终按「胶囊」的自然宽度计入，
-              // 折叠成下拉时不参与测量，避免自己把自己越量越窄。
-              'data-composer-effort-choices': true,
             },
-            stacked
-              ? h(EffortDropdown, {
-                  chips: effortChips,
-                  effectiveEffort,
+            effortChips.map((chip) => {
+              const active =
+                chip.effort === undefined
+                  ? effectiveEffort === undefined
+                  : chip.effort === effectiveEffort;
+              return h(
+                'button',
+                {
+                  key: chip.key,
+                  type: 'button',
+                  style: active ? chipActive : chipBase,
                   disabled,
-                  label: t('effortLabel'),
-                  onPick: pickEffort,
-                })
-              : effortChips.map((chip) => {
-                  const active =
-                    chip.effort === undefined
-                      ? effectiveEffort === undefined
-                      : chip.effort === effectiveEffort;
-                  return h(
-                    'button',
-                    {
-                      key: chip.key,
-                      type: 'button',
-                      style: active ? chipActive : chipBase,
-                      disabled,
-                      onClick: () => pickEffort(chip.effort),
-                    },
-                    chip.label,
-                  );
-                }),
+                  onClick: () => pickEffort(chip.effort),
+                },
+                chip.label,
+              );
+            }),
           ),
       );
     }
@@ -873,14 +461,6 @@ window.__ModuleLoader__.load({
             // the spot next to Send — independent of hashed class names.
             '*:has(> [data-composer-effort-chips]):has(.htuFrW_root) {',
             '  flex-direction: row-reverse;',
-            '  min-width: 0;',
-            '}',
-            // 我们的两个注册项与官方模型座位同处一个 flex 容器：
-            // 允许它们收缩，否则降级后仍会把内容顶出输入框。
-            '[data-composer-effort-chips],',
-            '[data-composer-channel-model-pickers] {',
-            '  min-width: 0;',
-            '  flex: 0 1 auto;',
             '}',
           ].join('\n');
           document.head.appendChild(style);
