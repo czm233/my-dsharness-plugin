@@ -114,12 +114,56 @@ window.__ModuleLoader__.load({
     // 展开时：胶囊不压缩（flex:none），溢出量 > 0 就说明放不下 → 收起。
     // 收起时：下拉本身很窄，不会溢出；此时用「胶囊需要多宽 vs 整行多宽」
     // 判断能不能展回去。
-    function overflowOf(el) {
+    // 这一排实际还能占多宽。
+    //
+    // probe 反复证明：我们自己没有被任何容器约束（parentW=0、selfW 恒等于
+    // 内容宽 188），窗口变窄时我们不是被压小，而是原样待着、溢出到输入框外。
+    // 所以「溢出量」永远是 0，判定永远认为放得下。
+    //
+    // 换个问法：这一排**右边缘**离「输入框右边界」还有多远？
+    // 输入框右边界从视口里找：向上爬祖先，取第一个宽度明显小于视口的容器
+    // （就是 composer 那层），它的右边缘就是我们的可用边界。
+    function findComposerRight(el) {
       if (!el) return 0;
-      const natural = el.scrollWidth || 0;
-      const visible = el.clientWidth || 0;
-      if (natural <= 0 || visible <= 0) return 0;
-      return natural - visible;
+      const viewport = window.innerWidth || 0;
+      let node = el.parentElement;
+      let hops = 0;
+      while (node && hops < 8) {
+        hops += 1;
+        const rect = node.getBoundingClientRect();
+        // 宽度合理、且明显是「内容容器」而非整个视口包装层
+        if (rect.width > 120 && rect.width <= viewport && rect.right > 0) {
+          return rect.right;
+        }
+        node = node.parentElement;
+      }
+      return viewport;
+    }
+
+    // 我们这排左侧被占掉的宽度（+ / 权限 / 渠道 / 模型 等）。
+    function leftOccupied(el) {
+      if (!el) return 0;
+      const viewport = window.innerWidth || 0;
+      let node = el.parentElement;
+      let hops = 0;
+      while (node && hops < 8) {
+        hops += 1;
+        const rect = node.getBoundingClientRect();
+        if (rect.width > 120 && rect.width <= viewport && rect.left >= 0) {
+          return Math.max(0, el.getBoundingClientRect().left - rect.left);
+        }
+        node = node.parentElement;
+      }
+      return el.getBoundingClientRect().left;
+    }
+
+    /** 这一排现在还能占多少宽度（与自身形态无关）。 */
+    function roomForRow(el) {
+      if (!el) return 0;
+      const right = findComposerRight(el);
+      const left = leftOccupied(el);
+      const room = right - left - 8; // 8px 内边距余量
+      return room > 0 ? room : 0;
     }
 
 
@@ -137,20 +181,17 @@ window.__ModuleLoader__.load({
         const evaluate = () => {
           frame = 0;
           const need = measureChipWidths(el);
-          const overflow = overflowOf(el);
-          probeRecord(el, need, { overflow, visible: el.clientWidth }, collapsedRef.current);
-          if (!need) return;
+          const room = roomForRow(el);
+          probeRecord(el, need, { overflow: 0, visible: Math.round(room) }, collapsedRef.current);
+          if (!need || !room) return;
 
           if (!collapsedRef.current) {
-            // 展开态：放不下就收起。
-            // 溢出是浏览器算的，不依赖任何祖先宽度。
-            if (overflow > COLLAPSE_SLACK) setCollapsed(true);
+            // 展开态：胶囊需要的地方比能给的还大 → 收起。
+            if (need - room > COLLAPSE_SLACK) setCollapsed(true);
             return;
           }
-          // 收起态：判断能不能展回去。
-          // 下拉很窄不会溢出，所以看「胶囊需要多宽 ≤ 现在这排有多宽」。
-          const visible = el.clientWidth || 0;
-          if (visible > 0 && visible - need > EXPAND_SLACK) setCollapsed(false);
+          // 收起态：空间富余够了就展回去。
+          if (room - need > EXPAND_SLACK) setCollapsed(false);
         };
         const schedule = () => {
           if (frame === 0) frame = requestAnimationFrame(evaluate);
@@ -204,8 +245,10 @@ window.__ModuleLoader__.load({
       const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
       probeBuffer.push({
         need: Math.round(need),
-        overflow: Math.round(have.overflow || 0),
-        visible: Math.round(have.visible || 0),
+        room: Math.round(have.visible || 0),
+        selfLeft: el ? Math.round(el.getBoundingClientRect().left) : 0,
+        selfRight: el ? Math.round(el.getBoundingClientRect().right) : 0,
+        viewport: typeof window !== 'undefined' ? window.innerWidth : 0,
         scrollW: el ? el.scrollWidth : 0,
         collapsed,
         parentW: parent ? Math.round(parent.getBoundingClientRect().width) : 0,
