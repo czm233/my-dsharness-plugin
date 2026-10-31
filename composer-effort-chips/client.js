@@ -44,15 +44,16 @@ window.__ModuleLoader__.load({
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
+    // 这一排本身不滚动：宽度不够时靠「降级」腾出空间，不是靠横向滚动条。
+    // flexShrink 允许它被父容器压缩，minWidth:0 是压缩生效的前提。
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
       gap: 4,
       minWidth: 0,
       maxWidth: '100%',
-      overflowX: 'auto',
-      overflowY: 'hidden',
-      scrollbarWidth: 'thin',
+      flex: '0 1 auto',
+      overflow: 'hidden',
     };
 
     function groupLabel(group) {
@@ -68,7 +69,8 @@ window.__ModuleLoader__.load({
       lineHeight: '18px',
       cursor: 'pointer',
       whiteSpace: 'nowrap',
-      flex: 'none',
+      flex: '0 1 auto',
+      minWidth: 0,
       display: 'inline-flex',
       alignItems: 'center',
       gap: 4,
@@ -82,9 +84,10 @@ window.__ModuleLoader__.load({
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
+    // 不再用省略号硬截断：宽度不够时靠降级少显示内容，而不是打点。
     const pickerValueStyle = {
+      minWidth: 0,
       overflow: 'hidden',
-      textOverflow: 'ellipsis',
       color: 'var(--dsw-alias-label-primary, inherit)',
       fontWeight: 600,
     };
@@ -129,7 +132,7 @@ window.__ModuleLoader__.load({
     };
 
     function Dropdown(props) {
-      const { label, value, disabled, options, onPick, ariaLabel, narrow } = props;
+      const { label, value, disabled, options, onPick, ariaLabel, narrow, compact } = props;
       const [open, setOpen] = React.useState(false);
       const rootRef = React.useRef(null);
       React.useEffect(() => {
@@ -149,7 +152,7 @@ window.__ModuleLoader__.load({
       }, [open]);
       return h(
         'div',
-        { style: { position: 'relative', flex: 'none' }, ref: rootRef },
+        { style: { position: 'relative', flex: '0 1 auto', minWidth: 0 }, ref: rootRef },
         h(
           'button',
           {
@@ -157,9 +160,9 @@ window.__ModuleLoader__.load({
             style: narrow
               ? {
                   ...(open ? pickerButtonOpen : pickerButtonBase),
-                  padding: '2px 6px',
-                  minWidth: MIN_PICKER_WIDTH,
-                  maxWidth: 120,
+                  padding: '2px 4px',
+                  minWidth: 0,
+                  maxWidth: 88,
                 }
               : (open ? pickerButtonOpen : pickerButtonBase),
             disabled,
@@ -175,24 +178,34 @@ window.__ModuleLoader__.load({
             'div',
             { style: menuStyle, role: 'listbox' },
             options.length === 0 && h('div', { style: { padding: '5px 8px', fontSize: 12, opacity: 0.6 } }, '—'),
-            options.map((option) =>
-              h(
-                'button',
-                {
-                  key: option.key,
-                  type: 'button',
-                  role: 'option',
-                  'aria-selected': option.active,
-                  style: option.active ? menuItemActive : menuItemBase,
-                  title: option.label,
-                  onClick: () => {
-                    setOpen(false);
-                    option.onPick();
+            options.map((option, index) => {
+              // 合并菜单里按渠道/模型分组：组标题在组内第一项前面插入一次。
+              const header = compact && option.group && option.group !== options[index - 1]?.group
+                ? h('div', {
+                    key: `group:${option.group}`,
+                    style: { padding: '4px 8px 2px', fontSize: 11, opacity: 0.55 },
+                  }, option.group)
+                : null;
+              return [
+                header,
+                h(
+                  'button',
+                  {
+                    key: option.key,
+                    type: 'button',
+                    role: 'option',
+                    'aria-selected': option.active,
+                    style: option.active ? menuItemActive : menuItemBase,
+                    title: option.label,
+                    onClick: () => {
+                      setOpen(false);
+                      option.onPick();
+                    },
                   },
-                },
-                (option.active ? '● ' : '') + option.label,
-              ),
-            ),
+                  (option.active ? '● ' : '') + option.label,
+                ),
+              ];
+            }),
           ),
       );
     }
@@ -214,9 +227,6 @@ window.__ModuleLoader__.load({
     const MODE_TIGHT = 'tight';
     const DEMOTE_SLACK = 6;
     const PROMOTE_SLACK = 24;
-
-    // 一个档位按钮/下拉按钮的最小宽度（px）：小于它宁可降级也不挤压。
-    const MIN_PICKER_WIDTH = 72;
 
     // 每一档「渲染出来需要多宽」，只记实测值。
     //
@@ -618,6 +628,16 @@ window.__ModuleLoader__.load({
 
       const mode = useFitStore();
       const narrow = mode === MODE_TIGHT;
+      // 合并档显示的短标签：渠道名取前 4 字，模型名取前 6 字。
+      const shortText = (text, max) => {
+        const value = String(text || '');
+        return value.length > max ? value.slice(0, max) : value;
+      };
+      const combinedLabel = () => {
+        const channel = shortText(currentGroup ? groupLabel(currentGroup) : '—', 3);
+        const model = shortText(currentModel ? (currentModel.name || currentModel.id) : '—', 6);
+        return `${channel} · ${model}`;
+      };
 
       return h(
         'div',
@@ -626,31 +646,48 @@ window.__ModuleLoader__.load({
             display: 'flex',
             alignItems: 'center',
             gap: narrow ? 2 : 4,
-            flex: 'none',
+            flex: '0 1 auto',
             minWidth: 0,
+            overflow: 'hidden',
             opacity: disabled ? 0.6 : 1,
           },
           'data-composer-channel-model-pickers': true,
           'data-fit-mode': mode,
         },
-        h(Dropdown, {
-          key: 'channel',
-          label: t('channelLabel'),
-          value: currentGroup ? groupLabel(currentGroup) : '—',
-          disabled,
-          options: channelOptions,
-          ariaLabel: t('channelLabel'),
-          narrow,
-        }),
-        h(Dropdown, {
-          key: 'model',
-          label: t('modelLabel'),
-          value: currentModel ? currentModel.name || currentModel.id : '—',
-          disabled,
-          options: modelOptions,
-          ariaLabel: t('modelLabel'),
-          narrow,
-        }),
+        // compact：渠道 + 模型两个按钮，只显示当前值。
+        // tight：合并成一个按钮，点开是「渠道 → 模型」两组，极致省宽度。
+        narrow
+          ? h(Dropdown, {
+              key: 'combined',
+              label: `${t('channelLabel')} / ${t('modelLabel')}`,
+              value: combinedLabel(),
+              disabled,
+              options: [
+                ...channelOptions.map((option) => ({ ...option, group: t('channelLabel') })),
+                ...modelOptions.map((option) => ({ ...option, group: t('modelLabel') })),
+              ],
+              ariaLabel: `${t('channelLabel')} / ${t('modelLabel')}`,
+              narrow: true,
+              compact: true,
+            })
+          : h(React.Fragment, null,
+              h(Dropdown, {
+                key: 'channel',
+                label: t('channelLabel'),
+                value: currentGroup ? groupLabel(currentGroup) : '—',
+                disabled,
+                options: channelOptions,
+                ariaLabel: t('channelLabel'),
+              }),
+              h(Dropdown, {
+                key: 'model',
+                label: t('modelLabel'),
+                value: currentModel ? currentModel.name || currentModel.id : '—',
+                disabled,
+                options: modelOptions,
+                ariaLabel: t('modelLabel'),
+              }),
+            ),
       );
     }
 
@@ -761,7 +798,11 @@ window.__ModuleLoader__.load({
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4,
-                flex: 'none',
+                // full 档：胶囊不可压缩（保持自然宽度，测量才准）；
+                // 折叠档：整个区可收缩，避免顶出输入框。
+                flex: stacked ? '0 1 auto' : 'none',
+                minWidth: 0,
+                overflow: 'hidden',
                 opacity: disabled ? 0.6 : 1,
               },
               role: 'group',
@@ -832,6 +873,14 @@ window.__ModuleLoader__.load({
             // the spot next to Send — independent of hashed class names.
             '*:has(> [data-composer-effort-chips]):has(.htuFrW_root) {',
             '  flex-direction: row-reverse;',
+            '  min-width: 0;',
+            '}',
+            // 我们的两个注册项与官方模型座位同处一个 flex 容器：
+            // 允许它们收缩，否则降级后仍会把内容顶出输入框。
+            '[data-composer-effort-chips],',
+            '[data-composer-channel-model-pickers] {',
+            '  min-width: 0;',
+            '  flex: 0 1 auto;',
             '}',
           ].join('\n');
           document.head.appendChild(style);
