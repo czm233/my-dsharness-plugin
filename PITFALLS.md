@@ -483,3 +483,35 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 组件要调 service：`apply(ctx)` 里存 `clientCtx = ctx`（模块级 let），组件只走 `clientCtx`；`grep -n "ctx\." client.js` 检查除 apply 体外是否还有裸 `ctx`。
 - 官方 `sessions.fork({ sessionId, increaseTitle: true })` 自带 `increasedForkTitle` 重命名（加 -1/-2 后缀），不用自己拼后缀。
 - 核对官方契约用仓库内 `scripts/asar-extract.cjs`（`node scripts/asar-extract.cjs <包名> client.js /tmp/out.js`，`--list` 看文件），比 README 可靠——PITFALLS #25 的教训在此复用。
+
+## 27. 「假 DOM 全绿」不等于能用：验收必须对着真实 DOM 结构 + 官方 API 形状（2026-10-31，edit-restart 0.1.0→0.16.0）
+
+**现象**：edit-restart 首版装机后本地门禁全绿，但界面上**按钮根本不出现**；修好按钮后又出现「点了没反应」，再修又「点了没反应」，来回四轮。用户每次只能反馈一句「没反应 / 没看到」。
+
+**根因**（五个独立故障，都是"自测通过了所以是真的"造成的）：
+1. **结构认错**：自造的假 DOM 假设「复制行 = 只剩一个图标按钮的 div」。真实 Chat 里用户消息是 `*_userRow`（气泡列）里放 `*_userStack`（气泡本体）与 `*_actions`（操作行）。扫描按错误假设跑，一条都匹配不到 → 什么都没挂。
+2. **API 形状错**：`sessions.using(id, opts, fn)` 传进 `fn` 的是 retain 出来的 **reference，不是 Session**；按 Session 用就 `getSnapshot is not a function`。
+3. **静默失败**：抛错只写 `console.warn`，桌面端没有控制台 → 用户视角就是「没反应」。
+4. **状态竞态**：8 秒超时定时器未被清理，晚到的失败把**已经打开**的编辑器覆盖成错误卡 → 又是「点了没反应」。
+5. **DOM 引用过期**：把气泡节点缓存在扫描结果里，React 重建后引用指向已卸载节点，渲染"成功"但什么都不显示。
+
+**解法/规则**：
+- 假 DOM 必须**逐字复刻官方结构**（类名后缀、层级、`data-*`），并在改动官方结构假设时同步改夹具；夹具错了，门禁就是自欺。
+- 任何官方 service 的**回调用参**先读 `lib/client.js` 源码确认形状，再用；`sessions.*` 取 Session 用 `binding(id).session`（`sessionOf` 内部就是这么取的）。
+- 桌面端没有控制台：失败必须**落到可见 UI**（错误卡）并**落盘**（Host `/api/<plugin>/rpc` 写 `~/.dsh/storages/<plugin>/client.log`），否则永远查不清。
+- 所有 async 打开/提交动作带**递增编号**，晚到结果一律丢弃；定时器在 settle 时 `clearTimeout`；同一目标在飞时不重复发起。
+- 打开面板时**从实时 DOM 重新查节点**，禁止复用扫描阶段缓存的节点引用。
+
+## 28. 装饰官方 DOM 的三个坑：嵌套 button 露灰底、display:none 塌布局、覆盖层定位（2026-10-31，edit-restart）
+
+**现象**：铅笔按钮显示成灰色实心方块（和复制按钮完全不同）；编辑框打开后铅笔「飞」到最左边；编辑框跑到屏幕中间。
+
+**根因**：
+1. **按钮套按钮**：React 根挂在一个 `<button>` 上，组件又渲染了一个 `<button>`。内层没类名 → 露出浏览器默认灰底；外层同样没外观。
+2. **`display:none` 塌陷**：为了"顶替气泡"把气泡隐藏，那一行宽度塌掉，右对齐的操作行被拉满整行，铅笔被推到最左。
+3. **自己算坐标**：用 `bubbleRect - rowRect` 定位浮层，两步测量之间布局一变就整体偏移。
+
+**解法/规则**：
+- 装饰按钮**单层**：外层 `<button>` 就是真按钮（`className` 直接照抄官方同类按钮 + 自带兜底类并显式清 `appearance/background/border`），React 根只渲染图标。
+- 要让某个元素"消失"但不动布局，用 `visibility:hidden`（保占位），不要 `display:none`。
+- 能用「父容器 + `inset:0`」定位就绝不算坐标；必须在流内展开时，用**量好的固定宽度**（等于被替换元素宽度）插入，保证同行其它元素不横向跳动。
