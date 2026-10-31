@@ -515,3 +515,5 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 装饰按钮**单层**：外层 `<button>` 就是真按钮（`className` 直接照抄官方同类按钮 + 自带兜底类并显式清 `appearance/background/border`），React 根只渲染图标。
 - 要让某个元素"消失"但不动布局，用 `visibility:hidden`（保占位），不要 `display:none`。
 - 能用「父容器 + `inset:0`」定位就绝不算坐标；必须在流内展开时，用**量好的固定宽度**（等于被替换元素宽度）插入，保证同行其它元素不横向跳动。
+- **宽度挂错层级 + 百分比**：把 `width` 写在「由内容决定宽度」的 flex 项内部卡片上、还带 `82%`，百分比会相对该容器求解，结果等于没给宽度 → 编辑区缩成一条竖高条。宽度必须挂在**真正参与布局的外层容器**上，并用**纯 px**（`calc(var(--dsh-chat-content-width,748px) * .702)`），再配一条运行时兜底（计算宽度 <240px 就按父容器 70% 显式写死）。
+- **替换锚点失配是静默的**：用文本替换改代码时，锚点没匹配上不会报错，于是出现过「只加了函数调用、没加函数定义」的 AirBug（`applyEditorWidth is not defined`）。批量替换后必须 grep 验证目标符号存在，或给替换加断言。
