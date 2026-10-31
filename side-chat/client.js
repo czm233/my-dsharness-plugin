@@ -87,6 +87,7 @@ window.__ModuleLoader__.load({
     const closeGates = new Map()
     const closeListeners = new Set()
     const acceptedCloses = new Set()
+    const archivedBranches = new Set()
     function setCloseGate(tabId, value) {
       if (value === undefined) closeGates.delete(tabId)
       else closeGates.set(tabId, value)
@@ -104,14 +105,37 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Sidebar close handler for this tab kind: block the close of a tab that
-     * already holds a branch and ask; a tab still forking closes straight away.
+     * How a close of a branch tab treats the session. `archive` (default)
+     * archives the branch and lets the tab close straight away; `ask` blocks
+     * the close and shows CloseConfirm, which still offers both outcomes.
+     * Flip this one constant to restore the dialog.
+     */
+    const CLOSE_MODE = 'archive'
+
+    /**
+     * Sidebar close handler for this tab kind. A tab still forking closes
+     * straight away; a tab holding a branch archives the session first, then
+     * either lets the close through (`archive`) or blocks it for the dialog
+     * (`ask`), which re-issues the close through ctx.sidebarRight.close().
      */
     function handleCloseRequest(_sessionId, tab) {
       if (acceptedCloses.delete(tab.id)) return
-      if (!branches.has(tab.id)) return
-      setCloseGate(tab.id, 'confirming')
-      throw new Error('side-chat: close awaits confirmation')
+      const branch = branches.get(tab.id)
+      if (branch === undefined || branch.childId === undefined) return
+      if (CLOSE_MODE === 'ask') {
+        setCloseGate(tab.id, 'confirming')
+        throw new Error('side-chat: close awaits confirmation')
+      }
+      archiveBranch(tab.id, branch.childId)
+    }
+
+    /** Archive a branch session when it still exists; failures stay silent. */
+    function archiveBranch(tabId, childId) {
+      if (archivedBranches.has(tabId)) return
+      archivedBranches.add(tabId)
+      clientCtx.uiWorkspace.archiveSession(childId).catch(() => {
+        archivedBranches.delete(tabId)
+      })
     }
 
     function sessionDisplayName(sessionId) {
