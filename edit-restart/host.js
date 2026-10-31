@@ -69,6 +69,41 @@ async function writeDrafts(drafts) {
   await fsp.writeFile(path.join(storageDir(), 'drafts.json'), JSON.stringify({ drafts }, null, 2), 'utf8')
 }
 
+/**
+ * 在 Host 侧按「第 index 条人类消息」解析出正文与 fork 切点。
+ * 客户端拿不到 Session 对象时用这条路径，避免依赖 client 的会话绑定。
+ */
+async function resolveMessage(ctx, request) {
+  const sessionId = String(request.sessionId ?? '')
+  const index = Number(request.messageIndex)
+  if (sessionId === '') throw new Error('sessionId is required')
+  if (!Number.isSafeInteger(index) || index < 0) throw new Error('messageIndex must be a non-negative integer')
+  const query = typeof ctx.get === 'function' ? ctx.get('sessionQuery') : undefined
+  if (!query || typeof query.readSession !== 'function') throw new Error('sessionQuery is unavailable')
+  const snapshot = await query.readSession(sessionId)
+  const events = snapshot?.events ?? []
+  const isHuman = (event) => event && event.type === 'user/message' && event.surfaceOp === 'append'
+    && event.data?.source?.kind === 'user'
+  let seen = 0
+  let target = null
+  let turnStartSeq = null
+  for (const event of events) {
+    if (event?.type === 'turn/start') turnStartSeq = event.seq
+    if (!isHuman(event)) continue
+    if (seen === index) {
+      target = event
+      break
+    }
+    seen += 1
+  }
+  if (target === null) return { found: false, humans: seen }
+  const text = (Array.isArray(target.data.content) ? target.data.content : [])
+    .map((block) => (block?.type === 'text' ? block.text : block?.type === 'image' ? '[图片]' : block?.type === 'file' ? `[文件 ${block.file?.name ?? ''}]` : ''))
+    .filter((part) => part !== '')
+    .join('\n\n')
+  return { found: true, initial: text, turnStartSeq, seq: target.seq, humans: seen + 1 }
+}
+
 /** 在 Host 进程里找 live agent（限定当前 profile 的注册表）。 */
 function liveAgent(ctx, sessionId) {
   const agents = typeof ctx.get === 'function' ? ctx.get('agents') : undefined
@@ -157,6 +192,11 @@ export function apply(ctx) {
             await writeDrafts(drafts)
             await appendLog([`saveDraft ${draft.id} session=${draft.sessionId} turnStartSeq=${draft.turnStartSeq}`])
             return Response.json({ ok: true, draft })
+          }
+          if (action === 'resolve') {
+            const resolved = await resolveMessage(ctx, body)
+            await appendLog([`resolve ${body.sessionId}#${body.messageIndex} -> ${JSON.stringify(resolved).slice(0, 160)}`])
+            return Response.json({ ok: true, ...resolved })
           }
           if (action === 'drafts') {
             return Response.json({ ok: true, drafts: await readDrafts() })

@@ -51,6 +51,17 @@ const flushMutations = () => {
 const realSetTimeout = require('node:timers').setTimeout
 global.setTimeout = (fn, ms) => { const handle = realSetTimeout(fn, ms); handle.unref?.(); return handle }
 global.clearTimeout = () => {}
+// fetch 桩：Host 的 resolve 通道可用（返回第 2 条人发消息 = seq 15 / turn 14）
+global.fetch = async (url, options) => {
+  const body = options && options.body ? JSON.parse(options.body) : {}
+  if (String(url).includes('edit-restart/rpc') && body.action === 'resolve') {
+    return { status: 200, json: async () => ({ ok: true, found: true, initial: '教我 C++', turnStartSeq: 14, seq: 15 }) }
+  }
+  if (String(url).includes('edit-restart/rpc') && body.action === 'saveDraft') {
+    return { status: 200, json: async () => ({ ok: true, draft: { id: 'draft-1' } }) }
+  }
+  return { status: 200, json: async () => ({ ok: true }) }
+}
 
 const React = {
   createElement: (tag, props, ...children) => ({ tag, props: props || {}, children: children.flat(9) }),

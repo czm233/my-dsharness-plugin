@@ -485,8 +485,29 @@ window.__ModuleLoader__.load({
         layerRoot.render(h(ErrorCard, { t, message, onClose: () => closeEditor() }))
       }
 
+      /** 先问 Host 要这条消息（Host 只读日志，不依赖 client 的会话绑定）。 */
+      async function resolveViaHost(id, index) {
+        const response = await fetch('/api/edit-restart/rpc', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'resolve', sessionId: id, messageIndex: index }),
+        })
+        const payload = await response.json().catch(() => null)
+        if (!payload || payload.ok !== true) throw new Error(String(payload?.error ?? `HTTP ${response.status}`))
+        if (payload.found !== true) throw new Error(t('stale'))
+        if (!Number.isSafeInteger(payload.turnStartSeq)) throw new Error(t('stale'))
+        return { initial: String(payload.initial ?? ''), turnStartSeq: payload.turnStartSeq }
+      }
+
       /** 记录里第 index 条人发消息的正文与 fork 切点；会话在跑直接拒绝。 */
       async function resolveTarget(id, index) {
+        try {
+          const viaHost = await resolveViaHost(id, index)
+          diag('resolve via host ok', { turnStartSeq: viaHost.turnStartSeq })
+          return viaHost
+        } catch (hostFailure) {
+          diag('resolve via host failed, falling back', String(hostFailure?.message ?? hostFailure))
+        }
         return withSession(id, async (session) => {
           const snapshot = typeof session.getSnapshot === 'function' ? session.getSnapshot() : null
           if (snapshot && snapshot.running === true) throw new Error(t('busy'))
@@ -670,7 +691,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.8.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.9.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
