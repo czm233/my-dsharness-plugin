@@ -1,0 +1,1298 @@
+{
+  "format": 1,
+  "title": {
+    "en": "czm DSH plugins",
+    "zh": "czm 的 DSH 插件"
+  },
+  "description": {
+    "en": "Personal DeepSeek Harness plugins maintained by czm233.",
+    "zh": "czm233 维护的 DeepSeek Harness 个人插件。"
+  },
+  "plugins": [
+    {
+      "name": "composer-usage-plus",
+      "title": {
+        "en": "Composer Usage Plus",
+        "zh": "用量明细+"
+      },
+      "description": {
+        "en": "Composer usage pill with session cost, today's token total, and GLM plan quota (bars show remaining).",
+        "zh": "输入框用量胶囊:会话成本明细、今日 token 合计与 GLM 套餐额度(进度条显示剩余)。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "composer-usage-plus"
+      },
+      "metadata": {
+        "category": "usage",
+        "keywords": [
+          "dsh",
+          "usage",
+          "glm",
+          "quota",
+          "cost"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.1",
+          "publishTimestamp": 1793018467,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3f5262be54388614d7d46561d32eb9c97fa09230",
+            "path": "composer-usage-plus"
+          }
+        },
+        {
+          "version": "1.1.0",
+          "publishTimestamp": 1761728000,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3e3dbf497a55",
+            "path": "composer-usage-plus"
+          }
+        },
+        {
+          "version": "1.2.0",
+          "publishTimestamp": 1761729000,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "95171cc162ab",
+            "path": "composer-usage-plus"
+          }
+        },
+        {
+          "version": "1.3.0",
+          "publishTimestamp": 1761798000,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "f6178da97e8e",
+            "path": "composer-usage-plus"
+          }
+        },
+        {
+          "version": "1.3.1",
+          "publishTimestamp": 1761799500,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "75391adccb14",
+            "path": "composer-usage-plus"
+          }
+        }
+      ]
+    },
+    {
+      "name": "agent-workflow-board",
+      "title": {
+        "en": "Agent Workflow Board",
+        "zh": "流程画布"
+      },
+      "description": {
+        "en": "Canvas view of agent-team workflow graphs inside a session.",
+        "zh": "在会话内以画布方式查看 Agent 团队工作流图。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "agent-workflow-board"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "dsh",
+          "canvas",
+          "workflow",
+          "agent-teams"
+        ]
+      },
+      "versions": [
+        {
+          "version": "2.0.0",
+          "publishTimestamp": 1793018467,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3f5262be54388614d7d46561d32eb9c97fa09230",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.1.0",
+          "publishTimestamp": 1793097471,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1119ed473d6c10f213ac46965206e89aba5fb4e7",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.2.0",
+          "publishTimestamp": 1793099495,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8361ecfa38a671cf3e2821d017f97aad12ed18e3",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.3.0",
+          "publishTimestamp": 1793152997,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ab315c737b9180a01bdaf61cc09fe89ae69adfd7",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.3.1",
+          "publishTimestamp": 1793153438,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "0954a89b7206e58ab6f39b08bb10eb79ca60987b",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.4.0",
+          "publishTimestamp": 1793153757,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "31b26939f5f4a94f6b71b2c6e1b9c873da482d3a",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.4.1",
+          "publishTimestamp": 1793154568,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "791986387499220c58215e6b53a992f1e8a6617c",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.5.0",
+          "publishTimestamp": 1793155525,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "01ba626bc62172af5fbb671b8c8155b8d44d44e4",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.5.1",
+          "publishTimestamp": 1793156056,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2d71a8be28610c393a73a25af6f828c056ecbc8c",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.6.0",
+          "publishTimestamp": 1793181943,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "df922d23a30622d547de7a1642ed77b7143b1823",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.7.0",
+          "publishTimestamp": 1793209362,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "50253cc1b68e0a184b88baaa700ee4c1e96078af",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.8.0",
+          "publishTimestamp": 1793243956,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2bbefc87d2c25c94fda7da8b749df02939723795",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.8.1",
+          "publishTimestamp": 1793245914,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "bab092a3d3b81772c1edd848e8e756735e3fa475",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.8.2",
+          "publishTimestamp": 1793246061,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "0260e8a72616607d89317fbbc689fdde53d2b4fc",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.8.3",
+          "publishTimestamp": 1793246318,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "036e45f9ddfe7725b63455c9d5eabe326d6562e4",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.9.0",
+          "publishTimestamp": 1793262819,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "478165a284f3f93b36691db85f6d72511d260fc5",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.9.1",
+          "publishTimestamp": 1793263224,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "dcbaf23c020776ba76c2c32dd656c100f3448673",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.9.2",
+          "publishTimestamp": 1793263801,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8061b0de68e430328ed579d30ef54fb734ebb88f",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.9.3",
+          "publishTimestamp": 1793264407,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "137950f4cf65237662c063c20cf66750926c91f3",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.10.0",
+          "publishTimestamp": 1793264964,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3b28f17b5430a2051a2fe4bb790ad6f751bd0f94",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.10.1",
+          "publishTimestamp": 1793265323,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "7b3d8d9c88c1bb0fb8122f6783c96125013740bd",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.10.2",
+          "publishTimestamp": 1793265717,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "a6e3a763c29ed5d029a11d558db5ae9d29094d91",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.10.3",
+          "publishTimestamp": 1793265854,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ea4a617d4b351c4028bea80dbbe2195fc354bbdd",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.0",
+          "publishTimestamp": 1793269969,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "223aa8dc1e8c0387c75a70866166a8b03ee61923",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.1",
+          "publishTimestamp": 1793270055,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "c984065280f917c0ade7beb1f3560e2eec5e1dbb",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.2",
+          "publishTimestamp": 1793270171,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "899c40ac66d28e257d024b63a00577620337e481",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.3",
+          "publishTimestamp": 1793270670,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "65a7d2a2dcfddaad9c023aba3fb2028a15c9af99",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.4",
+          "publishTimestamp": 1793270917,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "05333def98b1e519bcb7d7b52f1c712ad33a7b7d",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.11.5",
+          "publishTimestamp": 1793271145,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "943c25d1d60495c58ae06633aeebfd8498f3b732",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.0",
+          "publishTimestamp": 1793271345,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "b58b0aa83a2dfe9e95a623d433336483fb32892b",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.1",
+          "publishTimestamp": 1793271414,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2770caafc39653d74e8f5e089b9765047bef2333",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.2",
+          "publishTimestamp": 1793271581,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "876bb04066260ea127b2df1d7857f371a2fea639",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.3",
+          "publishTimestamp": 1793271772,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "89f70a47272d71629db446ebd22f378172df77d5",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.4",
+          "publishTimestamp": 1793271861,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "67d3b19782301411f69e47c5958ba93521280593",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.12.5",
+          "publishTimestamp": 1793272860,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "c4c3f9f37adbe89d572942730b86f9bfa576eab8",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.13.0",
+          "publishTimestamp": 1793324260,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "150c67e2d540687818f65b000ebb1947341c5936",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.13.1",
+          "publishTimestamp": 1793324730,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "bccf58a86c93ef4455152f6a689a4fc4e74b52f7",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.13.2",
+          "publishTimestamp": 1793324983,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "dbbe911f3d4f700fe9b15a1bf509f82f40587309",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.13.3",
+          "publishTimestamp": 1793325630,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d53815d91230560d8873f18be178fc3400f5f48d",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.0",
+          "publishTimestamp": 1793325862,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "47d4787bb53ae9d4d2fe723c4637eda4751e9b5d",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.1",
+          "publishTimestamp": 1793326165,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "6282d9bbb070816b34b4b8e3b8099cc1db6c2633",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.2",
+          "publishTimestamp": 1793326414,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "27bce67723642d10cc8d516deddef6b6b7615578",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.3",
+          "publishTimestamp": 1793326617,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "f0130464a5d129c9868b62f730b4547b5f8288b7",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.4",
+          "publishTimestamp": 1793326833,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "a89066725f92d4ecf4ba68e7294371ec0c579ca3",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.5",
+          "publishTimestamp": 1793327038,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "204a1f751a58d10e5ab4aafa68a6f0bc797a8776",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.6",
+          "publishTimestamp": 1793327258,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "aa97e77ec6083b73878a85cf13528f6834e4c333",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.7",
+          "publishTimestamp": 1793327781,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1594da33fc7bbcfcece4ffbfb5d166004693925a",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.14.8",
+          "publishTimestamp": 1793328107,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "afa3413e78f0bcad149e21c773ea559b86624995",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.15.0",
+          "publishTimestamp": 1793328956,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d8fbcb763e411db4de99004a1a93f983848d6fea",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.15.1",
+          "publishTimestamp": 1793330079,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "92a174d0422c38e10065b8330ed9858efb10f968",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.15.2",
+          "publishTimestamp": 1793335739,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "35d45e68e8d1a2637734ad9c88e456e90fd6cb71",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.15.3",
+          "publishTimestamp": 1793340408,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "24eaf73c8bff4c19b7c48665867fea607226cff6",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.15.4",
+          "publishTimestamp": 1793341212,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d03735bfea864f6b7d153802e6cd441b5d26dd37",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.16.0",
+          "publishTimestamp": 1793341824,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "e50d04890c0fcd6f5e8ed886d94a1b22cc0cd3f5",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.16.1",
+          "publishTimestamp": 1793343869,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "02739ca6d20b54b1d01f6597d4708fb1a672a71e",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.16.2",
+          "publishTimestamp": 1793345553,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5fae0d3fcae40972c6f381b7569d1479587ec6d3",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.0",
+          "publishTimestamp": 1793346572,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "dc0b0486e2aa50d1205f9b1e98e2f0559432e003",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.1",
+          "publishTimestamp": 1793346929,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "7a2d2997fd2b501353b38c286bb50e7e575dc7c8",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.2",
+          "publishTimestamp": 1793347628,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "b21d7032ae16668112690dfbc3eab3f119c69fa5",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.2",
+          "publishTimestamp": 1793348206,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3682b02f072626cbf056df10be2716266cbdc186",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.3",
+          "publishTimestamp": 1793350091,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "87ab4d65f724f275e6c520fe7302fc9acbe2a443",
+            "path": "agent-workflow-board"
+          }
+        },
+        {
+          "version": "2.17.4",
+          "publishTimestamp": 1793350896,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8e9b415c239d49b17d7b1de033960faf4a2ca23d",
+            "path": "agent-workflow-board"
+          }
+        }
+      ]
+    },
+    {
+      "name": "composer-effort-chips",
+      "title": {
+        "en": "Composer Effort Chips",
+        "zh": "推理力度切换"
+      },
+      "description": {
+        "en": "Reasoning effort as a row of clickable gears; also owns the channel and model pickers, each capped to a max width.",
+        "zh": "推理强度铺成一排可直接点的档位胶囊；同时接管渠道与模型选择器，各设最大宽度。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "composer-effort-chips"
+      },
+      "metadata": {
+        "category": "interface",
+        "keywords": [
+          "dsh",
+          "reasoning-effort",
+          "composer"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.3.24",
+          "publishTimestamp": 1793451665,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "4dfc390",
+            "path": "composer-effort-chips"
+          }
+        },
+        {
+          "version": "1.3.13",
+          "publishTimestamp": 1793441867,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "52444bb3",
+            "path": "composer-effort-chips"
+          }
+        }
+      ]
+    },
+    {
+      "name": "quote-selection",
+      "title": {
+        "en": "Quote Selection",
+        "zh": "划词引用"
+      },
+      "description": {
+        "en": "Select text in a chat bubble and click the floating Quote button to insert it as a Markdown blockquote in the composer.",
+        "zh": "在聊天气泡里选中文字,点浮出的「引用」按钮,以 Markdown 引用格式插入输入框。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "quote-selection"
+      },
+      "metadata": {
+        "category": "interface",
+        "keywords": [
+          "dsh",
+          "quote",
+          "selection",
+          "composer"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.5.5",
+          "publishTimestamp": 1793181056,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "a33f8a42308db19be99413f77801fccc4e5eda73",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.5.4",
+          "publishTimestamp": 1793129100,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "b3101e8645fd994e7221d10d65f714d19b50218a",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.5.3",
+          "publishTimestamp": 1793128200,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "fba09e9f62d448c2fe7f1d813beb60276cf8f6ff",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.5.2",
+          "publishTimestamp": 1793127600,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "930f7b9362d67bb7ecd04ca839237d6c249966df",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.5.1",
+          "publishTimestamp": 1793126800,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ee82a7f15eb6769b1773aa2661fa2b5f68bfeedd",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.5.0",
+          "publishTimestamp": 1793126100,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "32a31238f6a9de57f766de631a51c6406dd900ac",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.4.4",
+          "publishTimestamp": 1793125200,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "513f17911d0b9007856553f6917fdf1c465a35fd",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.4.3",
+          "publishTimestamp": 1793124400,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8e8eb6ef5479fcc2643d705dcd0b11cedf1723e5",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.4.2",
+          "publishTimestamp": 1793123400,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2e9ed2fc586f1ddf1c194027e65687b09006bae7",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.4.1",
+          "publishTimestamp": 1793121800,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d7441887f344497ac36984c777b6621a3726a124",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1793119200,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8aa4b76bb29686b0c91ed87572431d424403dc17",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.3.2",
+          "publishTimestamp": 1793115600,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "df01986b8e3dc6e17116aec9fdd6b4b77b49f0e9",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1793113800,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "4841e4030f1ba7597695615836437541188d2308",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1793111400,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1df91ffa6cc2d976272238e8410596199736fa4d",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793066400,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1ec2903993254e33795232cc9479a2b28f75be7f",
+            "path": "quote-selection"
+          }
+        },
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793065367,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "78c98c5ccfd865c83d6d13dca3551b034968f658",
+            "path": "quote-selection"
+          }
+        }
+      ]
+    },
+    {
+      "name": "turn-cost",
+      "title": {
+        "en": "Turn Cost",
+        "zh": "单轮成本"
+      },
+      "description": {
+        "en": "Per-turn token cost estimation with local price table.",
+        "zh": "按单轮估算 token 成本,内置本地价格表。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "turn-cost"
+      },
+      "metadata": {
+        "category": "usage",
+        "keywords": [
+          "dsh",
+          "cost",
+          "token",
+          "pricing"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.15.5",
+          "publishTimestamp": 1793326426,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "314b58410839b770f38540c6cedbb65769f76c6d",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.15.4",
+          "publishTimestamp": 1793184343,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "66625aa7431bc0cb7e72f019544de23757ed17dc",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.15.3",
+          "publishTimestamp": 1793184040,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5f52bd242451a0dfab4af5378a53e3ef0fa397d1",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.15.2",
+          "publishTimestamp": 1793183296,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "9cf5997ec5bcbb27701746eb086a3d8599276342",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.15.1",
+          "publishTimestamp": 1793043064,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "cd6ce41df69045d7670bfb03aff7ff37591b8065",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.1.0",
+          "publishTimestamp": 1793061000,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "04cf19d21b05aae2e0c182cf1311ffc4787ac5b2",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793018467,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3f5262be54388614d7d46561d32eb9c97fa09230",
+            "path": "turn-cost"
+          }
+        }
+      ]
+    },
+    {
+      "name": "side-chat",
+      "title": {
+        "en": "Side Chat",
+        "zh": "侧边对话"
+      },
+      "description": {
+        "en": "Adds a right-sidebar guide entry that forks the current session into a real branch session and opens it in an official right-sidebar tab with the full conversation UI.",
+        "zh": "在官方右栏加一个入口：把当前会话 fork 成真实分支会话（左侧列表同步出现、名字加后缀），用完整对话界面在右栏 tab 里继续聊；关闭 tab 时自动归档会话（CLOSE_MODE 可切回弹框确认）。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "side-chat"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "dsh",
+          "fork",
+          "branch",
+          "sidebar",
+          "chat"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.2.1",
+          "publishTimestamp": 1793428191,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "44a53a42",
+            "path": "side-chat"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793427799,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d52cb97e",
+            "path": "side-chat"
+          }
+        },
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793373490,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "19a1092a",
+            "path": "side-chat"
+          }
+        }
+      ]
+    },
+    {
+      "name": "edit-restart",
+      "title": {
+        "en": "Edit and Resend",
+        "zh": "修改重发"
+      },
+      "description": {
+        "en": "Edit any user message in place, then send: a new branch session is forked from the history before that message and the edited text is posted there; the original session stays untouched.",
+        "zh": "在任意一条用户消息旁点「修改」，改完发送：按这条消息之前的上下文分出一个新的分支会话并发出修改后的内容，原会话原样保留。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "edit-restart"
+      },
+      "metadata": {
+        "category": "interface",
+        "keywords": [
+          "dsh",
+          "edit",
+          "resend",
+          "fork",
+          "branch",
+          "message"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1793375493,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "c754de651a57f854a8e2f7979a75f75f4b02271d",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1793453153,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "55cc39a1868b9408f827b2b32fe5860593982b0b",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1793453372,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "80e78a50643426265388c1e64e960d929fd02fcd",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1793453372,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "80e78a50643426265388c1e64e960d929fd02fcd",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.5.0",
+          "publishTimestamp": 1793453446,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3ff52866460e944ca93056f4ac87c518ce209238",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.6.0",
+          "publishTimestamp": 1793454113,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5db95e85eb0c98536165a7e0820c981da003131a",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.7.0",
+          "publishTimestamp": 1793455306,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "be7be51d2f1e4212f56ab75c8003628bf96505f8",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.8.0",
+          "publishTimestamp": 1793455333,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1df2f14398aaa3e93a8ea29965d25919a4450a0e",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.9.0",
+          "publishTimestamp": 1793455377,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "0d8a90cc8d127a3798a3fbf50e78894bd9617e55",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.10.0",
+          "publishTimestamp": 1793455652,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ed9e6f10ae7941b3982e7067a2478b74f47e5777",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.11.0",
+          "publishTimestamp": 1793455762,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "2be33b4ee9b60019c7638a2b7328e7449ec27cee",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.12.0",
+          "publishTimestamp": 1793455873,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ab7d6a473fe30dd6dd6979f13ca02a2369598fcd",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.13.0",
+          "publishTimestamp": 1793456149,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "cb64b9f10a0e446f6fb3afcf58cb0b3cd8714662",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.14.0",
+          "publishTimestamp": 1793456453,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5b2d599b4c2e69aee6683fe4b497f99270ed2f9a",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.15.0",
+          "publishTimestamp": 1793456642,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ef02fd0d8666fb6f1cd7c149e925379f4658797d",
+            "path": "edit-restart"
+          }
+        }
+      ]
+    }
+  ]
+}
