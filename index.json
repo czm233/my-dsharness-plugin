@@ -739,8 +739,8 @@
         "zh": "推理力度切换"
       },
       "description": {
-        "en": "Quick reasoning-effort switching chips in the composer.",
-        "zh": "在输入框快速切换推理力度。"
+        "en": "Flattens reasoning effort into a row of gears left of the send button; also owns the channel and model pickers, each showing only its current value to save width.",
+        "zh": "把推理强度平铺成发送按钮左侧的一排档位，点一下直接挂档；同时接管渠道与模型选择，按钮只显示当前值以省宽度。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -755,6 +755,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "1.3.10",
+          "publishTimestamp": 1793428952,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "7c5611ad",
+            "path": "composer-effort-chips"
+          }
+        },
         {
           "version": "1.3.9",
           "publishTimestamp": 1793046760,
