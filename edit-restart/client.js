@@ -42,6 +42,8 @@ window.__ModuleLoader__.load({
       'title': '修改这条消息并重发',
       'cancel': '取消',
       'send': '发送',
+      'saveDraft': '保存草稿',
+      'draftSaved': '草稿已保存到 ~/.dsh/storages/edit-restart/drafts.json',
       'sending': '生成分支并发送…',
       'needText': '内容不能为空',
       'busy': '会话正在运行，结束后再修改',
@@ -56,6 +58,8 @@ window.__ModuleLoader__.load({
       'title': 'Edit this message and resend',
       'cancel': 'Cancel',
       'send': 'Send',
+      'saveDraft': 'Save draft',
+      'draftSaved': 'Draft saved to ~/.dsh/storages/edit-restart/drafts.json',
       'sending': 'Branching and sending…',
       'needText': 'Message cannot be empty',
       'busy': 'Wait for the session to finish running',
@@ -208,6 +212,7 @@ window.__ModuleLoader__.load({
       `[${LAYER_ATTR}] button{appearance:none;cursor:pointer;font:inherit;font-size:13px;line-height:18px;border-radius:999px;padding:5px 14px;border:1px solid transparent;}`,
       `[${LAYER_ATTR}] .${P}-cancel{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
       `[${LAYER_ATTR}] .${P}-send{background:var(--dsw-alias-button-primary-fill,#4c8bf5);color:#fff;}`,
+      `[${LAYER_ATTR}] .${P}-draft{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
       `[${LAYER_ATTR}] button:disabled{opacity:.5;cursor:default;}`,
       // 已修改标记
       `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}]{order:4 !important;display:none;
@@ -235,12 +240,13 @@ window.__ModuleLoader__.load({
         h('path', { d: PENCIL, stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round' })))
     }
 
-    /** 编辑框：回车发送、Esc 取消；提交由外层完成 fork + prompt。 */
+    /** 编辑框：回车发送（direct），或点「保存草稿」交给 Host（save）。 */
     function MessageLayer(props) {
       const { t, initial, onClose, onSubmit } = props
       const [text, setText] = React.useState(initial)
       const [error, setError] = React.useState('')
       const [busy, setBusy] = React.useState(false)
+      const [done, setDone] = React.useState('')
       const boxRef = React.useRef(null)
       const closedRef = React.useRef(false)
 
@@ -267,12 +273,32 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setError('')
         try {
-          await onSubmit(next)
+          const result = await onSubmit(next, 'direct')
           closedRef.current = true
           onClose()
+          window.setTimeout(() => { void result }, 0)
         } catch (failure) {
           setBusy(false)
           setError(String(failure?.message ?? failure))
+        }
+      }
+
+      const saveDraft = async () => {
+        if (busy || closedRef.current) return
+        const next = text.trim()
+        if (next === '') {
+          setError(t('needText'))
+          return
+        }
+        setBusy(true)
+        setError('')
+        try {
+          await onSubmit(next, 'save')
+          setDone(t('draftSaved'))
+        } catch (failure) {
+          setError(String(failure?.message ?? failure))
+        } finally {
+          setBusy(false)
         }
       }
 
@@ -299,8 +325,10 @@ window.__ModuleLoader__.load({
         }),
         h('div', { className: `${P}-bar` },
           error !== '' ? h('span', { className: `${P}-note` }, error)
-            : busy ? h('span', { className: `${P}-hint` }, t('sending')) : null,
+            : done !== '' ? h('span', { className: `${P}-hint` }, done)
+              : busy ? h('span', { className: `${P}-hint` }, t('sending')) : null,
           h('button', { type: 'button', className: `${P}-cancel`, disabled: busy, onClick: cancel }, t('cancel')),
+          h('button', { type: 'button', className: `${P}-draft`, disabled: busy, onClick: saveDraft }, t('saveDraft')),
           h('button', { type: 'button', className: `${P}-send`, disabled: busy, onClick: submit },
             busy ? t('sending') : t('send'))))
     }
@@ -413,7 +441,18 @@ window.__ModuleLoader__.load({
       }
 
       /** 原生 fork（切点 = 这条消息自己那一轮的 turn/start），再把改过的文本作为首条消息发出。 */
-      async function resend(id, index, turnStartSeq, text) {
+      async function resend(id, index, turnStartSeq, text, mode) {
+        if (mode === 'save') {
+          const response = await fetch('/api/edit-restart/rpc', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'saveDraft', sessionId: id, turnStartSeq, messageIndex: index, text, initial: '' }),
+          })
+          const payload = await response.json().catch(() => null)
+          if (!payload || payload.ok !== true) throw new Error(String(payload?.error ?? `HTTP ${response.status}`))
+          diag('draft saved', { draftId: payload.draft?.id })
+          return payload.draft?.id
+        }
         if (resending.has(id)) throw new Error(t('busy'))
         resending.add(id)
         try {
@@ -469,7 +508,7 @@ window.__ModuleLoader__.load({
           t,
           initial: target.initial,
           onClose: () => closeEditor(),
-          onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
+          onSubmit: (text, mode) => resend(id, index, target.turnStartSeq, text, mode),
         }))
         // React 渲染完之后再确认一次位置
         if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
@@ -556,7 +595,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.3.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.4.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
