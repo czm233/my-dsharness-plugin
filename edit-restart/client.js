@@ -92,6 +92,8 @@ window.__ModuleLoader__.load({
       let bubble = null
       let actions = null
       for (const child of Array.from(row.children)) {
+        // 跳过我们自己的节点：编辑器里也有按钮，否则会被误当成官方操作行
+        if (child.hasAttribute(LAYER_ATTR) || child.hasAttribute(ACTION_ATTR)) continue
         if (hasClassLike(child, '_userStack') && bubble === null && child.querySelector('button') === null) {
           bubble = child
           continue
@@ -578,6 +580,8 @@ window.__ModuleLoader__.load({
           slot.appendChild(layerEl)
         }
         layerEl.style.position = 'static'
+        const actionsRow = hit ? hit.actions : null
+        if (actionsRow && actionEl.parentElement !== actionsRow) actionsRow.appendChild(actionEl)
         layerRoot.render(h(MessageLayer, {
           t,
           initial: target.initial,
@@ -663,7 +667,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.16.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.17.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
