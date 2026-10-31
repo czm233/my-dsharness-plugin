@@ -25,6 +25,27 @@ window.__ModuleLoader__.load({
     // composer instance in the page.
     const lastSelectionByProvider = new Map();
 
+    // 档位胶囊：常态形态。当前档高亮。
+    const chipBase = {
+      appearance: 'none',
+      border: 'none',
+      borderRadius: 999,
+      padding: '2px 10px',
+      fontSize: 12,
+      lineHeight: '18px',
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+      flex: 'none',
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-tertiary, #999)',
+    };
+    const chipActive = {
+      ...chipBase,
+      background: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.25))',
+      color: 'var(--dsw-alias-label-primary, inherit)',
+      fontWeight: 600,
+    };
+
     // 不加 overflow 裁剪：下拉菜单是 position:absolute 向上弹出的，
     // overflow:hidden/auto 会把菜单切掉，表现为「按钮点不开」。
     const rowStyle = {
@@ -35,6 +56,90 @@ window.__ModuleLoader__.load({
       maxWidth: '100%',
       flex: '0 1 auto',
     };
+
+    // ------------------------------------------------------------------
+    // 档位该展开还是收起
+    //
+    // 常态展开（一排胶囊）；宽度不够才收成下拉。只比较两个实测值：
+    //   需要多宽 = 胶囊自然宽度之和（含间距）
+    //   可用多宽 = 父容器宽度减去兄弟节点（渠道/模型）占用的部分
+    // 滞回：超出 4px 才收，富余 16px 才展，临界点不会来回跳。
+    // ------------------------------------------------------------------
+    const COLLAPSE_SLACK = 4;
+    const EXPAND_SLACK = 16;
+
+    function measureChipWidths(el) {
+      if (!el) return 0;
+      const row = el.querySelector('[data-composer-effort-chips-row]');
+      if (!row) return 0;
+      let total = 0;
+      let count = 0;
+      for (const child of row.children) {
+        const rect = child.getBoundingClientRect();
+        if (rect.width > 0) {
+          total += rect.width;
+          count += 1;
+        }
+      }
+      return count === 0 ? 0 : total + Math.max(0, count - 1) * 4;
+    }
+
+    function availableForRow(el) {
+      if (!el) return 0;
+      const parent = el.parentElement;
+      if (!parent) return 0;
+      const parentRect = parent.getBoundingClientRect();
+      if (parentRect.width <= 0) return 0;
+      let siblings = 0;
+      for (const child of parent.children) {
+        if (child === el) continue;
+        const rect = child.getBoundingClientRect();
+        if (rect.width > 0) siblings += rect.width;
+      }
+      return Math.max(0, parentRect.width - siblings);
+    }
+
+    /** 观察这一排，决定档位是否收成下拉。 */
+    function useCollapsed(ref, deps) {
+      const [collapsed, setCollapsed] = React.useState(false);
+      const collapsedRef = React.useRef(collapsed);
+      collapsedRef.current = collapsed;
+
+      React.useEffect(() => {
+        if (typeof ResizeObserver === 'undefined') return undefined;
+        const el = ref.current;
+        if (!el) return undefined;
+        let frame = 0;
+        const evaluate = () => {
+          frame = 0;
+          const need = measureChipWidths(el);
+          const have = availableForRow(el);
+          if (!need || !have) return;
+          if (!collapsedRef.current && need - have > COLLAPSE_SLACK) setCollapsed(true);
+          else if (collapsedRef.current && have - need > EXPAND_SLACK) setCollapsed(false);
+        };
+        const schedule = () => {
+          if (frame === 0) frame = requestAnimationFrame(evaluate);
+        };
+        const observer = new ResizeObserver(schedule);
+        // 自己 + 直接父容器（渠道/模型所在层）+ 上两层：右栏挤压变的是外层列。
+        observer.observe(el);
+        let node = el.parentElement;
+        for (let i = 0; i < 3 && node; i += 1) {
+          observer.observe(node);
+          node = node.parentElement;
+        }
+        if (typeof window !== 'undefined') window.addEventListener('resize', schedule);
+        schedule();
+        return () => {
+          observer.disconnect();
+          if (frame !== 0) cancelAnimationFrame(frame);
+          if (typeof window !== 'undefined') window.removeEventListener('resize', schedule);
+        };
+      }, [ref, JSON.stringify(deps)]);
+
+      return collapsed;
+    }
 
     function groupLabel(group) {
       return group.name || group.label || group.title || group.id;
@@ -385,26 +490,62 @@ window.__ModuleLoader__.load({
           : chip.effort === effectiveEffort,
       ) || effortChips[0];
 
-      // 档位收成一个下拉：按钮显示当前档位名，点开选择。
+      const isActive = (chip) => (chip.effort === undefined
+        ? effectiveEffort === undefined
+        : chip.effort === effectiveEffort);
+
+      const rootRef = React.useRef(null);
+      // 换模型导致档位集合变化时，重新判断一次要不要收起。
+      const collapsed = useCollapsed(rootRef, effortChips.map((chip) => chip.label));
+
+      // 常态：一排胶囊，点一下直接挂档。
+      const chipsRow = h(
+        'div',
+        {
+          key: 'efforts',
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            flex: 'none',
+            opacity: disabled ? 0.6 : 1,
+          },
+          role: 'group',
+          'aria-label': t('effortLabel'),
+          'data-composer-effort-chips-row': true,
+        },
+        effortChips.map((chip) => h(
+          'button',
+          {
+            key: chip.key,
+            type: 'button',
+            style: isActive(chip) ? chipActive : chipBase,
+            disabled,
+            onClick: () => pickEffort(chip.effort),
+          },
+          chip.label,
+        )),
+      );
+
+      // 降级：放不下时收成一个下拉。
+      const dropdown = h(Dropdown, {
+        key: 'effort-dropdown',
+        label: t('effortLabel'),
+        value: activeChip ? activeChip.label : '—',
+        disabled,
+        ariaLabel: t('effortLabel'),
+        options: effortChips.map((chip) => ({
+          key: chip.key,
+          label: chip.label,
+          active: isActive(chip),
+          onPick: () => pickEffort(chip.effort),
+        })),
+      });
+
       return h(
         'div',
-        { style: rowStyle, 'data-composer-effort-chips': true },
-        effortChips.length > 0 &&
-          h(Dropdown, {
-            key: 'effort-dropdown',
-            label: t('effortLabel'),
-            value: activeChip ? activeChip.label : '—',
-            disabled,
-            ariaLabel: t('effortLabel'),
-            options: effortChips.map((chip) => ({
-              key: chip.key,
-              label: chip.label,
-              active: chip.effort === undefined
-                ? effectiveEffort === undefined
-                : chip.effort === effectiveEffort,
-              onPick: () => pickEffort(chip.effort),
-            })),
-          }),
+        { style: rowStyle, 'data-composer-effort-chips': true, ref: rootRef },
+        effortChips.length > 0 && (collapsed ? dropdown : chipsRow),
       );
     }
 
