@@ -68,10 +68,15 @@ window.__ModuleLoader__.load({
     const COLLAPSE_SLACK = 4;
     const EXPAND_SLACK = 16;
 
+    // 「展开成一排」需要多宽：展开时实测并记住，收起后沿用上次实测值。
+    // 收起时那个锚点就没了，绝不能因此返回 0——否则判定会以为「量不到」
+    // 而永远停住，既收不回去也展不回来。
+    const chipWidthCache = { value: 0 };
+
     function measureChipWidths(el) {
-      if (!el) return 0;
+      if (!el) return chipWidthCache.value;
       const row = el.querySelector('[data-composer-effort-chips-row]');
-      if (!row) return 0;
+      if (!row) return chipWidthCache.value;
       let total = 0;
       let count = 0;
       for (const child of row.children) {
@@ -81,7 +86,8 @@ window.__ModuleLoader__.load({
           count += 1;
         }
       }
-      return count === 0 ? 0 : total + Math.max(0, count - 1) * 4;
+      if (count > 0) chipWidthCache.value = total + Math.max(0, count - 1) * 4;
+      return chipWidthCache.value;
     }
 
     function availableForRow(el) {
@@ -114,6 +120,18 @@ window.__ModuleLoader__.load({
           frame = 0;
           const need = measureChipWidths(el);
           const have = availableForRow(el);
+          if (typeof window !== 'undefined') {
+            window.__chipsDebug = window.__chipsDebug || [];
+            window.__chipsDebug.push({
+              t: Date.now(),
+              need: Math.round(need),
+              have: Math.round(have),
+              collapsed: collapsedRef.current,
+              parentW: el.parentElement ? Math.round(el.parentElement.getBoundingClientRect().width) : 0,
+              parentChildren: el.parentElement ? el.parentElement.children.length : 0,
+            });
+            if (window.__chipsDebug.length > 60) window.__chipsDebug.shift();
+          }
           if (!need || !have) return;
           if (!collapsedRef.current && need - have > COLLAPSE_SLACK) setCollapsed(true);
           else if (collapsedRef.current && have - need > EXPAND_SLACK) setCollapsed(false);
