@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
     // 渠道 / 模型按钮：各自一个最大宽度，超出时文字省略。
     // minWidth:0 是省略生效的前提——flex 子项默认最小宽等于内容宽，
     // 没有它 textOverflow:ellipsis 永远不会触发。
-    const PICKER_MAX_WIDTH = 130;
+    const PICKER_MAX_WIDTH = 96;
 
     const pickerButtonBase = {
       appearance: 'none',
