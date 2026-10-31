@@ -31,7 +31,6 @@ window.__ModuleLoader__.load({
     const HOST_ATTR = 'data-edit-restart-host'
     const LAYER_ATTR = 'data-edit-restart-layer'
     const ACTION_ATTR = 'data-edit-restart-action'
-    const MARKER_ATTR = 'data-edit-restart-marker'
     const READY_ATTR = 'data-edit-restart-ready'
     const INDEX_ATTR = 'data-edit-restart-index'
     const EDITED_ATTR = 'data-edit-restart-edited'
@@ -51,8 +50,6 @@ window.__ModuleLoader__.load({
       'close': '知道了',
       'forkFailed': '创建分支失败：{message}',
       'sendFailed': '分支已创建，但发送失败：{message}',
-      'edited': '已修改',
-      'editedTitle': '由这条消息改出，原会话保留',
     }
     const en = {
       'action': 'Edit',
@@ -68,8 +65,6 @@ window.__ModuleLoader__.load({
       'close': 'OK',
       'forkFailed': 'Could not create the branch: {message}',
       'sendFailed': 'Branch created, but sending failed: {message}',
-      'edited': 'Edited',
-      'editedTitle': 'Branched from this message; the original session is kept',
     }
 
     /** `${conversation session}|${index}` → 分支会话 id（只在本次页面加载内有效）。 */
@@ -216,13 +211,6 @@ window.__ModuleLoader__.load({
   border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);font:inherit;line-height:0;}`,
       `.${P}-action:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);}`,
       `.${P}-action svg{width:calc(15px + var(--dsh-content-font-delta,0px));height:calc(15px + var(--dsh-content-font-delta,0px));display:block;}`,
-      // 已修改标记
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}]{order:4 !important;display:none;
-  width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
-  border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;
-  justify-content:center;align-items:center;padding:6px;flex:0 0 auto;cursor:default;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}] svg{width:calc(15px + var(--dsh-content-font-delta,0px));height:calc(15px + var(--dsh-content-font-delta,0px));}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS}[${EDITED_ATTR}="true"] > button[${MARKER_ATTR}]{display:inline-flex;}`,
     ].join('\n')
 
     /** 失败提示卡：让"点不动"变成看得见的一句话（不写进 Chat，只借同一个装饰落点）。 */
@@ -353,14 +341,6 @@ window.__ModuleLoader__.load({
       actionEl.setAttribute('aria-label', t('action'))
       actionEl.title = t('action')
       const layerEl = document.createElement('div')
-      const markerEl = document.createElement('button')
-      markerEl.type = 'button'
-      markerEl.setAttribute(MARKER_ATTR, '')
-      markerEl.disabled = true
-      markerEl.tabIndex = -1
-      markerEl.title = t('editedTitle')
-      markerEl.setAttribute('aria-label', t('edited'))
-      markerEl.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
       const actionRoot = createRoot(actionEl)
       const layerRoot = createRoot(layerEl)
 
@@ -421,12 +401,6 @@ window.__ModuleLoader__.load({
 
       const editedKey = () => `${sessionId}|${current?.index}`
 
-      function paintMarker() {
-        if (current === null) return
-        current.slot.setAttribute(EDITED_ATTR, editedAt.has(editedKey()) ? 'true' : 'false')
-        if (markerEl.parentElement !== current.slot) current.slot.appendChild(markerEl)
-      }
-
       function closeEditor() {
         if (current === null) return
         if (current.bubble && current.bubble.isConnected !== false) {
@@ -442,10 +416,10 @@ window.__ModuleLoader__.load({
         const key = editedKey()
         current = null
         layerRoot.render(null)
+        layerEl.remove()
         if (slot && slot.isConnected !== false) {
           slot.setAttribute(EDITED_ATTR, editedAt.has(key) ? 'true' : 'false')
         }
-        if (markerEl.parentElement && markerEl.parentElement.getAttribute(EDITED_ATTR) !== 'true') markerEl.remove()
       }
 
       /** 在当前落点显示一张失败卡，替换掉静默失败。 */
@@ -524,7 +498,6 @@ window.__ModuleLoader__.load({
             throw new Error(t('forkFailed').replace('{message}', String(failure?.message ?? failure)))
           }
           editedAt.set(`${id}|${index}`, childId)
-          if (current !== null) paintMarker()
           try {
             await withSession(childId, async (session) => {
               await session.prompt([{ type: 'text', text }], 'plain')
@@ -603,7 +576,6 @@ window.__ModuleLoader__.load({
           onClose: () => closeEditor(),
           onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
-        paintMarker()
       }
 
       /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
@@ -614,7 +586,6 @@ window.__ModuleLoader__.load({
         if (contentHost === null || next === null || items.length === 0) {
           if (current !== null) closeEditor()
           actionEl.remove()
-          markerEl.remove()
           hits.clear()
           return
         }
@@ -663,15 +634,7 @@ window.__ModuleLoader__.load({
             })
           })
         }
-        if (current !== null) {
-          if (current.slot.isConnected === false) {
-            closeEditor()
-          } else if (markerEl.parentElement !== current.slot) {
-            current.slot.appendChild(markerEl)
-          }
-        } else if (markerEl.parentElement && markerEl.parentElement.getAttribute(EDITED_ATTR) !== 'true') {
-          markerEl.remove()
-        }
+        if (current !== null && current.slot.isConnected === false) closeEditor()
       }
 
       let lastReport = ''
@@ -691,7 +654,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.14.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.15.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
@@ -702,7 +665,6 @@ window.__ModuleLoader__.load({
         layerRoot.unmount()
         actionEl.remove()
         layerEl.remove()
-        markerEl.remove()
         styleEl.remove()
         if (host !== null) host.removeAttribute(HOST_ATTR)
       }
