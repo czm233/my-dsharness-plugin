@@ -31,7 +31,15 @@ function stamp() {
     + `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`
 }
 
-async function appendLog(lines) {
+let logChain = Promise.resolve()
+/** 串行化追加：并发请求同时读写同一个文件会把行写坏（实测出现被截断的乱码行）。 */
+function appendLog(lines) {
+  const task = logChain.then(() => appendLogNow(lines), () => appendLogNow(lines))
+  logChain = task.catch(() => {})
+  return task
+}
+
+async function appendLogNow(lines) {
   await fsp.mkdir(storageDir(), { recursive: true })
   const file = path.join(storageDir(), 'client.log')
   let previous = ''

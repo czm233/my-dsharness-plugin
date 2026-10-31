@@ -29,7 +29,7 @@ global.window = {
   __ModuleLoader__: { load: (mod) => { global.__mod = mod } },
   requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length },
   cancelAnimationFrame() {},
-  setTimeout: (fn) => { fn(); return 1 },
+  setTimeout: global.setTimeout,
   innerWidth: 1600,
   innerHeight: 900,
   addEventListener() {},
@@ -47,7 +47,9 @@ const flushMutations = () => {
   mutations.length = 0
   for (const observer of observers) if (observer.active) observer.callback([])
 }
-global.setTimeout = (fn) => { fn(); return 1 }
+// 用真实定时器：client.js 里有超时守卫，桩成"立即执行"会让守卫误触发。
+const realSetTimeout = require('node:timers').setTimeout
+global.setTimeout = (fn, ms) => { const handle = realSetTimeout(fn, ms); handle.unref?.(); return handle }
 global.clearTimeout = () => {}
 
 const React = {
@@ -147,6 +149,11 @@ const fakeSession = {
 const scopeObjects = new Map()
 for (const id of ['sess-1', 'sess-2', 'sess-child']) scopeObjects.set(id, { id })
 const sessions = {
+  binding: (id) => {
+    if (id === 'sess-child') return undefined
+    const scope = sessions.scope(id)
+    return scope ? { session: scope } : undefined
+  },
   using: async (id, options, operation) => operation({ ready: Promise.resolve() }),
   scope: (id) => {
     const scope = scopeObjects.get(id)

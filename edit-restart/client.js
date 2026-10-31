@@ -48,6 +48,8 @@ window.__ModuleLoader__.load({
       'needText': '内容不能为空',
       'busy': '会话正在运行，结束后再修改',
       'stale': '找不到这条消息，可能已不在当前记录里',
+      'sessionUnavailable': '拿不到这个会话，请稍后重试',
+      'timeout': '读取会话超时，请稍后重试',
       'forkFailed': '创建分支失败：{message}',
       'sendFailed': '分支已创建，但发送失败：{message}',
       'edited': '已修改',
@@ -64,6 +66,8 @@ window.__ModuleLoader__.load({
       'needText': 'Message cannot be empty',
       'busy': 'Wait for the session to finish running',
       'stale': 'This message is no longer in the session record',
+      'sessionUnavailable': 'This session is not available right now',
+      'timeout': 'Reading the session timed out. Try again.',
       'forkFailed': 'Could not create the branch: {message}',
       'sendFailed': 'Branch created, but sending failed: {message}',
       'edited': 'Edited',
@@ -400,30 +404,37 @@ window.__ModuleLoader__.load({
        */
       const withSession = async (id, operation) => {
         const service = sessionsOf()
-        const sessionIn = (scopedCtx) => {
-          if (!scopedCtx) return null
-          // 1) 官方正路：作用域上下文 → sessionOf → 业务 Session
+        const asSession = (candidate) => (candidate && typeof candidate.getSnapshot === 'function'
+          && typeof candidate.prompt === 'function' ? candidate : null)
+        const viaBinding = () => {
           try {
-            const fromScope = service.sessionOf.call(service, scopedCtx)
-            if (fromScope && typeof fromScope.getSnapshot === 'function') return fromScope
-          } catch (_noScope) { /* 下一个途径 */ }
-          // 2) 兜底：某些装配里查询会话对象就是 Session 本身
-          if (typeof scopedCtx.getSnapshot === 'function') return scopedCtx
-          return null
+            const binding = typeof service.binding === 'function' ? service.binding(id) : undefined
+            return asSession(binding?.session) ?? asSession(binding)
+          } catch (_noBinding) { return null }
         }
-        const scoped = typeof service.scope === 'function' ? service.scope(id) : undefined
-        const ready = scoped ? sessionIn(scoped) : null
-        if (ready) return operation(ready)
-        // 作用域还没建立：临时 retain 一次，等它就绪后执行，再释放。
+        const viaScope = () => {
+          try {
+            const scoped = typeof service.scope === 'function' ? service.scope(id) : undefined
+            if (!scoped) return null
+            const fromScope = typeof service.sessionOf === 'function' ? service.sessionOf(scoped) : undefined
+            return asSession(fromScope) ?? asSession(scoped)
+          } catch (_noScope) { return null }
+        }
+        const resolve = () => viaBinding() ?? viaScope()
+        const immediate = resolve()
+        if (immediate) return operation(immediate)
+        diag('session not retained yet', id)
+        // 作用域还没建立：临时 retain 一次，等它就绪后再取，最后释放。
         const reference = service.retain(id, {})
         try {
           await reference.ready
           for (let attempt = 0; attempt < 20; attempt += 1) {
-            const found = sessionIn(typeof service.scope === 'function' ? service.scope(id) : undefined)
+            const found = resolve()
             if (found) return await operation(found)
-            await new Promise((resolve) => setTimeout(resolve, 50))
+            await new Promise((done) => setTimeout(done, 50))
           }
-          throw new Error('session binding is unavailable')
+          diag('session binding unavailable', id)
+          throw new Error(t('sessionUnavailable'))
         } finally {
           try { reference.release() } catch (_released) { /* already released */ }
         }
@@ -530,7 +541,12 @@ window.__ModuleLoader__.load({
         const id = sessionId
         let target
         try {
-          target = await resolveTarget(id, index)
+          target = await Promise.race([
+            resolveTarget(id, index),
+            new Promise((_resolve, reject) => {
+              setTimeout(() => reject(new Error(t('timeout'))), 8000)
+            }),
+          ])
         } catch (failure) {
           diag('resolveTarget failed', String(failure?.message ?? failure))
           actionEl.title = String(failure?.message ?? failure)
@@ -633,7 +649,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.6.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.7.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
