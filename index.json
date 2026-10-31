@@ -740,7 +740,7 @@
       },
       "description": {
         "en": "Flattens reasoning effort into a row of gears left of the send button; also owns the channel and model pickers, each showing only its current value to save width.",
-        "zh": "把推理强度平铺成发送按钮左侧的一排档位，点一下直接挂档；同时接管渠道与模型选择，按钮只显示当前值以省宽度。"
+        "zh": "把推理强度平铺成发送按钮左侧的一排档位，点一下直接挂档；同时接管渠道与模型选择。空间不够时自动降级，不会裁切。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -755,6 +755,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "1.4.0",
+          "publishTimestamp": 1793434469,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "c74ffaa1",
+            "path": "composer-effort-chips"
+          }
+        },
         {
           "version": "1.3.10",
           "publishTimestamp": 1793428952,
