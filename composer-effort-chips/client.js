@@ -232,7 +232,17 @@ window.__ModuleLoader__.load({
     function measureMode(el, mode) {
       if (!el) return;
       const choices = el.querySelector('[data-composer-effort-choices]');
-      const width = choices ? choices.scrollWidth : el.scrollWidth;
+      if (!choices) return;
+      // scrollWidth 可能被父级 overflow 裁成可视宽度，所以再按子项宽度
+      // 累加一次取较大值——胶囊是 flex:none，累加结果就是真实自然宽度。
+      let sum = 0;
+      for (const child of choices.children) {
+        const rect = child.getBoundingClientRect();
+        sum += rect.width;
+      }
+      const gap = children => Math.max(0, children - 1) * 4;
+      const summed = sum > 0 ? sum + gap(choices.children.length) : 0;
+      const width = Math.max(choices.scrollWidth, summed);
       if (Number.isFinite(width) && width > 0) widthByMode[mode] = width;
     }
 
@@ -342,6 +352,64 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 找出真正决定「这一排能占多宽」的容器。
+     *
+     * 官方结构（ui-conversation InputBar）：
+     *   div.toolbar  >  div.row(width:100%)  >  ...  >  div.standardControls
+     *                                                   └─ 我们的两个注册项
+     * standardControls 是 display:flex; min-width:0，宽度由内容撑开，
+     * 它的 clientWidth 永远等于内容宽——用它判断会永远判「放得下」。
+     * 真正被约束的是上面的 row（width:100%）。
+     *
+     * 判据：上溯到第一个「宽度由外部决定」的祖先——它的 clientWidth
+     * 不会随内容变化，而且能容纳我们这一排。最多上溯 8 层。
+     */
+    function findMeasuredHost(el) {
+      const own = el.getBoundingClientRect().width || 0;
+      let node = el.parentElement;
+      let best = node || el;
+      let hops = 0;
+      while (node && hops < 8) {
+        hops += 1;
+        const width = node.clientWidth;
+        if (width > 0) {
+          const style = typeof getComputedStyle === 'function' ? getComputedStyle(node) : null;
+          // 百分比宽 / 固定宽 = 由外部约束；被内容撑开的元素这两个都不是。
+          const constrained = style !== null && (/^\d+(\.\d+)?px$/.test(style.width) || style.width === '100%');
+          if (constrained && width >= own) {
+            best = node;
+            // 再上溯一层通常是带左右内边距的行，可用宽度以它为准。
+            const up = node.parentElement;
+            if (up && up.clientWidth > 0 && up.clientWidth >= width) return up;
+            return node;
+          }
+        }
+        node = node.parentElement;
+      }
+      return best;
+    }
+
+    /**
+     * 算出「这一排还能占多宽」。
+     *
+     * 行宽减去两端的固定占位：
+     *   - 左侧：从行起点到我们这排左边界的距离（+、权限、计划等）
+     *   - 右侧：从我们这排右边界到行末尾的距离（发送按钮等）
+     * 这两个距离不含我们自己，所以 window = host.clientWidth - left - right
+     * 就是纯粹留给我们的空间。再稍微扣一点避免贴边。
+     */
+    function availableWidth(el, host) {
+      if (!host || host.clientWidth <= 0) return 0;
+      const hostRect = host.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      if (hostRect.width <= 0) return host.clientWidth;
+      const left = Math.max(0, elRect.left - hostRect.left);
+      const right = Math.max(0, hostRect.right - elRect.right);
+      const padding = 8;
+      return Math.max(0, host.clientWidth - left - right - padding);
+    }
+
+    /**
      * 观察宿主容器宽度，产出当前应处的降级档。
      * @param rootRef 这一排的 DOM 节点
      */
@@ -349,6 +417,13 @@ window.__ModuleLoader__.load({
       const mode = useFitStore();
       const modeRef = React.useRef(mode);
       modeRef.current = mode;
+
+      // 诊断：把最近一次测量结果暴露到 window，便于在控制台核对。
+      React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        window.__effortChipsDebug = window.__effortChipsDebug || { events: [] };
+        return undefined;
+      }, []);
 
       // 档位数量/文字变了（换模型）：各档宽度全部失效，重新测。
       React.useEffect(() => {
@@ -359,32 +434,72 @@ window.__ModuleLoader__.load({
         if (typeof ResizeObserver === 'undefined') return undefined;
         const el = rootRef.current;
         if (!el) return undefined;
-        // 真正决定可用宽度的是整排的父容器，拿不到时退回自身。
-        const host = el.parentElement || el;
+        // 直接父容器（官方 standardControls）是 display:flex; min-width:0，
+        // 宽度由内容撑开——它的 clientWidth 永远等于内容宽，用它判断会永远
+        // 判「放得下」。所以要往上找到真正被约束的那一层（输入框行 width:100%）。
+        const host = findMeasuredHost(el);
         let frame = 0;
         const evaluate = () => {
           frame = 0;
-          const available = host.clientWidth;
+          // 可用宽度不是整行宽度：左边「+ / 权限 / 计划」、右边发送按钮
+          // 等都在同一行里占位。用「我们这排的右边界 - 左边界能延伸到的位置」
+          // 来算，再留出发送按钮等固定占位。
+          const available = availableWidth(el, host);
           // 先记下当前档的实测宽度，再用「各档宽度 vs 可用宽度」决定去哪档。
           measureMode(el, modeRef.current);
-          const next = nextMode(modeRef.current, widthsSnapshot(), available);
+          const widths = widthsSnapshot();
+          const next = nextMode(modeRef.current, widths, available);
+          if (typeof window !== 'undefined' && window.__effortChipsDebug) {
+            const dbg = window.__effortChipsDebug;
+            dbg.events.push({
+              t: Date.now(),
+              mode: modeRef.current,
+              available: Math.round(available),
+              widths: { full: Math.round(widths[MODE_FULL]), compact: Math.round(widths[MODE_COMPACT]), tight: Math.round(widths[MODE_TIGHT]) },
+              host: host ? host.className : null,
+              hostWidth: host ? host.clientWidth : 0,
+              next,
+            });
+            if (dbg.events.length > 40) dbg.events.shift();
+          }
           if (next !== modeRef.current) {
             fitStore.set(next);
             return;
           }
-
+          // 还没量到任何宽度（DOM 尚未布局完，或内容还没渲染）→ 稍后重试，
+          // 否则会永远停在初始档位。
+          if (!widths[MODE_FULL] || !available) {
+            if (typeof window !== 'undefined') {
+              window.setTimeout(schedule, 120);
+            }
+          }
         };
         const schedule = () => {
           if (frame === 0) frame = requestAnimationFrame(evaluate);
         };
         const observer = new ResizeObserver(schedule);
+        // 观察 host 自身和它上面两层：右栏挤压时变的是更外层的列容器，
+        // host 的 clientWidth 会跟着变但自身不一定收到 resize 通知。
         observer.observe(host);
+        let probe = host.parentElement;
+        for (let i = 0; i < 2 && probe; i += 1) {
+          observer.observe(probe);
+          probe = probe.parentElement;
+        }
         observer.observe(el);
         // 档位区在胶囊↔下拉之间切换时会换成新节点，每次渲染重新挂观察。
         const choices = el.querySelector('[data-composer-effort-choices]');
         if (choices) observer.observe(choices);
+        // 兜底：右栏挤压 / 侧边栏展开时变化的是外层容器，host 本身不一定
+        // 收到通知（它的宽度由父级决定）。所以再看 window 的 resize。
+        const onResize = () => {
+          schedule();
+          // 尺寸变了，各档实测宽度可能已过时，下一次 evaluate 会重新量当前档。
+        };
+        if (typeof window !== 'undefined') window.addEventListener('resize', onResize);
         schedule();
         return () => {
+          if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
           observer.disconnect();
           if (frame !== 0) cancelAnimationFrame(frame);
         };
