@@ -25,33 +25,8 @@ window.__ModuleLoader__.load({
     // composer instance in the page.
     const lastSelectionByProvider = new Map();
 
-    // 档位胶囊：常态形态。当前档高亮。
-    const chipBase = {
-      appearance: 'none',
-      border: 'none',
-      borderRadius: 999,
-      padding: '2px 10px',
-      fontSize: 12,
-      lineHeight: '18px',
-      cursor: 'pointer',
-      whiteSpace: 'nowrap',
-      flex: 'none',
-      background: 'transparent',
-      color: 'var(--dsw-alias-label-tertiary, #999)',
-    };
-    const chipActive = {
-      ...chipBase,
-      background: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.25))',
-      color: 'var(--dsw-alias-label-primary, inherit)',
-      fontWeight: 600,
-    };
-
     // 不加 overflow 裁剪：下拉菜单是 position:absolute 向上弹出的，
     // overflow:hidden/auto 会把菜单切掉，表现为「按钮点不开」。
-    //
-    // 关键：maxWidth:100% + minWidth:0 + flex 可收缩，让这一排老老实实待在
-    // 父级给的宽度里。溢出量由浏览器自己算（scrollWidth vs clientWidth），
-    // 不需要我们猜祖先链条——之前正是猜错了祖先（它宽度不随窗口变化）。
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
@@ -59,232 +34,7 @@ window.__ModuleLoader__.load({
       minWidth: 0,
       maxWidth: '100%',
       flex: '0 1 auto',
-      width: 'auto',
     };
-
-    // ------------------------------------------------------------------
-    // 档位该展开还是收起
-    //
-    // 常态展开（一排胶囊）；宽度不够才收成下拉。只比较两个实测值：
-    //   需要多宽 = 胶囊自然宽度之和（含间距）
-    //   可用多宽 = 父容器宽度减去兄弟节点（渠道/模型）占用的部分
-    // 滞回：超出 4px 才收，富余 16px 才展，临界点不会来回跳。
-    // ------------------------------------------------------------------
-    const COLLAPSE_SLACK = 4;
-    const EXPAND_SLACK = 16;
-
-    // 「展开成一排」需要多宽：展开时实测并记住，收起后沿用上次实测值。
-    // 收起时那个锚点就没了，绝不能因此返回 0——否则判定会以为「量不到」
-    // 而永远停住，既收不回去也展不回来。
-    const chipWidthCache = { value: 0 };
-
-    function measureChipWidths(el) {
-      if (!el) return chipWidthCache.value;
-      const row = el.querySelector('[data-composer-effort-chips-row]');
-      if (!row) return chipWidthCache.value;
-      // 关键：胶囊被父级 flex 压缩时，getBoundingClientRect 返回的是压缩后的
-      // 宽度，会让我们以为「展开只占这么点」，于是永远不收起。
-      // scrollWidth 是不受压缩影响的自然内容宽度，用它。
-      let total = 0;
-      let count = 0;
-      for (const child of row.children) {
-        const width = child.scrollWidth || 0;
-        if (width > 0) {
-          total += width;
-          count += 1;
-        }
-      }
-      if (count > 0) {
-        // 胶囊自身有 padding 和 border，scrollWidth 已包含；再加间距。
-        chipWidthCache.value = total + Math.max(0, count - 1) * 4;
-        return chipWidthCache.value;
-      }
-      // 兜底：整排的 scrollWidth（同样不受压缩影响）。
-      const fallback = row.scrollWidth || el.scrollWidth || 0;
-      if (fallback > 0) chipWidthCache.value = fallback;
-      return chipWidthCache.value;
-    }
-
-    // 这一排被挤压得多厉害 = 自然宽度 − 可见宽度。
-    //
-    // 这是唯一不需要猜祖先的做法：浏览器自己算好了溢出，我们直接读。
-    // 之前几次失败全是因为去猜「哪一层才是决定宽度的那层」——猜中的那层
-    // 宽度并不随窗口变化（probe 里 hostW 恒为 584）。
-    //
-    // 展开时：胶囊不压缩（flex:none），溢出量 > 0 就说明放不下 → 收起。
-    // 收起时：下拉本身很窄，不会溢出；此时用「胶囊需要多宽 vs 整行多宽」
-    // 判断能不能展回去。
-    // 这一排实际还能占多宽。
-    //
-    // probe 多次证明：向上爬祖先找不到可靠的「输入框边界」——爬到的层要么
-    // 宽度是 0、要么是整窗口（2560）、要么和我们不在同一坐标系（boxW=585
-    // 而 selfLeft=1673）。
-    //
-    // 改用最朴素的几何事实：整行是 flex 布局，同一行里的元素**垂直居中对齐**，
-    // 所以「和我们 top/bottom 有重叠、且在我们左边」的近邻，就是占位的兄弟。
-    // 再从视口里找输入框卡片：宽度 < 视口、且包含我们、且分数最高（最内层）的那个。
-    function findComposerBox(el) {
-      if (!el) return null;
-      const viewport = (window.innerWidth || 0) || 1920;
-      const elRect = el.getBoundingClientRect();
-      let best = null;
-      let node = el.parentElement;
-      let hops = 0;
-      while (node && hops < 12) {
-        hops += 1;
-        const rect = node.getBoundingClientRect();
-        const containsUs = rect.left <= elRect.left + 1 && rect.right >= elRect.right - 1;
-        const isCard = rect.width > 200 && rect.width < viewport * 0.95;
-        if (containsUs && isCard) best = rect; // 越往下越内层，最后赋值的即最内层
-        node = node.parentElement;
-      }
-      return best;
-    }
-
-    /** 这一排现在还能占多少宽度（与自身形态无关）。 */
-    function roomForRow(el) {
-      if (!el) return 0;
-      const box = findComposerBox(el);
-      if (!box) return 0;
-      const elRect = el.getBoundingClientRect();
-
-      // 同一行里排在我们左边、且垂直居中对齐的那些元素（渠道、模型、+、权限…）
-      // 取它们里最靠右的右边缘，作为我们「能用的起点」。这个量与自身形态无关。
-      let leftLimit = box.left;
-      let node = el;
-      // 先升到和兄弟同级的那一层
-      while (node && node.parentElement && node.parentElement !== node.ownerDocument.body) {
-        const parent = node.parentElement;
-        const siblings = Array.from(parent.children).filter((child) => child !== node);
-        const aligned = siblings.filter((child) => {
-          const rect = child.getBoundingClientRect();
-          if (rect.width <= 0) return false;
-          const overlap = Math.min(rect.bottom, elRect.bottom) - Math.max(rect.top, elRect.top);
-          return overlap > Math.min(rect.height, elRect.height) * 0.5;
-        });
-        // 找到有同排兄弟的那一层就停
-        if (aligned.length > 0) {
-          for (const child of aligned) {
-            const rect = child.getBoundingClientRect();
-            if (rect.right <= elRect.left + 1 && rect.right > leftLimit) leftLimit = rect.right;
-          }
-          break;
-        }
-        node = parent;
-        if (node === el) break;
-      }
-
-      const room = box.right - leftLimit - 8;
-      return room > 0 ? room : 0;
-    }
-
-
-    /** 观察这一排，决定档位是否收成下拉。 */
-    function useCollapsed(ref, deps) {
-      const [collapsed, setCollapsed] = React.useState(false);
-      const collapsedRef = React.useRef(collapsed);
-      collapsedRef.current = collapsed;
-
-      React.useEffect(() => {
-        if (typeof ResizeObserver === 'undefined') return undefined;
-        const el = ref.current;
-        if (!el) return undefined;
-        let frame = 0;
-        const evaluate = () => {
-          frame = 0;
-          const need = measureChipWidths(el);
-          const room = roomForRow(el);
-          probeRecord(el, need, { overflow: 0, visible: Math.round(room) }, collapsedRef.current);
-          if (!need || !room) return;
-
-          if (!collapsedRef.current) {
-            // 展开态：胶囊需要的地方比能给的还大 → 收起。
-            if (need - room > COLLAPSE_SLACK) setCollapsed(true);
-            return;
-          }
-          // 收起态：空间富余够了就展回去。
-          if (room - need > EXPAND_SLACK) setCollapsed(false);
-        };
-        const schedule = () => {
-          if (frame === 0) frame = requestAnimationFrame(evaluate);
-        };
-        const observer = new ResizeObserver(schedule);
-        // 观察自己就够了：溢出量由自身 scrollWidth/clientWidth 决定。
-        observer.observe(el);
-        // 再跟着几个外层容器走：它们变宽窄时我们不一定触发 resize 通知。
-        let node = el.parentElement;
-        for (let i = 0; i < 4 && node; i += 1) {
-          observer.observe(node);
-          node = node.parentElement;
-        }
-        if (typeof window !== 'undefined') window.addEventListener('resize', schedule);
-        // 兜底轮询：形态互换后尺寸可能不再变化，观察器不会再触发。
-        const timer = setInterval(evaluate, 700);
-        schedule();
-        return () => {
-          observer.disconnect();
-          clearInterval(timer);
-          if (frame !== 0) cancelAnimationFrame(frame);
-          if (typeof window !== 'undefined') window.removeEventListener('resize', schedule);
-        };
-      }, [ref, JSON.stringify(deps)]);
-
-      return collapsed;
-    }
-
-    // 诊断采样：把每次判定的实测数据攒起来，节流后 POST 给 Host 落盘。
-    // 用户环境是桌面客户端，没有控制台可以看——数据必须自己写到文件里。
-    const probeBuffer = [];
-    let probeTimer = 0;
-
-    function probeRecord(el, need, have, collapsed) {
-      if (typeof fetch !== 'function') return;
-      const parent = el ? el.parentElement : null;
-      let siblingInfo = [];
-      if (parent) {
-        for (const child of parent.children) {
-          if (child === el) continue;
-          const rect = child.getBoundingClientRect();
-          siblingInfo.push({
-            w: Math.round(rect.width),
-            tag: child.getAttribute('data-composer-channel-model-pickers') !== null
-              ? 'channel-model'
-              : (child.getAttribute('data-composer-effort-chips') !== null ? 'chips' : 'other'),
-          });
-        }
-      }
-      const row = el ? el.querySelector('[data-composer-effort-chips-row]') : null;
-      const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
-      const box = el ? findComposerBox(el) : null;
-      probeBuffer.push({
-        need: Math.round(need),
-        room: Math.round(have.visible || 0),
-        boxW: box ? Math.round(box.width) : 0,
-        boxLeft: box ? Math.round(box.left) : 0,
-        boxRight: box ? Math.round(box.right) : 0,
-        selfLeft: el ? Math.round(el.getBoundingClientRect().left) : 0,
-        selfRight: el ? Math.round(el.getBoundingClientRect().right) : 0,
-        viewport: typeof window !== 'undefined' ? window.innerWidth : 0,
-        scrollW: el ? el.scrollWidth : 0,
-        collapsed,
-        parentW: parent ? Math.round(parent.getBoundingClientRect().width) : 0,
-        selfW: el ? Math.round(el.getBoundingClientRect().width) : 0,
-        siblings: siblingInfo,
-        chipSizes,
-      });
-      if (probeBuffer.length > 40) probeBuffer.shift();
-      if (probeTimer === 0) {
-        probeTimer = setTimeout(() => {
-          probeTimer = 0;
-          const frames = probeBuffer.splice(0);
-          fetch('/api/composer-effort-chips/probe', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ frames }),
-          }).catch(() => {});
-        }, 800);
-      }
-    }
 
     function groupLabel(group) {
       return group.name || group.label || group.title || group.id;
@@ -635,62 +385,26 @@ window.__ModuleLoader__.load({
           : chip.effort === effectiveEffort,
       ) || effortChips[0];
 
-      const isActive = (chip) => (chip.effort === undefined
-        ? effectiveEffort === undefined
-        : chip.effort === effectiveEffort);
-
-      const rootRef = React.useRef(null);
-      // 换模型导致档位集合变化时，重新判断一次要不要收起。
-      const collapsed = useCollapsed(rootRef, effortChips.map((chip) => chip.label));
-
-      // 常态：一排胶囊，点一下直接挂档。
-      const chipsRow = h(
-        'div',
-        {
-          key: 'efforts',
-          style: {
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            flex: 'none',
-            opacity: disabled ? 0.6 : 1,
-          },
-          role: 'group',
-          'aria-label': t('effortLabel'),
-          'data-composer-effort-chips-row': true,
-        },
-        effortChips.map((chip) => h(
-          'button',
-          {
-            key: chip.key,
-            type: 'button',
-            style: isActive(chip) ? chipActive : chipBase,
-            disabled,
-            onClick: () => pickEffort(chip.effort),
-          },
-          chip.label,
-        )),
-      );
-
-      // 降级：放不下时收成一个下拉。
-      const dropdown = h(Dropdown, {
-        key: 'effort-dropdown',
-        label: t('effortLabel'),
-        value: activeChip ? activeChip.label : '—',
-        disabled,
-        ariaLabel: t('effortLabel'),
-        options: effortChips.map((chip) => ({
-          key: chip.key,
-          label: chip.label,
-          active: isActive(chip),
-          onPick: () => pickEffort(chip.effort),
-        })),
-      });
-
+      // 档位收成一个下拉：按钮显示当前档位名，点开选择。
       return h(
         'div',
-        { style: rowStyle, 'data-composer-effort-chips': true, ref: rootRef },
-        effortChips.length > 0 && (collapsed ? dropdown : chipsRow),
+        { style: rowStyle, 'data-composer-effort-chips': true },
+        effortChips.length > 0 &&
+          h(Dropdown, {
+            key: 'effort-dropdown',
+            label: t('effortLabel'),
+            value: activeChip ? activeChip.label : '—',
+            disabled,
+            ariaLabel: t('effortLabel'),
+            options: effortChips.map((chip) => ({
+              key: chip.key,
+              label: chip.label,
+              active: chip.effort === undefined
+                ? effectiveEffort === undefined
+                : chip.effort === effectiveEffort,
+              onPick: () => pickEffort(chip.effort),
+            })),
+          }),
       );
     }
 
