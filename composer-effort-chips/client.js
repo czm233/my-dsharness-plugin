@@ -116,28 +116,29 @@ window.__ModuleLoader__.load({
     // 判断能不能展回去。
     // 这一排实际还能占多宽。
     //
-    // probe 反复证明：我们自己没有被任何容器约束（parentW=0、selfW 恒等于
-    // 内容宽 189），窗口变窄时不是被压小，而是原样待着、溢出到输入框外。
-    // 所以「溢出量」永远是 0，判定永远认为放得下。
+    // probe 多次证明：向上爬祖先找不到可靠的「输入框边界」——爬到的层要么
+    // 宽度是 0、要么是整窗口（2560）、要么和我们不在同一坐标系（boxW=585
+    // 而 selfLeft=1673）。
     //
-    // 换个问法：这一排右边缘离「输入框右边界」还有多远？
-    // 输入框右边界 = 包含我们的、最内层那个「有自己定位的卡片」的右边缘。
-    // 判据：容器宽度 < 视口的 90%（排除整个窗口包装层），且右边缘在我们右边。
+    // 改用最朴素的几何事实：整行是 flex 布局，同一行里的元素**垂直居中对齐**，
+    // 所以「和我们 top/bottom 有重叠、且在我们左边」的近邻，就是占位的兄弟。
+    // 再从视口里找输入框卡片：宽度 < 视口、且包含我们、且分数最高（最内层）的那个。
     function findComposerBox(el) {
       if (!el) return null;
       const viewport = (window.innerWidth || 0) || 1920;
       const elRect = el.getBoundingClientRect();
+      let best = null;
       let node = el.parentElement;
       let hops = 0;
-      while (node && hops < 10) {
+      while (node && hops < 12) {
         hops += 1;
         const rect = node.getBoundingClientRect();
-        const narrowerThanViewport = rect.width > 120 && rect.width < viewport * 0.9;
-        const containsUs = rect.right >= elRect.right - 1 && rect.left <= elRect.left + 1;
-        if (narrowerThanViewport && containsUs) return rect;
+        const containsUs = rect.left <= elRect.left + 1 && rect.right >= elRect.right - 1;
+        const isCard = rect.width > 200 && rect.width < viewport * 0.95;
+        if (containsUs && isCard) best = rect; // 越往下越内层，最后赋值的即最内层
         node = node.parentElement;
       }
-      return null;
+      return best;
     }
 
     /** 这一排现在还能占多少宽度（与自身形态无关）。 */
@@ -147,27 +148,33 @@ window.__ModuleLoader__.load({
       if (!box) return 0;
       const elRect = el.getBoundingClientRect();
 
-      // 行是 row-reverse：我们贴右侧，所以**右边缘稳定、左边缘随宽度变**。
-      // 因此不能从自己的左边缘算（收起时自己变窄，左边缘右移，会算出更多空间，
-      // 展回去后又变少 —— 来回振荡）。
-      //
-      // 稳定量是：卡片右边缘、卡片内的左侧控件右边缘、我们右侧的控件宽度。
-      const rightSide = Math.max(0, box.right - elRect.right);
-
-      // 找同一行里排在我们左边的那个控件（渠道/模型）的右边缘，作为可用起点。
+      // 同一行里排在我们左边、且垂直居中对齐的那些元素（渠道、模型、+、权限…）
+      // 取它们里最靠右的右边缘，作为我们「能用的起点」。这个量与自身形态无关。
       let leftLimit = box.left;
-      const parent = el.parentElement;
-      if (parent) {
-        for (const child of parent.children) {
-          if (child === el) continue;
+      let node = el;
+      // 先升到和兄弟同级的那一层
+      while (node && node.parentElement && node.parentElement !== node.ownerDocument.body) {
+        const parent = node.parentElement;
+        const siblings = Array.from(parent.children).filter((child) => child !== node);
+        const aligned = siblings.filter((child) => {
           const rect = child.getBoundingClientRect();
-          // 排在我们左边（右边缘 < 我们左边缘）的最大那个
-          if (rect.width > 0 && rect.right <= elRect.left + 1 && rect.right > leftLimit) {
-            leftLimit = rect.right;
+          if (rect.width <= 0) return false;
+          const overlap = Math.min(rect.bottom, elRect.bottom) - Math.max(rect.top, elRect.top);
+          return overlap > Math.min(rect.height, elRect.height) * 0.5;
+        });
+        // 找到有同排兄弟的那一层就停
+        if (aligned.length > 0) {
+          for (const child of aligned) {
+            const rect = child.getBoundingClientRect();
+            if (rect.right <= elRect.left + 1 && rect.right > leftLimit) leftLimit = rect.right;
           }
+          break;
         }
+        node = parent;
+        if (node === el) break;
       }
-      const room = box.right - rightSide - leftLimit - 8;
+
+      const room = box.right - leftLimit - 8;
       return room > 0 ? room : 0;
     }
 
@@ -253,6 +260,7 @@ window.__ModuleLoader__.load({
         need: Math.round(need),
         room: Math.round(have.visible || 0),
         boxW: box ? Math.round(box.width) : 0,
+        boxLeft: box ? Math.round(box.left) : 0,
         boxRight: box ? Math.round(box.right) : 0,
         selfLeft: el ? Math.round(el.getBoundingClientRect().left) : 0,
         selfRight: el ? Math.round(el.getBoundingClientRect().right) : 0,
