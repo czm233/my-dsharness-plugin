@@ -739,8 +739,8 @@
         "zh": "推理力度切换"
       },
       "description": {
-        "en": "Reasoning effort as a single dropdown left of the send button; also owns the channel and model pickers, each capped to a max width with ellipsis.",
-        "zh": "推理强度收成一个下拉，放在发送按钮左侧；同时接管渠道与模型两个选择器，各自有最大宽度，超出时省略显示。"
+        "en": "Reasoning effort as a row of clickable gears; also owns the channel and model pickers, each capped to a max width.",
+        "zh": "推理强度铺成一排可直接点的档位胶囊；同时接管渠道与模型选择器，各设最大宽度。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -755,6 +755,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "1.3.24",
+          "publishTimestamp": 1793451665,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "4dfc390",
+            "path": "composer-effort-chips"
+          }
+        },
         {
           "version": "1.3.13",
           "publishTimestamp": 1793441867,
