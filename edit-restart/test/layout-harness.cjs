@@ -241,12 +241,12 @@ async function main() {
 
   const layerRoot = roots[1].container
   const layer = layerRoot.children[0]
-check('编辑框以浮层形式盖在气泡原位置', layer !== undefined
+check('编辑框铺在气泡本体里（位置由气泡决定，不会飞）', layer !== undefined
     && layer.getAttribute('data-active') === 'true'
-    && layerRoot.parentElement === other.second.column
-    && layerRoot.style.position === 'absolute'
-    && layerRoot.style.width === '600px' && layerRoot.style.height === '44px')
-  check('气泡只做不可见（占位不动，操作行不位移）', other.second.bubble.style.visibility === 'hidden'
+    && layerRoot.parentElement === other.second.bubble
+    && layerRoot.style.position === 'absolute')
+  check('气泡保持布局不变（不改 display、不当占位以外的事）',
+    other.second.bubble.style.position === 'relative'
     && (other.second.bubble.style.display === '' || other.second.bubble.style.display === undefined))
   check('「修改」按钮仍在官方操作行里', actionEl.parentElement === other.second.actionsRow)
   const textarea = layer && layer.querySelector('textarea')

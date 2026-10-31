@@ -186,10 +186,9 @@ window.__ModuleLoader__.load({
     const CHECK = 'M3.5 8.5l3 3 6-6.5'
 
     const CSS = [
-      // 气泡列作为定位基准：编辑器绝对定位盖在气泡原位置，行内布局完全不动
-      `[${HOST_ATTR}] .${COLUMN_CLASS}{position:relative;}`,
-      `[${LAYER_ATTR}]{position:absolute;z-index:2;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
-  padding:8px 12px;border-radius:var(--dsw-radius-xl,14px);
+      // 编辑器铺满气泡本体（inset:0）：位置由气泡自己决定，不做任何坐标计算，也就不可能飞出去
+      `[${LAYER_ATTR}]{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
+  padding:8px 12px 6px;border-radius:inherit;overflow:hidden;
   background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
   border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
       `[${LAYER_ATTR}][data-error="true"]{position:static;background:transparent;border-color:transparent;padding:0;
@@ -207,7 +206,8 @@ window.__ModuleLoader__.load({
   border-radius:999px;padding:4px 12px;border:1px solid transparent;}`,
       `[${LAYER_ATTR}] .${P}-cancel{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));
   color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
-      `[${LAYER_ATTR}] .${P}-send{background:var(--dsw-alias-button-primary-fill,#4c8bf5);color:#fff;}`,
+      `[${LAYER_ATTR}] .${P}-send{background:var(--dsw-alias-button-primary-fill,#4c8bf5);
+  color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:500;}`,
       `[${LAYER_ATTR}] button:disabled{opacity:.5;cursor:default;}`,
       // 「修改」按钮：类名照抄官方复制按钮；拿不到时用下面这套兜底，长得和它一致
       `.${P}-action{appearance:none;-webkit-appearance:none;background:0 0;border:0;padding:6px;margin:0;
@@ -430,7 +430,7 @@ window.__ModuleLoader__.load({
       function closeEditor() {
         if (current === null) return
         if (current.bubble && current.bubble.isConnected !== false) {
-          current.bubble.style.visibility = current.bubbleVisibility ?? ''
+          current.bubble.style.position = current.bubblePosition ?? ''
         }
         if (current.error === true) {
           current = null
@@ -456,9 +456,6 @@ window.__ModuleLoader__.load({
         current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true, bubble }
         if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
         layerEl.style.position = 'static'
-        layerEl.style.left = ''
-        layerEl.style.top = ''
-        layerEl.style.height = ''
         layerEl.style.width = '100%'
         layerRoot.render(h(ErrorCard, { t, message, onClose: () => closeEditor() }))
       }
@@ -570,13 +567,20 @@ window.__ModuleLoader__.load({
         }
         diag('resolveTarget ok', { turnStartSeq: target.turnStartSeq })
         closeEditor()
-        current = { slot, index, bubble, bubbleVisibility: bubble ? bubble.style.visibility : '' }
-        if (bubble) {
-          // 只改可见性：气泡仍然占位，操作行（时间/复制/修改）一个像素都不移动。
-          bubble.style.visibility = 'hidden'
+        current = {
+          slot,
+          index,
+          bubble,
+          bubblePosition: bubble ? bubble.style.position : '',
         }
-        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
-        placeOver(layerEl, bubble, slot)
+        if (bubble) {
+          // 浮层直接铺在气泡本体里：位置完全由气泡自己的盒子决定（不隐藏、不位移、不计算坐标）。
+          bubble.style.position = 'relative'
+          if (layerEl.parentElement !== bubble) bubble.appendChild(layerEl)
+        } else if (layerEl.parentElement !== slot) {
+          slot.appendChild(layerEl)
+        }
+        layerEl.style.position = bubble ? 'absolute' : 'static'
         layerRoot.render(h(MessageLayer, {
           t,
           initial: target.initial,
@@ -584,24 +588,6 @@ window.__ModuleLoader__.load({
           onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
         paintMarker()
-      }
-
-      /** 把浮层精确盖在气泡的盒子上（相对气泡列定位）。 */
-      function placeOver(layer, bubble, row) {
-        layer.style.position = 'absolute'
-        if (!bubble || typeof bubble.getBoundingClientRect !== 'function') {
-          layer.style.left = '0px'
-          layer.style.top = '0px'
-          layer.style.width = '100%'
-          layer.style.height = 'auto'
-          return
-        }
-        const box = bubble.getBoundingClientRect()
-        const base = typeof row.getBoundingClientRect === 'function' ? row.getBoundingClientRect() : { left: 0, top: 0 }
-        layer.style.left = `${Math.round(box.left - base.left)}px`
-        layer.style.top = `${Math.round(box.top - base.top)}px`
-        layer.style.width = `${Math.round(box.width)}px`
-        layer.style.height = `${Math.round(Math.max(44, box.height))}px`
       }
 
       /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
@@ -689,7 +675,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.12.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.13.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
