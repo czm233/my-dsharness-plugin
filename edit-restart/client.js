@@ -305,6 +305,29 @@ window.__ModuleLoader__.load({
             busy ? t('sending') : t('send'))))
     }
 
+    // ---- 诊断：桌面端没有控制台，客户端把面包屑 POST 到 Host 落盘（~/.dsh/storages/edit-restart/client.log） ----
+    const diagBuffer = []
+    function diag(...parts) {
+      const line = parts.map((part) => {
+        if (typeof part === 'string') return part
+        try { return JSON.stringify(part) } catch (_circular) { return String(part) }
+      }).join(' ')
+      diagBuffer.push(line)
+      if (diagBuffer.length > 40) diagBuffer.splice(0, diagBuffer.length - 40)
+      try {
+        fetch('/api/edit-restart/rpc', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'log', lines: [line] }),
+        }).catch(() => {})
+      } catch (_noFetch) { /* 离线时不留痕 */ }
+    }
+    function describe(el) {
+      if (!el) return String(el)
+      const cls = String(el.getAttribute?.('class') || '')
+      return `${String(el.tagName || '').toLowerCase()}${cls ? '.' + cls.split(/\s+/).filter(Boolean).join('.') : ''}`
+    }
+
     function apply(ctx) {
       const t = ctx.locale.bind(NS)
 
@@ -397,7 +420,9 @@ window.__ModuleLoader__.load({
           let childId
           try {
             childId = await sessionsOf().fork({ sessionId: id, atSeq: turnStartSeq, increaseTitle: true })
+            diag('fork ok', { childId, turnStartSeq })
           } catch (failure) {
+            diag('fork failed', String(failure?.message ?? failure))
             throw new Error(t('forkFailed').replace('{message}', String(failure?.message ?? failure)))
           }
           editedAt.set(`${id}|${index}`, childId)
@@ -406,6 +431,7 @@ window.__ModuleLoader__.load({
             await withSession(childId, async (session) => {
               await session.prompt([{ type: 'text', text }], 'plain')
             })
+            diag('prompt ok', { childId })
           } catch (failure) {
             throw new Error(t('sendFailed').replace('{message}', String(failure?.message ?? failure)))
           }
@@ -422,10 +448,18 @@ window.__ModuleLoader__.load({
       }
 
       async function openEditor(slot, index) {
+        diag('openEditor', { slot: describe(slot), index, sessionId })
         if (sessionId === null || slot === null) return
         if (current !== null && current.slot === slot) return
         const id = sessionId
-        const target = await resolveTarget(id, index)
+        let target
+        try {
+          target = await resolveTarget(id, index)
+        } catch (failure) {
+          diag('resolveTarget failed', String(failure?.message ?? failure))
+          throw failure
+        }
+        diag('resolveTarget ok', { initial: target.initial.slice(0, 40), turnStartSeq: target.turnStartSeq })
         closeEditor()
         current = { slot, index }
         if (actionEl.parentElement !== slot) slot.appendChild(actionEl)
@@ -455,6 +489,7 @@ window.__ModuleLoader__.load({
         }
         contentHost.setAttribute(HOST_ATTR, '')
         host = contentHost
+        report(`scan session=${next} users=${items.length} actionParent=${describe(actionEl.parentElement)}`)
         items.forEach((item, index) => {
           const slot = slotOf(item)
           if (slot.hasAttribute(READY_ATTR)) return
@@ -477,6 +512,7 @@ window.__ModuleLoader__.load({
             t,
             onOpen: () => {
               const slot = actionEl.parentElement
+              diag('click', { slot: describe(slot), index: slot && slot.getAttribute(INDEX_ATTR) })
               if (slot === null) return
               openEditor(slot, Number(slot.getAttribute(INDEX_ATTR))).catch((error) => {
                 console.warn(LOG, 'open editor failed', error)
@@ -503,6 +539,13 @@ window.__ModuleLoader__.load({
         }
       }
 
+      let lastReport = ''
+      const report = (text) => {
+        if (text === lastReport) return
+        lastReport = text
+        diag(text)
+      }
+
       const schedule = () => {
         if (frame !== 0) return
         frame = window.requestAnimationFrame(() => {
@@ -513,6 +556,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
+      diag('boot 0.3.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
