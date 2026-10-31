@@ -241,11 +241,14 @@ async function main() {
 
   const layerRoot = roots[1].container
   const layer = layerRoot.children[0]
-  check('编辑框顶替气泡位置（气泡列里、紧挨气泡之前）', layer !== undefined
+check('编辑框以浮层形式盖在气泡原位置', layer !== undefined
     && layer.getAttribute('data-active') === 'true'
     && layerRoot.parentElement === other.second.column
-    && layerRoot.nextElementSibling === other.second.bubble)
-  check('编辑期间原气泡让位隐藏', other.second.bubble.style.display === 'none')
+    && layerRoot.style.position === 'absolute'
+    && layerRoot.style.width === '600px' && layerRoot.style.height === '44px')
+  check('气泡只做不可见（占位不动，操作行不位移）', other.second.bubble.style.visibility === 'hidden'
+    && (other.second.bubble.style.display === '' || other.second.bubble.style.display === undefined))
+  check('「修改」按钮仍在官方操作行里', actionEl.parentElement === other.second.actionsRow)
   const textarea = layer && layer.querySelector('textarea')
   check('编辑框回填的是第 2 条人发消息的正文', textarea !== undefined && textarea.value === '教我 C++',
     JSON.stringify(textarea && textarea.value))

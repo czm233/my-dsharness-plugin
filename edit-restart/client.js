@@ -186,14 +186,16 @@ window.__ModuleLoader__.load({
     const CHECK = 'M3.5 8.5l3 3 6-6.5'
 
     const CSS = [
-      // 编辑器：顶替气泡的位置（插在气泡前方、临时隐藏气泡），右对齐、同宽同圆角
-      `[${LAYER_ATTR}]{display:flex;flex-direction:column;gap:8px;box-sizing:border-box;
-  align-self:flex-end;padding:10px 12px;border-radius:var(--dsw-radius-xl,14px);
+      // 气泡列作为定位基准：编辑器绝对定位盖在气泡原位置，行内布局完全不动
+      `[${HOST_ATTR}] .${COLUMN_CLASS}{position:relative;}`,
+      `[${LAYER_ATTR}]{position:absolute;z-index:2;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
+  padding:8px 12px;border-radius:var(--dsw-radius-xl,14px);
   background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
   border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
-      `[${LAYER_ATTR}][data-error="true"]{background:transparent;border-color:transparent;padding:0;}`,
-      `[${LAYER_ATTR}] textarea{box-sizing:border-box;width:100%;min-height:56px;max-height:44vh;resize:vertical;
-  border:none;outline:none;background:transparent;color:inherit;font:inherit;
+      `[${LAYER_ATTR}][data-error="true"]{position:static;background:transparent;border-color:transparent;padding:0;
+  width:100% !important;height:auto !important;left:auto !important;top:auto !important;}`,
+      `[${LAYER_ATTR}] textarea{box-sizing:border-box;flex:1 1 auto;min-height:0;width:100%;resize:none;
+  border:none;outline:none;background:transparent;color:inherit;font:inherit;overflow:auto;
   font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));
   white-space:pre-wrap;padding:0;}`,
       `[${LAYER_ATTR}] .${P}-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;}`,
@@ -428,7 +430,7 @@ window.__ModuleLoader__.load({
       function closeEditor() {
         if (current === null) return
         if (current.bubble && current.bubble.isConnected !== false) {
-          current.bubble.style.display = current.bubbleDisplay ?? ''
+          current.bubble.style.visibility = current.bubbleVisibility ?? ''
         }
         if (current.error === true) {
           current = null
@@ -451,8 +453,12 @@ window.__ModuleLoader__.load({
         if (!slot) return
         const hit = hits.get(slot)
         const bubble = hit ? hit.bubble : null
-        current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true }
-        if (layerEl.parentElement !== slot) slot.insertBefore(layerEl, bubble ?? null)
+        current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true, bubble }
+        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
+        layerEl.style.position = 'static'
+        layerEl.style.left = ''
+        layerEl.style.top = ''
+        layerEl.style.height = ''
         layerEl.style.width = '100%'
         layerRoot.render(h(ErrorCard, { t, message, onClose: () => closeEditor() }))
       }
@@ -564,26 +570,38 @@ window.__ModuleLoader__.load({
         }
         diag('resolveTarget ok', { turnStartSeq: target.turnStartSeq })
         closeEditor()
-        current = { slot, index, bubble, bubbleDisplay: bubble ? bubble.style.display : '' }
-        // 编辑器顶替气泡：插在气泡前面，气泡临时让位。
+        current = { slot, index, bubble, bubbleVisibility: bubble ? bubble.style.visibility : '' }
         if (bubble) {
-          bubble.style.display = 'none'
-          if (layerEl.nextElementSibling !== bubble || layerEl.parentElement !== slot) {
-            slot.insertBefore(layerEl, bubble)
-          }
-        } else if (layerEl.parentElement !== slot) {
-          slot.appendChild(layerEl)
+          // 只改可见性：气泡仍然占位，操作行（时间/复制/修改）一个像素都不移动。
+          bubble.style.visibility = 'hidden'
         }
-        const width = bubble && bubble.getBoundingClientRect ? bubble.getBoundingClientRect().width : 0
-        layerEl.style.width = width > 0 ? `${Math.max(240, Math.round(width))}px` : '100%'
+        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
+        placeOver(layerEl, bubble, slot)
         layerRoot.render(h(MessageLayer, {
           t,
           initial: target.initial,
           onClose: () => closeEditor(),
           onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
-        if (layerEl.parentElement !== slot) slot.insertBefore(layerEl, bubble ?? null)
         paintMarker()
+      }
+
+      /** 把浮层精确盖在气泡的盒子上（相对气泡列定位）。 */
+      function placeOver(layer, bubble, row) {
+        layer.style.position = 'absolute'
+        if (!bubble || typeof bubble.getBoundingClientRect !== 'function') {
+          layer.style.left = '0px'
+          layer.style.top = '0px'
+          layer.style.width = '100%'
+          layer.style.height = 'auto'
+          return
+        }
+        const box = bubble.getBoundingClientRect()
+        const base = typeof row.getBoundingClientRect === 'function' ? row.getBoundingClientRect() : { left: 0, top: 0 }
+        layer.style.left = `${Math.round(box.left - base.left)}px`
+        layer.style.top = `${Math.round(box.top - base.top)}px`
+        layer.style.width = `${Math.round(box.width)}px`
+        layer.style.height = `${Math.round(Math.max(44, box.height))}px`
       }
 
       /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
@@ -671,7 +689,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.11.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.12.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

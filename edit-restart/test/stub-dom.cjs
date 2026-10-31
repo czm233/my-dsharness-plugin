@@ -17,7 +17,8 @@ class Node {
     this.title = ''
     this.className = ''
     this.id = ''
-    this.style = { display: '' }
+    this.style = { display: '', visibility: '', position: '', left: '', top: '', width: '', height: '' }
+    this.box = { left: 0, top: 0, width: 600, height: 44 }
     this.listeners = new Map()
     // 浏览器元素的 dataset 是实时视图：这里用 Proxy 让 dataset.xxx 等价于 data-xxx 属性。
     this.dataset = new Proxy({}, {
@@ -93,6 +94,7 @@ class Node {
     }
     return null
   }
+  getBoundingClientRect() { return { ...this.box } }
   addEventListener(type, handler) {
     if (!this.listeners.has(type)) this.listeners.set(type, new Set())
     this.listeners.get(type).add(handler)
