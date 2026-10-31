@@ -189,15 +189,17 @@ window.__ModuleLoader__.load({
       // 编辑器在流内展开（就是气泡被替换成输入区），高度随内容长
       `[${LAYER_ATTR}]{box-sizing:border-box;display:flex;flex-direction:column;gap:6px;
   align-self:flex-end;padding:10px 12px 8px;border-radius:var(--dsw-radius-xl,14px);
+  /* 和官方气泡同一套宽度公式：横向吃满可读宽度，而不是缩成一条竖条 */
+  width:min(calc(var(--dsh-chat-content-width,748px) * .702), 82%);max-width:100%;
   background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
   border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
       `[${LAYER_ATTR}][data-error="true"]{position:static;background:transparent;border-color:transparent;padding:0;
   width:100% !important;height:auto !important;left:auto !important;top:auto !important;}`,
-      `[${LAYER_ATTR}] textarea{box-sizing:border-box;display:block;width:100%;resize:none;overflow:hidden;
+      `[${LAYER_ATTR}] textarea{box-sizing:border-box;display:block;width:100%;min-height:44px;resize:none;overflow:hidden;
   border:none;outline:none;background:transparent;color:inherit;font:inherit;
   font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));
   white-space:pre-wrap;padding:0;}`,
-      `[${LAYER_ATTR}] .${P}-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;}`,
+      `[${LAYER_ATTR}] .${P}-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:0 0 auto;}`,
       `[${LAYER_ATTR}] .${P}-note{flex:1;min-width:0;font-size:12px;line-height:18px;
   color:var(--dsw-alias-state-error-primary,#f28b82);}`,
       `[${LAYER_ATTR}] .${P}-hint{flex:1;min-width:0;font-size:12px;line-height:18px;
@@ -575,11 +577,10 @@ window.__ModuleLoader__.load({
           && child.querySelector('button') === null) ?? null
         current = { slot, index, bubble: liveBubble, bubbleDisplay: liveBubble ? liveBubble.style.display : '' }
         if (liveBubble) {
-          // 先量宽度，再把气泡换成输入区：宽度一致，所以这一行（含时间/复制/修改）不会横向跳动。
-          const width = Math.round(liveBubble.getBoundingClientRect().width)
+          // 宽度交给 CSS（与气泡同一套公式），所以行内其它元素只受"同一行右对齐"影响，不会横向乱跑。
           liveBubble.style.display = 'none'
           slot.insertBefore(layerEl, liveBubble)
-          layerEl.style.width = width > 0 ? `${width}px` : ''
+          layerEl.style.width = ''
         } else {
           slot.appendChild(layerEl)
         }

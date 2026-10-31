@@ -245,7 +245,9 @@ check('编辑框在流内展开，占据气泡原来的列位置', layer !== und
     && layer.getAttribute('data-active') === 'true'
     && layerRoot.parentElement === other.second.column
     && layerRoot.style.position === 'static'
-    && layerRoot.style.width === '600px')
+    && layerRoot.style.width === '')
+  check('宽度交给 CSS（与气泡同一套公式，不再依赖测量值）',
+    /dsh-chat-content-width/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'client.js'), 'utf8')))
   check('编辑期间原气泡被输入区替换（display:none）', other.second.bubble.style.display === 'none')
   check('「修改」按钮位置不动（仍在操作行，没被编辑器里的按钮骗走）',
     actionEl.parentElement === other.second.actionsRow)
