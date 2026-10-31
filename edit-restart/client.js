@@ -451,6 +451,7 @@ window.__ModuleLoader__.load({
       /** 在当前落点显示一张失败卡，替换掉静默失败。 */
       function showError(slot, message) {
         if (!slot) return
+        if (current !== null && current.error !== true) return // 已有编辑器开着，别拿错误卡盖掉它
         const hit = hits.get(slot)
         const bubble = hit ? hit.bubble : null
         current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true, bubble }
@@ -547,24 +548,39 @@ window.__ModuleLoader__.load({
       /** row → 这条消息的官方零件（气泡本体、操作行、复制按钮类名），scan 时刷新。 */
       const hits = new Map()
 
+      /** 点击序号与在飞请求：晚到的结果不能覆盖更新的状态（否则会把已打开的编辑器盖成错误卡）。 */
+      let attemptSeq = 0
+      let pendingSlot = null
+
       async function openEditor(slot, index) {
         if (sessionId === null || slot === null) return
         if (current !== null && current.slot === slot) return
+        if (pendingSlot === slot) return // 同一位置已有请求在飞，不重复发起
         const id = sessionId
+        const attempt = ++attemptSeq
+        pendingSlot = slot
         const hit = hits.get(slot)
         const bubble = hit ? hit.bubble : null
+        let timer = null
         let target
         try {
           target = await Promise.race([
             resolveTarget(id, index),
             new Promise((_resolve, reject) => {
-              setTimeout(() => reject(new Error(t('timeout'))), 8000)
+              timer = setTimeout(() => reject(new Error(t('timeout'))), 20000)
             }),
           ])
         } catch (failure) {
           diag('resolveTarget failed', String(failure?.message ?? failure))
-          throw failure
+          // 已经被更晚的点击取代：这条错误没有意义，丢掉。
+          if (attempt === attemptSeq) showError(slot, String(failure?.message ?? failure))
+          return
+        } finally {
+          if (timer !== null) clearTimeout(timer)
+          if (pendingSlot === slot) pendingSlot = null
         }
+        // 解析期间用户又点了别处：放弃这次结果，避免覆盖新状态。
+        if (attempt !== attemptSeq) return
         diag('resolveTarget ok', { turnStartSeq: target.turnStartSeq })
         closeEditor()
         current = {
@@ -675,7 +691,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.13.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.14.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

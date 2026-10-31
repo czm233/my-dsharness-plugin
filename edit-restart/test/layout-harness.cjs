@@ -262,6 +262,22 @@ check('编辑框铺在气泡本体里（位置由气泡决定，不会飞）', l
     JSON.stringify(calls.prompt))
   check('切到分支会话', calls.opened[0] === 'sess-child', JSON.stringify(calls.opened))
 
+console.log('[4] 连续点击 / 晚到超时 不得覆盖已打开的编辑器')
+  calls.fork.length = 0
+  calls.prompt.length = 0
+  // 先关掉当前编辑器，再连点三次
+  const cancelBtn = layer.querySelector('button.dsh-edit-restart-cancel')
+  await cancelBtn.onClick()
+  const fire = (times) => {
+    for (let i = 0; i < times; i += 1) actionEl.fire('click', fakeEvent)
+  }
+  fire(3)
+  for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
+  const stillOpen = roots[1].container.children[0]
+  check('连点后编辑器仍然打开（没有被后来的错误覆盖）',
+    stillOpen !== undefined && stillOpen.getAttribute('data-active') === 'true')
+  check('连点不会重复发起解析（fork 仍为 0）', calls.fork.length === 0)
+
   if (typeof global.__cleanup === 'function') global.__cleanup()
   console.log('')
   if (failures.length > 0) {

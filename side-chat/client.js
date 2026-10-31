@@ -6,7 +6,16 @@
  * suffixes the name) and opens the branch in a new `forkchat` tab that
  * renders the shared Conversation factory bound to the child session — the
  * same mechanism the shipped subagent Sidebar chat uses. Closing the tab
- * releases only the view; the branch session stays in the left sidebar.
+ * archives that session; the tab's own branch identity lives on instead.
+ *
+ * A tab owns exactly one branch:
+ *   - `keepMounted: true` keeps the body (and the official Session view that
+ *     hosts it) mounted while another session is on screen, so switching
+ *     sessions never unwinds a live side chat.
+ *   - the tab → child-session mapping is persisted in localStorage, so a
+ *     remount (full reload, session view retirement) re-binds the same branch
+ *     instead of forking another one. Tab ids are minted per session, so the
+ *     key is (session id, tab id), never the tab id alone.
  *
  * Structure mirrors @deepseek-ai/dsh-client-ui-subagent's registerSidebarChat:
  *   - one tab type (`forkchat`, page kind, `multiple: true`)
@@ -57,27 +66,83 @@ window.__ModuleLoader__.load({
       'close.failed': 'Archive failed',
     }
 
-    // Module-level map: tab id -> branch record. The tab body writes it after
-    // the fork resolves; the live title chip reads it so every tab chip shows
-    // its own branch session name.
+    // One branch per tab, remembered across body remounts and page reloads.
+    // The key is (owning session id, tab id): the sidebar mints tab ids per
+    // session layout (`tab1`, `tab2`, …), so a tab id alone collides across
+    // sessions and would hand another session's branch to this tab.
+    const BRANCH_STORAGE = 'dsh.side-chat.branch.v1.'
     const branches = new Map()
     const branchListeners = new Set()
-    function setBranch(tabId, record) {
-      branches.set(tabId, record)
+
+    function tabKey(sessionId, tabId) {
+      return JSON.stringify([sessionId, tabId])
+    }
+
+    function readBranch(key) {
+      if (branches.has(key)) return branches.get(key)
+      try {
+        const stored = localStorage.getItem(BRANCH_STORAGE + key)
+        if (stored !== null && stored !== '') {
+          branches.set(key, stored)
+          return stored
+        }
+      } catch (_storageUnavailable) { /* keep the in-memory map */ }
+      return undefined
+    }
+
+    function rememberBranch(key, childId) {
+      branches.set(key, childId)
+      try { localStorage.setItem(BRANCH_STORAGE + key, childId) } catch (_storageUnavailable) { /* noop */ }
       branchListeners.forEach(fn => fn())
     }
-    function dropBranch(tabId) {
-      if (branches.delete(tabId)) branchListeners.forEach(fn => fn())
+
+    function forgetBranch(key) {
+      branches.delete(key)
+      try { localStorage.removeItem(BRANCH_STORAGE + key) } catch (_storageUnavailable) { /* noop */ }
+      branchListeners.forEach(fn => fn())
     }
-    function useBranch(tabId) {
-      const [record, setRecord] = React.useState(() => branches.get(tabId))
+
+    function useBranch(key) {
+      const [childId, setChildId] = React.useState(() => key === undefined ? undefined : readBranch(key))
       React.useEffect(() => {
-        const fn = () => setRecord(branches.get(tabId))
-        branchListeners.add(fn)
-        fn()
-        return () => branchListeners.delete(fn)
-      }, [tabId])
-      return record
+        if (key === undefined) return undefined
+        const sync = () => setChildId(readBranch(key))
+        branchListeners.add(sync)
+        sync()
+        return () => branchListeners.delete(sync)
+      }, [key])
+      return childId
+    }
+
+    // Session-catalog readers: a persisted branch is reused only while its
+    // session still exists, so a stale mapping cannot resurrect a dead tab.
+    function sessionsList() {
+      try { return clientCtx.sessions.list.getSnapshot() } catch (_serviceUnavailable) { return undefined }
+    }
+
+    function sessionKnown(sessionId) {
+      const list = sessionsList()
+      return list !== undefined && list.byId[sessionId] !== undefined
+    }
+
+    function waitForSessionList() {
+      return new Promise((resolve) => {
+        let unsubscribe = () => {}
+        const check = () => {
+          const list = sessionsList()
+          if (list !== undefined && list.phase === 'ready') {
+            unsubscribe()
+            resolve()
+          }
+        }
+        try {
+          unsubscribe = clientCtx.sessions.list.subscribe(check)
+        } catch (_serviceUnavailable) {
+          resolve()
+          return
+        }
+        check()
+      })
     }
 
     // Close confirmation. The Sidebar's close handler is synchronous and a
@@ -88,19 +153,20 @@ window.__ModuleLoader__.load({
     const closeListeners = new Set()
     const acceptedCloses = new Set()
     const archivedBranches = new Set()
-    function setCloseGate(tabId, value) {
-      if (value === undefined) closeGates.delete(tabId)
-      else closeGates.set(tabId, value)
+    function setCloseGate(key, value) {
+      if (value === undefined) closeGates.delete(key)
+      else closeGates.set(key, value)
       closeListeners.forEach(fn => fn())
     }
-    function useCloseGate(tabId) {
-      const [state, setState] = React.useState(() => closeGates.get(tabId))
+    function useCloseGate(key) {
+      const [state, setState] = React.useState(() => key === undefined ? undefined : closeGates.get(key))
       React.useEffect(() => {
-        const fn = () => setState(closeGates.get(tabId))
+        if (key === undefined) return undefined
+        const fn = () => setState(closeGates.get(key))
         closeListeners.add(fn)
         fn()
         return () => closeListeners.delete(fn)
-      }, [tabId])
+      }, [key])
       return state
     }
 
@@ -118,23 +184,25 @@ window.__ModuleLoader__.load({
      * either lets the close through (`archive`) or blocks it for the dialog
      * (`ask`), which re-issues the close through ctx.sidebarRight.close().
      */
-    function handleCloseRequest(_sessionId, tab) {
-      if (acceptedCloses.delete(tab.id)) return
-      const branch = branches.get(tab.id)
-      if (branch === undefined || branch.childId === undefined) return
+    function handleCloseRequest(sessionId, tab) {
+      const key = tabKey(sessionId, tab.id)
+      if (acceptedCloses.delete(key)) return
+      const childId = readBranch(key)
+      if (childId === undefined) return
       if (CLOSE_MODE === 'ask') {
-        setCloseGate(tab.id, 'confirming')
+        setCloseGate(key, 'confirming')
         throw new Error('side-chat: close awaits confirmation')
       }
-      archiveBranch(tab.id, branch.childId)
+      archiveBranch(key, childId)
     }
 
     /** Archive a branch session when it still exists; failures stay silent. */
-    function archiveBranch(tabId, childId) {
-      if (archivedBranches.has(tabId)) return
-      archivedBranches.add(tabId)
+    function archiveBranch(key, childId) {
+      if (archivedBranches.has(key)) return
+      archivedBranches.add(key)
+      forgetBranch(key)
       clientCtx.uiWorkspace.archiveSession(childId).catch(() => {
-        archivedBranches.delete(tabId)
+        archivedBranches.delete(key)
       })
     }
 
@@ -173,54 +241,73 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Tab body: forks the session on screen once, binds the branch reference
-     * and hosts the conversation slot. Unmount (tab close, session switch)
-     * releases only the view reference; the branch session itself survives.
+     * Tab body: binds the tab's branch (reusing the persisted child, or
+     * forking the session on screen on first open) and hosts the conversation
+     * slot. `keepMounted` keeps this body alive while its session is off
+     * screen; unmount only happens on tab close or a full reload, so the
+     * branch mapping is never discarded here — the replacement mount resolves
+     * the very same child instead of forking again.
      */
     function ForkChatTab(props) {
       const { tab } = props.useTabInfo()
       const parent = props.useSession(value => value)
-      const branch = useBranch(tab.id)
-      const gate = useCloseGate(tab.id)
+      const parentId = parent && (parent.sessionId || parent.id)
+      const key = parentId === undefined ? undefined : tabKey(parentId, tab.id)
+      const gate = useCloseGate(key)
+      const [bound, setBound] = React.useState(null)
+      const [failure, setFailure] = React.useState(null)
       const t = translator
 
       React.useEffect(() => {
-        if (branch) return undefined
-        const parentId = parent && (parent.sessionId || parent.id)
-        if (!parentId) return undefined
-        let released = false
+        if (key === undefined || parentId === undefined) return undefined
+        let cancelled = false
         let reference = null
         ;(async () => {
           try {
-            const childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
-            if (released) return
+            let childId = readBranch(key)
+            if (childId !== undefined && !sessionKnown(childId)) {
+              await waitForSessionList()
+              if (cancelled) return
+              if (!sessionKnown(childId)) childId = undefined
+            }
+            if (childId === undefined) {
+              childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
+              if (cancelled) return
+              rememberBranch(key, childId)
+            }
             reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
-            setBranch(tab.id, { childId, reference })
+            if (cancelled) {
+              reference.release()
+              reference = null
+              return
+            }
+            setBound({ key, childId, reference })
           } catch (error) {
-            if (!released) setBranch(tab.id, { error })
+            if (!cancelled) setFailure({ key, error })
           }
         })()
         return () => {
-          released = true
-          if (reference) {
+          cancelled = true
+          if (reference !== null) {
             try { reference.release() } catch (_alreadyReleased) { /* noop */ }
+            reference = null
           }
-          dropBranch(tab.id)
-          setCloseGate(tab.id, undefined)
         }
-        // Fork exactly once per tab occurrence.
+        // Resolve once per (session, tab); tab.signal is occurrence-scoped and
+        // would re-run the fork path if it were a dependency.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [tab.id])
+      }, [key, parentId])
 
-      if (branch && branch.error) {
-        return h('div', { style: styles.center }, `${t('fork.error')}: ${branch.error.message || branch.error}`)
+      if (failure !== null && failure.key === key) {
+        const error = failure.error
+        return h('div', { style: styles.center }, `${t('fork.error')}: ${(error && (error.message || error)) || ''}`)
       }
-      if (!branch || !branch.reference) {
+      if (bound === null || bound.key !== key) {
         return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
       }
       return h('div', { style: styles.body },
-        h(props.SessionProvider, { session: branch.reference }, props.renderSlot(CONV_SLOT, { sessionId: branch.childId })),
-        gate === 'confirming' ? h(CloseConfirm, { tabId: tab.id, childId: branch.childId }) : null)
+        h(props.SessionProvider, { session: bound.reference }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId })),
+        gate === 'confirming' ? h(CloseConfirm, { gateKey: key, tabId: tab.id, childId: bound.childId }) : null)
     }
 
     /**
@@ -229,11 +316,11 @@ window.__ModuleLoader__.load({
      * controller after marking the tab as accepted.
      */
     function CloseConfirm(props) {
-      const { tabId, childId } = props
+      const { gateKey, tabId, childId } = props
       const t = translator
       const [busy, setBusy] = React.useState(false)
       const [failure, setFailure] = React.useState(null)
-      const cancel = React.useCallback(() => { setCloseGate(tabId, undefined) }, [tabId])
+      const cancel = React.useCallback(() => { setCloseGate(gateKey, undefined) }, [gateKey])
 
       React.useEffect(() => {
         const onKey = (event) => {
@@ -246,8 +333,8 @@ window.__ModuleLoader__.load({
       }, [cancel])
 
       const keep = () => {
-        acceptedCloses.add(tabId)
-        setCloseGate(tabId, undefined)
+        acceptedCloses.add(gateKey)
+        setCloseGate(gateKey, undefined)
         clientCtx.sidebarRight.close(tabId)
       }
 
@@ -257,11 +344,12 @@ window.__ModuleLoader__.load({
         setFailure(null)
         try {
           await clientCtx.uiWorkspace.archiveSession(childId)
-          acceptedCloses.add(tabId)
-          setCloseGate(tabId, undefined)
+          forgetBranch(gateKey)
+          acceptedCloses.add(gateKey)
+          setCloseGate(gateKey, undefined)
           clientCtx.sidebarRight.close(tabId)
         } catch (error) {
-          setFailure(`${t('close.failed')}: ${error && (error.message || error) || ''}`)
+          setFailure(`${t('close.failed')}: ${(error && (error.message || error)) || ''}`)
           setBusy(false)
         }
       }
@@ -290,12 +378,11 @@ window.__ModuleLoader__.load({
     /** Live tab chip: the branch session's display name. */
     function BranchTitle(props) {
       const { tab } = props.useTabInfo()
-      const branch = useBranch(tab.id)
+      const parent = props.useSession(value => value)
+      const parentId = parent && (parent.sessionId || parent.id)
+      const childId = useBranch(parentId === undefined ? undefined : tabKey(parentId, tab.id))
       const t = translator
-      let label = t('tab.title')
-      if (branch && branch.childId) {
-        label = sessionDisplayName(branch.childId)
-      }
+      const label = childId === undefined ? t('tab.title') : sessionDisplayName(childId)
       return h('span', { style: styles.title }, label)
     }
 
@@ -412,6 +499,9 @@ window.__ModuleLoader__.load({
             id: TAB_ID,
             kind: KIND,
             multiple: true,
+            // Hold the body (and the Session view hosting it) while its session
+            // is off screen: switching sessions must not unwind a live branch.
+            keepMounted: true,
             title: () => t('tab.title'),
             guide: [{
               id: 'fork-chat',
