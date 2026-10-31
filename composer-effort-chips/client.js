@@ -141,6 +141,7 @@ window.__ModuleLoader__.load({
           frame = 0;
           const need = measureChipWidths(el);
           const have = availableForRow(el);
+          probeRecord(el, need, have, collapsedRef.current);
           if (!need || !have) return;
           if (!collapsedRef.current && need - have > COLLAPSE_SLACK) setCollapsed(true);
           else if (collapsedRef.current && have - need > EXPAND_SLACK) setCollapsed(false);
@@ -166,6 +167,52 @@ window.__ModuleLoader__.load({
       }, [ref, JSON.stringify(deps)]);
 
       return collapsed;
+    }
+
+    // 诊断采样：把每次判定的实测数据攒起来，节流后 POST 给 Host 落盘。
+    // 用户环境是桌面客户端，没有控制台可以看——数据必须自己写到文件里。
+    const probeBuffer = [];
+    let probeTimer = 0;
+
+    function probeRecord(el, need, have, collapsed) {
+      if (typeof fetch !== 'function') return;
+      const parent = el ? el.parentElement : null;
+      let siblingInfo = [];
+      if (parent) {
+        for (const child of parent.children) {
+          if (child === el) continue;
+          const rect = child.getBoundingClientRect();
+          siblingInfo.push({
+            w: Math.round(rect.width),
+            tag: child.getAttribute('data-composer-channel-model-pickers') !== null
+              ? 'channel-model'
+              : (child.getAttribute('data-composer-effort-chips') !== null ? 'chips' : 'other'),
+          });
+        }
+      }
+      const row = el ? el.querySelector('[data-composer-effort-chips-row]') : null;
+      const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
+      probeBuffer.push({
+        need: Math.round(need),
+        have: Math.round(have),
+        collapsed,
+        parentW: parent ? Math.round(parent.getBoundingClientRect().width) : 0,
+        selfW: el ? Math.round(el.getBoundingClientRect().width) : 0,
+        siblings: siblingInfo,
+        chipSizes,
+      });
+      if (probeBuffer.length > 40) probeBuffer.shift();
+      if (probeTimer === 0) {
+        probeTimer = setTimeout(() => {
+          probeTimer = 0;
+          const frames = probeBuffer.splice(0);
+          fetch('/api/composer-effort-chips/probe', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ frames }),
+          }).catch(() => {});
+        }, 800);
+      }
     }
 
     function groupLabel(group) {
