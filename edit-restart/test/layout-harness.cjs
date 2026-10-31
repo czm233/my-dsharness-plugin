@@ -142,8 +142,21 @@ const fakeSession = {
   loadThrough: async () => {},
   prompt: async (content, mode) => { calls.prompt.push({ content, mode }) },
 }
+// 复刻官方 client service 形状：using 的回调参数是 reference（不是 Session），
+// 真正的 Session 只能通过 scope(id) + sessionOf(ctx) 拿到。
+const scopeObjects = new Map()
+for (const id of ['sess-1', 'sess-2', 'sess-child']) scopeObjects.set(id, { id })
 const sessions = {
-  using: async (id, options, operation) => operation(fakeSession),
+  using: async (id, options, operation) => operation({ ready: Promise.resolve() }),
+  scope: (id) => {
+    const scope = scopeObjects.get(id)
+    if (!scope) return undefined
+    Object.setPrototypeOf(scope, fakeSession)
+    scope.getSnapshot = () => ({ sessionId: id, running: false, hasMore: false })
+    return scope
+  },
+  sessionOf: (ctx) => (ctx && typeof ctx.getSnapshot === 'function' ? ctx : undefined),
+  retain: () => ({ ready: Promise.resolve(), release() {} }),
   fork: async (request) => { calls.fork.push(request); return 'sess-child' },
 }
 const ctx = {

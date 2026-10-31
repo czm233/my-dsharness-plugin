@@ -389,10 +389,46 @@ window.__ModuleLoader__.load({
 
       const sessionsOf = () => {
         const service = typeof ctx.get === 'function' ? ctx.get('sessions') : undefined
-        if (!service || typeof service.using !== 'function') throw new Error('session service is unavailable')
+        if (!service || typeof service.retain !== 'function') throw new Error('session service is unavailable')
         return service
       }
-      const withSession = (id, operation) => sessionsOf().using(id, {}, operation)
+      /**
+       * 在某个会话的作用域里执行操作。
+       * 关键：client 端 `using(target, options, fn)` 回调拿到的**不是** Session 对象
+       * （官方实现是 retain 出来的 reference），所以这里用 scope(id) 借已保留的作用域上下文，
+       * 再用 sessionOf(ctx) 取这个作用域绑定的 Session。
+       */
+      const withSession = async (id, operation) => {
+        const service = sessionsOf()
+        const sessionIn = (scopedCtx) => {
+          if (!scopedCtx) return null
+          // 1) 官方正路：作用域上下文 → sessionOf → 业务 Session
+          try {
+            const fromScope = service.sessionOf.call(service, scopedCtx)
+            if (fromScope && typeof fromScope.getSnapshot === 'function') return fromScope
+          } catch (_noScope) { /* 下一个途径 */ }
+          // 2) 兜底：某些装配里查询会话对象就是 Session 本身
+          if (typeof scopedCtx.getSnapshot === 'function') return scopedCtx
+          return null
+        }
+        const scoped = typeof service.scope === 'function' ? service.scope(id) : undefined
+        const ready = scoped ? sessionIn(scoped) : null
+        if (ready) return operation(ready)
+        // 作用域还没建立：临时 retain 一次，等它就绪后执行，再释放。
+        const reference = service.retain(id, {})
+        try {
+          await reference.ready
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            const found = sessionIn(typeof service.scope === 'function' ? service.scope(id) : undefined)
+            if (found) return await operation(found)
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+          throw new Error('session binding is unavailable')
+        } finally {
+          try { reference.release() } catch (_released) { /* already released */ }
+        }
+      }
+
       const editedKey = () => `${sessionId}|${current?.index}`
 
       function paintMarker() {
@@ -416,7 +452,8 @@ window.__ModuleLoader__.load({
       /** 记录里第 index 条人发消息的正文与 fork 切点；会话在跑直接拒绝。 */
       async function resolveTarget(id, index) {
         return withSession(id, async (session) => {
-          if (session.getSnapshot()?.running === true) throw new Error(t('busy'))
+          const snapshot = typeof session.getSnapshot === 'function' ? session.getSnapshot() : null
+          if (snapshot && snapshot.running === true) throw new Error(t('busy'))
           let entries = entriesOf(session)
           let event = humanMessage(entries, index)
           if (!isHumanMessage(event) && typeof session.loadThrough === 'function') {
@@ -496,6 +533,7 @@ window.__ModuleLoader__.load({
           target = await resolveTarget(id, index)
         } catch (failure) {
           diag('resolveTarget failed', String(failure?.message ?? failure))
+          actionEl.title = String(failure?.message ?? failure)
           throw failure
         }
         diag('resolveTarget ok', { initial: target.initial.slice(0, 40), turnStartSeq: target.turnStartSeq })
@@ -595,7 +633,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.5.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.6.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
