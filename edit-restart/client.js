@@ -42,8 +42,6 @@ window.__ModuleLoader__.load({
       'title': '修改这条消息并重发',
       'cancel': '取消',
       'send': '发送',
-      'saveDraft': '保存草稿',
-      'draftSaved': '草稿已保存到 ~/.dsh/storages/edit-restart/drafts.json',
       'sending': '生成分支并发送…',
       'needText': '内容不能为空',
       'busy': '会话正在运行，结束后再修改',
@@ -61,8 +59,6 @@ window.__ModuleLoader__.load({
       'title': 'Edit this message and resend',
       'cancel': 'Cancel',
       'send': 'Send',
-      'saveDraft': 'Save draft',
-      'draftSaved': 'Draft saved to ~/.dsh/storages/edit-restart/drafts.json',
       'sending': 'Branching and sending…',
       'needText': 'Message cannot be empty',
       'busy': 'Wait for the session to finish running',
@@ -110,7 +106,8 @@ window.__ModuleLoader__.load({
       if (bubble === null || actions === null) return null
       const buttons = Array.from(actions.querySelectorAll('button'))
       if (buttons.length === 0) return null
-      return { row, bubble, actions, buttons }
+      const copyClass = buttons[0].getAttribute('class') || undefined
+      return { row, bubble, actions, buttons, copyClass }
     }
 
     /** 枚举当前会话内容区里每一条用户消息（返回顺序即先后）。 */
@@ -189,37 +186,29 @@ window.__ModuleLoader__.load({
     const CHECK = 'M3.5 8.5l3 3 6-6.5'
 
     const CSS = [
-      // 气泡列竖排：气泡(默认 0) → 修改(1) → 复制(2) → 编辑框(3) → 标记(4)
-      `.${COLUMN_CLASS}{gap:6px;}`,
-      // 操作行（复制按钮那一格）排在「修改」按钮后面：气泡 → 修改 → 复制
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > [class*="_actions"]{order:2 !important;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}]{
-  order:1 !important;width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
-  border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-tertiary);background:0 0;border:none;
-  justify-content:center;align-items:center;padding:6px;display:inline-flex;flex:0 0 auto;cursor:pointer;font:inherit;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}] svg{width:calc(15px + var(--dsh-content-font-delta,0px));height:calc(15px + var(--dsh-content-font-delta,0px));}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}]:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}][aria-disabled="true"]{cursor:default;opacity:.4;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${ACTION_ATTR}][aria-disabled="true"]:hover{background:0 0;color:var(--dsw-alias-label-tertiary);}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > [${LAYER_ATTR}]{order:3 !important;display:none;width:100%;box-sizing:border-box;}`,
-      `[${HOST_ATTR}] .${COLUMN_CLASS} > [${LAYER_ATTR}][data-active="true"]{display:flex;}`,
-      // 编辑器卡片
-      `[${LAYER_ATTR}]{flex-direction:column;gap:8px;padding:10px;border-radius:14px;text-align:left;
-  background:var(--dsw-alias-bg-elevated,#26262b);border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));
-  box-shadow:0 14px 36px rgba(0,0,0,.38);color:var(--dsw-alias-label-primary,#e8e8ea);}`,
-      `[${LAYER_ATTR}] textarea{box-sizing:border-box;width:100%;min-height:60px;max-height:40vh;resize:vertical;
-  border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));border-radius:10px;padding:9px 12px;
-  background:var(--dsw-specific-bubble,rgba(255,255,255,.06));color:inherit;font:inherit;font-size:14px;
-  line-height:22px;outline:none;white-space:pre-wrap;}`,
-      `[${LAYER_ATTR}] textarea:focus{border-color:var(--dsw-alias-button-primary-fill,#4c8bf5);}`,
+      // 编辑器：顶替气泡的位置（插在气泡前方、临时隐藏气泡），右对齐、同宽同圆角
+      `[${LAYER_ATTR}]{display:flex;flex-direction:column;gap:8px;box-sizing:border-box;
+  align-self:flex-end;padding:10px 12px;border-radius:var(--dsw-radius-xl,14px);
+  background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
+  border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
+      `[${LAYER_ATTR}][data-error="true"]{background:transparent;border-color:transparent;padding:0;}`,
+      `[${LAYER_ATTR}] textarea{box-sizing:border-box;width:100%;min-height:56px;max-height:44vh;resize:vertical;
+  border:none;outline:none;background:transparent;color:inherit;font:inherit;
+  font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));
+  white-space:pre-wrap;padding:0;}`,
       `[${LAYER_ATTR}] .${P}-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;}`,
-      `[${LAYER_ATTR}] .${P}-note{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary,#f28b82);}`,
-      `[${LAYER_ATTR}] .${P}-hint{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#8f8f97);}`,
-      `[${LAYER_ATTR}] button{appearance:none;cursor:pointer;font:inherit;font-size:13px;line-height:18px;border-radius:999px;padding:5px 14px;border:1px solid transparent;}`,
-      `[${LAYER_ATTR}] .${P}-cancel{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
+      `[${LAYER_ATTR}] .${P}-note{flex:1;min-width:0;font-size:12px;line-height:18px;
+  color:var(--dsw-alias-state-error-primary,#f28b82);}`,
+      `[${LAYER_ATTR}] .${P}-hint{flex:1;min-width:0;font-size:12px;line-height:18px;
+  color:var(--dsw-alias-label-tertiary,#8f8f97);}`,
+      `[${LAYER_ATTR}] button{appearance:none;cursor:pointer;font:inherit;font-size:12px;line-height:18px;
+  border-radius:999px;padding:4px 12px;border:1px solid transparent;}`,
+      `[${LAYER_ATTR}] .${P}-cancel{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));
+  color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
       `[${LAYER_ATTR}] .${P}-send{background:var(--dsw-alias-button-primary-fill,#4c8bf5);color:#fff;}`,
-      `[${LAYER_ATTR}] .${P}-draft{background:transparent;border-color:var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-secondary,#cfcfd4);}`,
       `[${LAYER_ATTR}] button:disabled{opacity:.5;cursor:default;}`,
+      // 「修改」按钮：并进官方操作行，className 直接复制官方按钮（见 ActionButton），这里只兜底尺寸
+      `[${HOST_ATTR}] [class*="_actions"] > button[${ACTION_ATTR}]{flex:0 0 auto;}`,
       // 已修改标记
       `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}]{order:4 !important;display:none;
   width:calc(28px + var(--dsh-content-font-delta,0px));height:calc(28px + var(--dsh-content-font-delta,0px));
@@ -240,9 +229,10 @@ window.__ModuleLoader__.load({
 
     // ---- 「修改」按钮 ----
     function ActionButton(props) {
-      const { t, onOpen } = props
+      const { t, onOpen, className } = props
       return h('button', {
         type: 'button',
+        className,
         [ACTION_ATTR]: '',
         title: t('action'),
         'aria-label': t('action'),
@@ -261,7 +251,6 @@ window.__ModuleLoader__.load({
       const [text, setText] = React.useState(initial)
       const [error, setError] = React.useState('')
       const [busy, setBusy] = React.useState(false)
-      const [done, setDone] = React.useState('')
       const boxRef = React.useRef(null)
       const closedRef = React.useRef(false)
 
@@ -298,25 +287,6 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const saveDraft = async () => {
-        if (busy || closedRef.current) return
-        const next = text.trim()
-        if (next === '') {
-          setError(t('needText'))
-          return
-        }
-        setBusy(true)
-        setError('')
-        try {
-          await onSubmit(next, 'save')
-          setDone(t('draftSaved'))
-        } catch (failure) {
-          setError(String(failure?.message ?? failure))
-        } finally {
-          setBusy(false)
-        }
-      }
-
       const onKeyDown = (event) => {
         if (event.key === 'Escape') {
           event.stopPropagation()
@@ -340,10 +310,8 @@ window.__ModuleLoader__.load({
         }),
         h('div', { className: `${P}-bar` },
           error !== '' ? h('span', { className: `${P}-note` }, error)
-            : done !== '' ? h('span', { className: `${P}-hint` }, done)
-              : busy ? h('span', { className: `${P}-hint` }, t('sending')) : null,
+            : busy ? h('span', { className: `${P}-hint` }, t('sending')) : null,
           h('button', { type: 'button', className: `${P}-cancel`, disabled: busy, onClick: cancel }, t('cancel')),
-          h('button', { type: 'button', className: `${P}-draft`, disabled: busy, onClick: saveDraft }, t('saveDraft')),
           h('button', { type: 'button', className: `${P}-send`, disabled: busy, onClick: submit },
             busy ? t('sending') : t('send'))))
     }
@@ -461,6 +429,9 @@ window.__ModuleLoader__.load({
 
       function closeEditor() {
         if (current === null) return
+        if (current.bubble && current.bubble.isConnected !== false) {
+          current.bubble.style.display = current.bubbleDisplay ?? ''
+        }
         if (current.error === true) {
           current = null
           layerRoot.render(null)
@@ -480,8 +451,11 @@ window.__ModuleLoader__.load({
       /** 在当前落点显示一张失败卡，替换掉静默失败。 */
       function showError(slot, message) {
         if (!slot) return
+        const hit = hits.get(slot)
+        const bubble = hit ? hit.bubble : null
         current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true }
-        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
+        if (layerEl.parentElement !== slot) slot.insertBefore(layerEl, bubble ?? null)
+        layerEl.style.width = '100%'
         layerRoot.render(h(ErrorCard, { t, message, onClose: () => closeEditor() }))
       }
 
@@ -535,18 +509,7 @@ window.__ModuleLoader__.load({
       }
 
       /** 原生 fork（切点 = 这条消息自己那一轮的 turn/start），再把改过的文本作为首条消息发出。 */
-      async function resend(id, index, turnStartSeq, text, mode) {
-        if (mode === 'save') {
-          const response = await fetch('/api/edit-restart/rpc', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ action: 'saveDraft', sessionId: id, turnStartSeq, messageIndex: index, text, initial: '' }),
-          })
-          const payload = await response.json().catch(() => null)
-          if (!payload || payload.ok !== true) throw new Error(String(payload?.error ?? `HTTP ${response.status}`))
-          diag('draft saved', { draftId: payload.draft?.id })
-          return payload.draft?.id
-        }
+      async function resend(id, index, turnStartSeq, text) {
         if (resending.has(id)) throw new Error(t('busy'))
         resending.add(id)
         try {
@@ -580,11 +543,15 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /** row → 这条消息的官方零件（气泡本体、操作行、复制按钮类名），scan 时刷新。 */
+      const hits = new Map()
+
       async function openEditor(slot, index) {
-        diag('openEditor', { slot: describe(slot), index, sessionId })
         if (sessionId === null || slot === null) return
         if (current !== null && current.slot === slot) return
         const id = sessionId
+        const hit = hits.get(slot)
+        const bubble = hit ? hit.bubble : null
         let target
         try {
           target = await Promise.race([
@@ -595,27 +562,33 @@ window.__ModuleLoader__.load({
           ])
         } catch (failure) {
           diag('resolveTarget failed', String(failure?.message ?? failure))
-          actionEl.title = String(failure?.message ?? failure)
           throw failure
         }
-        diag('resolveTarget ok', { initial: target.initial.slice(0, 40), turnStartSeq: target.turnStartSeq })
+        diag('resolveTarget ok', { turnStartSeq: target.turnStartSeq })
         closeEditor()
-        current = { slot, index }
-        if (actionEl.parentElement !== slot) slot.appendChild(actionEl)
-        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
-        slot.appendChild(markerEl)
+        current = { slot, index, bubble, bubbleDisplay: bubble ? bubble.style.display : '' }
+        // 编辑器顶替气泡：插在气泡前面，气泡临时让位。
+        if (bubble) {
+          bubble.style.display = 'none'
+          if (layerEl.nextElementSibling !== bubble || layerEl.parentElement !== slot) {
+            slot.insertBefore(layerEl, bubble)
+          }
+        } else if (layerEl.parentElement !== slot) {
+          slot.appendChild(layerEl)
+        }
+        const width = bubble && bubble.getBoundingClientRect ? bubble.getBoundingClientRect().width : 0
+        layerEl.style.width = width > 0 ? `${Math.max(240, Math.round(width))}px` : '100%'
         layerRoot.render(h(MessageLayer, {
           t,
           initial: target.initial,
           onClose: () => closeEditor(),
-          onSubmit: (text, mode) => resend(id, index, target.turnStartSeq, text, mode),
+          onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
-        // React 渲染完之后再确认一次位置
-        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
+        if (layerEl.parentElement !== slot) slot.insertBefore(layerEl, bubble ?? null)
         paintMarker()
       }
 
-      /** 枚举当前会话的人发消息并装饰；按钮只挂一处（最新消息优先）。 */
+      /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
       function scan() {
         const contentHost = document.querySelector('[data-conversation-content]')
         const next = contentHost === null ? null : sessionIdOfHost(contentHost)
@@ -624,39 +597,49 @@ window.__ModuleLoader__.load({
           if (current !== null) closeEditor()
           actionEl.remove()
           markerEl.remove()
+          hits.clear()
           return
         }
         contentHost.setAttribute(HOST_ATTR, '')
         host = contentHost
-        report(`scan session=${next} users=${items.length} actionParent=${describe(actionEl.parentElement)}`)
+        const latest = items[items.length - 1]
+        hits.clear()
         items.forEach((item, index) => {
-          const slot = slotOf(item)
-          if (slot.hasAttribute(READY_ATTR)) return
-          slot.setAttribute(READY_ATTR, '')
-          slot.setAttribute(INDEX_ATTR, String(index))
-          slot.classList.add(COLUMN_CLASS)
-          slot.setAttribute(EDITED_ATTR, editedAt.has(`${next}|${index}`) ? 'true' : 'false')
+          hits.set(item.row, item)
+          if (!item.row.hasAttribute(READY_ATTR)) {
+            item.row.setAttribute(READY_ATTR, '')
+            item.row.classList.add(COLUMN_CLASS)
+          }
+          item.row.setAttribute(INDEX_ATTR, String(index))
+          item.row.setAttribute(EDITED_ATTR, editedAt.has(`${next}|${index}`) ? 'true' : 'false')
+          // 让「修改」按钮在复制按钮旁边：同属官方操作行，复制按钮的类名也照抄一份。
+          if (item !== latest) {
+            const stale = item.actions.querySelector(`button[${ACTION_ATTR}]`)
+            if (stale) stale.remove()
+          }
         })
         if (sessionId !== next) {
           if (current !== null) closeEditor()
           sessionId = next
         }
-        const target = current !== null && current.slot.isConnected !== false
-          ? current.slot
-          : slotOf(items[items.length - 1])
-        if (actionEl.parentElement !== target) target.appendChild(actionEl)
+        report(`scan session=${next} users=${items.length} actionRow=${describe(latest.actions)}`)
+        // 按钮只保留一个，挂进最新一条消息的官方操作行
+        if (actionEl.parentElement !== latest.actions) latest.actions.appendChild(actionEl)
+        actionEl.className = latest.copyClass
         if (!actionReady) {
           actionReady = true
           actionRoot.render(h(ActionButton, {
             t,
             onOpen: () => {
-              const slot = actionEl.parentElement
-              diag('click', { slot: describe(slot), index: slot && slot.getAttribute(INDEX_ATTR) })
-              if (slot === null) return
-              openEditor(slot, Number(slot.getAttribute(INDEX_ATTR))).catch((error) => {
+              // 从按钮往上找它的气泡列（不依赖 closest 的属性子串选择器）
+              let row = actionEl.parentElement
+              while (row && !hasClassLike(row, '_userRow')) row = row.parentElement
+              if (row === null) return
+              diag('click', { row: describe(row), index: row.getAttribute(INDEX_ATTR) })
+              openEditor(row, Number(row.getAttribute(INDEX_ATTR))).catch((error) => {
                 console.warn(LOG, 'open editor failed', error)
                 diag('open editor failed (visible)', String(error?.message ?? error))
-                showError(slot, String(error?.message ?? error))
+                showError(row, String(error?.message ?? error))
               })
             },
           }))
@@ -664,10 +647,8 @@ window.__ModuleLoader__.load({
         if (current !== null) {
           if (current.slot.isConnected === false) {
             closeEditor()
-          } else {
-            if (actionEl.parentElement !== current.slot) current.slot.appendChild(actionEl)
-            if (layerEl.parentElement !== current.slot) current.slot.appendChild(layerEl)
-            if (markerEl.parentElement !== current.slot) current.slot.appendChild(markerEl)
+          } else if (markerEl.parentElement !== current.slot) {
+            current.slot.appendChild(markerEl)
           }
         } else if (markerEl.parentElement && markerEl.parentElement.getAttribute(EDITED_ATTR) !== 'true') {
           markerEl.remove()
@@ -691,7 +672,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.9.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.10.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

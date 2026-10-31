@@ -17,6 +17,7 @@ class Node {
     this.title = ''
     this.className = ''
     this.id = ''
+    this.style = { display: '' }
     // 浏览器元素的 dataset 是实时视图：这里用 Proxy 让 dataset.xxx 等价于 data-xxx 属性。
     this.dataset = new Proxy({}, {
       set: (_, key, value) => { this.setAttribute('data-' + key, value); return true },
@@ -29,6 +30,12 @@ class Node {
   set children(value) { this._children = value }
   get parentElement() { return this._parent }
   set parentElement(value) { this._parent = value }
+  get nextElementSibling() {
+    if (!this._parent) return null
+    const list = this._parent._children
+    const at = list.indexOf(this)
+    return at >= 0 && at + 1 < list.length ? list[at + 1] : null
+  }
   get isConnected() {
     let node = this
     while (node._parent) node = node._parent
@@ -38,6 +45,15 @@ class Node {
     if (child._parent) child._parent._children = child._parent._children.filter((n) => n !== child)
     child._parent = this
     this._children.push(child)
+    mutations.push({ target: this, added: [child], removed: [] })
+    return child
+  }
+  insertBefore(child, reference) {
+    if (child._parent) child._parent._children = child._parent._children.filter((n) => n !== child)
+    const at = reference ? this._children.indexOf(reference) : -1
+    if (at < 0) this._children.push(child)
+    else this._children.splice(at, 0, child)
+    child._parent = this
     mutations.push({ target: this, added: [child], removed: [] })
     return child
   }
@@ -123,6 +139,8 @@ function makeUserRow(flowKey, parent) {
   actionsRow.setAttribute('class', 'AbCdEf_actions')
   actionsRow.setAttribute('data-clock', 'start')
   const copyButton = new Node('button')
+  copyButton.className = 'AbCdEf_action'
+  copyButton.setAttribute('class', 'AbCdEf_action')
   copyButton.appendChild(new Node('svg'))
   actionsRow.appendChild(copyButton)
   column.appendChild(bubble)

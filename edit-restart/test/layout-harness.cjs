@@ -210,7 +210,10 @@ async function main() {
     && scanned[1].bubble === tree.second.bubble)
 
   const actionEl = roots[0].container
-  check('唯一的「修改」按钮挂在最新消息的气泡列里', actionEl.parentElement === tree.second.column)
+  check('「修改」按钮进的是官方操作行（复制按钮旁边）', actionEl.parentElement === tree.second.actionsRow,
+    `parent=${actionEl.parentElement && actionEl.parentElement.getAttribute('class')}`)
+  check('「修改」按钮沿用复制按钮的类名', actionEl.className === tree.second.copyButton.getAttribute('class'),
+    `${actionEl.className} vs ${tree.second.copyButton.getAttribute('class')}`)
   check('落点带装饰 class', tree.second.column.classList.contains('dsh-edit-restart-column'))
   check('两条用户消息的气泡列都打上了 ready 标记',
     tree.content.querySelectorAll('[data-edit-restart-ready]').length === 2)
@@ -224,7 +227,7 @@ async function main() {
   rafQueue = []
   for (const fn of pending) fn()
   check('切换后触发了重新扫描', pending.length > 0)
-  check('按钮迁到新会话的最新消息气泡列里', actionEl.parentElement === other.second.column)
+  check('按钮迁到新会话的最新消息操作行里', actionEl.parentElement === other.second.actionsRow)
 
   console.log('[3] 点「修改」→ 定位 → 发送 → fork 切点')
   const fakeEvent = { stopPropagation() {}, preventDefault() {} }
@@ -236,8 +239,11 @@ async function main() {
 
   const layerRoot = roots[1].container
   const layer = layerRoot.children[0]
-  check('编辑框出现在目标消息的气泡列里', layer !== undefined && layer.getAttribute('data-active') === 'true'
-    && layerRoot.parentElement === other.second.column)
+  check('编辑框顶替气泡位置（气泡列里、紧挨气泡之前）', layer !== undefined
+    && layer.getAttribute('data-active') === 'true'
+    && layerRoot.parentElement === other.second.column
+    && layerRoot.nextElementSibling === other.second.bubble)
+  check('编辑期间原气泡让位隐藏', other.second.bubble.style.display === 'none')
   const textarea = layer && layer.querySelector('textarea')
   check('编辑框回填的是第 2 条人发消息的正文', textarea !== undefined && textarea.value === '教我 C++',
     JSON.stringify(textarea && textarea.value))
