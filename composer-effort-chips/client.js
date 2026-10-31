@@ -131,14 +131,34 @@ window.__ModuleLoader__.load({
       const hostRect = host.getBoundingClientRect();
       if (hostRect.width <= 0) return 0;
 
-      // 这一行里除我们之外的元素（渠道/模型/发送按钮/左侧控件）占掉的宽度。
-      // 用绝对位置算：从左边界到我们左边缘的距离 + 从我们右边缘到右边界的距离，
-      // 这两段与我们自身当前形态无关，所以收起/展开时都不会跳变。
-      const elRect = el.getBoundingClientRect();
-      const leftOccupied = Math.max(0, elRect.left - hostRect.left);
-      const rightOccupied = Math.max(0, hostRect.right - elRect.right);
+      // 可用宽度 = 整行宽度 − 别人占的宽度。
+      //
+      // 关键：不能写成「行宽 − 左占位 − 右占位」。那个式子算的是我们自己
+      // 当前占了多少，收起后自己变窄 → 结果变小 → 判定以为空间不足 →
+      // 永远展不回去（实测 collapsed=true 时 have 只剩 32px 就是这么来的）。
+      //
+      // 正确做法：把「别人」定义为整行里除我们之外的直接子节点，
+      // 逐个子树量它们的实际宽度。我们自己的宽度不参与扣减，
+      // 所以收起/展开两种形态下算出的可用值完全一致。
+      let others = 0;
+      const walk = (node) => {
+        if (!node || node === el) return false;
+        // 如果这个子树包含我们，就往下找，不要整块算成「别人」。
+        if (node.contains && node.contains(el)) {
+          for (const child of node.children) {
+            if (walk(child)) return true;
+          }
+          return false;
+        }
+        const rect = node.getBoundingClientRect();
+        if (rect.width > 0) others += rect.width;
+        return true;
+      };
+      for (const child of host.children) walk(child);
+
+      // 兄弟之间的间距（官方工具栏 gap 约 8~12px），保守扣 8px。
       const padding = 8;
-      const available = hostRect.width - leftOccupied - rightOccupied - padding;
+      const available = hostRect.width - others - padding;
       return available > 0 ? available : 0;
     }
 
