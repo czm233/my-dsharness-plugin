@@ -160,9 +160,8 @@ window.__ModuleLoader__.load({
             'aria-expanded': open,
             onClick: () => setOpen((v) => !v),
           },
-          h('span', { style: { opacity: 0.75 } }, label),
-          h('span', { style: pickerValueStyle }, value),
-          h('span', { style: { fontSize: 9, opacity: 0.7 } }, '▾'),
+          // 只显示当前值；分类名留在 aria-label / 悬停提示里，不占宽度。
+          h('span', { style: pickerValueStyle, title: ariaLabel }, value),
         ),
         open &&
           h(

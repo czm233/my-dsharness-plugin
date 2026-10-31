@@ -1,6 +1,6 @@
 {
   "name": "@local/composer-effort-chips",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,9 +9,17 @@
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
-  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
   "dsh": {
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
@@ -20,5 +28,6 @@
         "@deepseek-ai/dsh-client-ui-model-selection"
       ]
     }
-  }
+  },
+  "description": "快捷挂档：把推理强度平铺成发送按钮左侧的一排档位，点一下直接挂档；同时接管渠道与模型选择，只显示当前值，不占多余宽度。"
 }
