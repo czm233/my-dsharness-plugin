@@ -241,13 +241,13 @@ async function main() {
 
   const layerRoot = roots[1].container
   const layer = layerRoot.children[0]
-check('编辑框铺在气泡本体里（位置由气泡决定，不会飞）', layer !== undefined
+check('编辑框在流内展开，占据气泡原来的列位置', layer !== undefined
     && layer.getAttribute('data-active') === 'true'
-    && layerRoot.parentElement === other.second.bubble
-    && layerRoot.style.position === 'absolute')
-  check('气泡保持布局不变（不改 display、不当占位以外的事）',
-    other.second.bubble.style.position === 'relative'
-    && (other.second.bubble.style.display === '' || other.second.bubble.style.display === undefined))
+    && layerRoot.parentElement === other.second.column
+    && layerRoot.style.position === 'static'
+    && layerRoot.style.width === '600px')
+  check('编辑期间原气泡被输入区替换（display:none）', other.second.bubble.style.display === 'none')
+  check('「修改」按钮位置不动（仍在操作行）', actionEl.parentElement === other.second.actionsRow)
   check('「修改」按钮仍在官方操作行里', actionEl.parentElement === other.second.actionsRow)
   const textarea = layer && layer.querySelector('textarea')
   check('编辑框回填的是第 2 条人发消息的正文', textarea !== undefined && textarea.value === '教我 C++',

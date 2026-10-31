@@ -181,15 +181,15 @@ window.__ModuleLoader__.load({
     const CHECK = 'M3.5 8.5l3 3 6-6.5'
 
     const CSS = [
-      // 编辑器铺满气泡本体（inset:0）：位置由气泡自己决定，不做任何坐标计算，也就不可能飞出去
-      `[${LAYER_ATTR}]{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;
-  padding:8px 12px 6px;border-radius:inherit;overflow:hidden;
+      // 编辑器在流内展开（就是气泡被替换成输入区），高度随内容长
+      `[${LAYER_ATTR}]{box-sizing:border-box;display:flex;flex-direction:column;gap:6px;
+  align-self:flex-end;padding:10px 12px 8px;border-radius:var(--dsw-radius-xl,14px);
   background:var(--dsw-specific-bubble,rgba(255,255,255,.06));
   border:1px solid var(--dsw-alias-border-l3,rgba(255,255,255,.14));color:var(--dsw-alias-label-primary,#e8e8ea);}`,
       `[${LAYER_ATTR}][data-error="true"]{position:static;background:transparent;border-color:transparent;padding:0;
   width:100% !important;height:auto !important;left:auto !important;top:auto !important;}`,
-      `[${LAYER_ATTR}] textarea{box-sizing:border-box;flex:1 1 auto;min-height:0;width:100%;resize:none;
-  border:none;outline:none;background:transparent;color:inherit;font:inherit;overflow:auto;
+      `[${LAYER_ATTR}] textarea{box-sizing:border-box;display:block;width:100%;resize:none;overflow:hidden;
+  border:none;outline:none;background:transparent;color:inherit;font:inherit;
   font-size:var(--dsh-content-font-size,14px);line-height:calc(22px + var(--dsh-content-font-delta,0px));
   white-space:pre-wrap;padding:0;}`,
       `[${LAYER_ATTR}] .${P}-bar{display:flex;align-items:center;justify-content:flex-end;gap:8px;}`,
@@ -238,12 +238,21 @@ window.__ModuleLoader__.load({
       const boxRef = React.useRef(null)
       const closedRef = React.useRef(false)
 
+      // 输入区随内容长高（不多出滚动条），并自动聚焦到末尾
+      const autosize = () => {
+        const box = boxRef.current
+        if (box === null) return
+        box.style.height = 'auto'
+        box.style.height = `${Math.min(box.scrollHeight, Math.round(window.innerHeight * 0.42))}px`
+      }
       React.useLayoutEffect(() => {
         const box = boxRef.current
         if (box === null) return
+        autosize()
         box.focus()
         box.setSelectionRange(box.value.length, box.value.length)
       }, [])
+      React.useEffect(() => { autosize() }, [text])
 
       const cancel = () => {
         if (busy || closedRef.current) return
@@ -288,7 +297,6 @@ window.__ModuleLoader__.load({
         h('textarea', {
           ref: boxRef,
           value: text,
-          rows: Math.min(10, Math.max(3, String(text).split("\n").length)),
           'aria-label': t('title'),
           onChange: (event) => setText(event.target.value),
         }),
@@ -404,7 +412,7 @@ window.__ModuleLoader__.load({
       function closeEditor() {
         if (current === null) return
         if (current.bubble && current.bubble.isConnected !== false) {
-          current.bubble.style.position = current.bubblePosition ?? ''
+          current.bubble.style.display = current.bubbleDisplay ?? ''
         }
         if (current.error === true) {
           current = null
@@ -556,26 +564,27 @@ window.__ModuleLoader__.load({
         if (attempt !== attemptSeq) return
         diag('resolveTarget ok', { turnStartSeq: target.turnStartSeq })
         closeEditor()
-        current = {
-          slot,
-          index,
-          bubble,
-          bubblePosition: bubble ? bubble.style.position : '',
-        }
-        if (bubble) {
-          // 浮层直接铺在气泡本体里：位置完全由气泡自己的盒子决定（不隐藏、不位移、不计算坐标）。
-          bubble.style.position = 'relative'
-          if (layerEl.parentElement !== bubble) bubble.appendChild(layerEl)
-        } else if (layerEl.parentElement !== slot) {
+        // 关键：从实时 DOM 里重新找气泡本体（React 可能已经换过节点，缓存的 hits 会指向已卸载的旧节点）
+        const liveBubble = Array.from(slot.children).find((child) => hasClassLike(child, '_userStack')
+          && child.querySelector('button') === null) ?? null
+        current = { slot, index, bubble: liveBubble, bubbleDisplay: liveBubble ? liveBubble.style.display : '' }
+        if (liveBubble) {
+          // 先量宽度，再把气泡换成输入区：宽度一致，所以这一行（含时间/复制/修改）不会横向跳动。
+          const width = Math.round(liveBubble.getBoundingClientRect().width)
+          liveBubble.style.display = 'none'
+          slot.insertBefore(layerEl, liveBubble)
+          layerEl.style.width = width > 0 ? `${width}px` : ''
+        } else {
           slot.appendChild(layerEl)
         }
-        layerEl.style.position = bubble ? 'absolute' : 'static'
+        layerEl.style.position = 'static'
         layerRoot.render(h(MessageLayer, {
           t,
           initial: target.initial,
           onClose: () => closeEditor(),
           onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
+        diag('editor rendered', { bubble: describe(liveBubble), width: layerEl.style.width })
       }
 
       /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
@@ -654,7 +663,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.15.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.16.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
