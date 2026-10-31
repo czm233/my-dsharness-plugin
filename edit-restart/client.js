@@ -50,6 +50,7 @@ window.__ModuleLoader__.load({
       'stale': '找不到这条消息，可能已不在当前记录里',
       'sessionUnavailable': '拿不到这个会话，请稍后重试',
       'timeout': '读取会话超时，请稍后重试',
+      'close': '知道了',
       'forkFailed': '创建分支失败：{message}',
       'sendFailed': '分支已创建，但发送失败：{message}',
       'edited': '已修改',
@@ -68,6 +69,7 @@ window.__ModuleLoader__.load({
       'stale': 'This message is no longer in the session record',
       'sessionUnavailable': 'This session is not available right now',
       'timeout': 'Reading the session timed out. Try again.',
+      'close': 'OK',
       'forkFailed': 'Could not create the branch: {message}',
       'sendFailed': 'Branch created, but sending failed: {message}',
       'edited': 'Edited',
@@ -226,6 +228,15 @@ window.__ModuleLoader__.load({
       `[${HOST_ATTR}] .${COLUMN_CLASS} > button[${MARKER_ATTR}] svg{width:calc(15px + var(--dsh-content-font-delta,0px));height:calc(15px + var(--dsh-content-font-delta,0px));}`,
       `[${HOST_ATTR}] .${COLUMN_CLASS}[${EDITED_ATTR}="true"] > button[${MARKER_ATTR}]{display:inline-flex;}`,
     ].join('\n')
+
+    /** 失败提示卡：让"点不动"变成看得见的一句话（不写进 Chat，只借同一个装饰落点）。 */
+    function ErrorCard(props) {
+      const { t, message, onClose } = props
+      return h('div', { [LAYER_ATTR]: '', 'data-active': 'true', 'data-error': 'true' },
+        h('div', { className: `${P}-bar`, style: { alignItems: 'center' } },
+          h('span', { className: `${P}-note`, style: { flex: '1' } }, message),
+          h('button', { type: 'button', className: `${P}-cancel`, onClick: onClose }, t('close'))))
+    }
 
     // ---- 「修改」按钮 ----
     function ActionButton(props) {
@@ -450,6 +461,12 @@ window.__ModuleLoader__.load({
 
       function closeEditor() {
         if (current === null) return
+        if (current.error === true) {
+          current = null
+          layerRoot.render(null)
+          layerEl.remove()
+          return
+        }
         const slot = current.slot
         const key = editedKey()
         current = null
@@ -458,6 +475,14 @@ window.__ModuleLoader__.load({
           slot.setAttribute(EDITED_ATTR, editedAt.has(key) ? 'true' : 'false')
         }
         if (markerEl.parentElement && markerEl.parentElement.getAttribute(EDITED_ATTR) !== 'true') markerEl.remove()
+      }
+
+      /** 在当前落点显示一张失败卡，替换掉静默失败。 */
+      function showError(slot, message) {
+        if (!slot) return
+        current = { slot, index: Number(slot.getAttribute(INDEX_ATTR)), error: true }
+        if (layerEl.parentElement !== slot) slot.appendChild(layerEl)
+        layerRoot.render(h(ErrorCard, { t, message, onClose: () => closeEditor() }))
       }
 
       /** 记录里第 index 条人发消息的正文与 fork 切点；会话在跑直接拒绝。 */
@@ -609,12 +634,8 @@ window.__ModuleLoader__.load({
               if (slot === null) return
               openEditor(slot, Number(slot.getAttribute(INDEX_ATTR))).catch((error) => {
                 console.warn(LOG, 'open editor failed', error)
-                actionEl.title = String(error?.message ?? error)
-                actionEl.setAttribute('aria-disabled', 'true')
-                window.setTimeout(() => {
-                  actionEl.title = t('action')
-                  actionEl.removeAttribute('aria-disabled')
-                }, 2400)
+                diag('open editor failed (visible)', String(error?.message ?? error))
+                showError(slot, String(error?.message ?? error))
               })
             },
           }))
@@ -649,7 +670,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.7.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.8.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
