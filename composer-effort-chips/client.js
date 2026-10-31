@@ -100,29 +100,45 @@ window.__ModuleLoader__.load({
       return chipWidthCache.value;
     }
 
+    // 沿祖先链向上找「真正有宽度」的容器。
+    //
+    // 实测发现：我们这一排的直接父级可能是个 width 为 0 的包装层
+    // （probe 里 parentW=0），用它算可用宽度永远是 0，判定直接跳过。
+    // 所以要上溯到第一个有确定宽度的祖先，作为「整行」来量。
+    function findRowHost(el) {
+      let node = el ? el.parentElement : null;
+      let hops = 0;
+      let firstPositive = null;
+      while (node && hops < 6) {
+        hops += 1;
+        const rect = node.getBoundingClientRect();
+        if (rect.width > 0) {
+          firstPositive = firstPositive || node;
+          // 有宽度、且能容纳不止我们一个子节点 → 就是这一行。
+          if (node.children.length > 1 || rect.width > el.getBoundingClientRect().width) {
+            return node;
+          }
+        }
+        node = node.parentElement;
+      }
+      return firstPositive || (el ? el.parentElement : null);
+    }
+
     function availableForRow(el) {
       if (!el) return 0;
-      const parent = el.parentElement;
-      if (!parent) return 0;
-      const parentRect = parent.getBoundingClientRect();
-      if (parentRect.width <= 0) return 0;
+      const host = findRowHost(el);
+      if (!host) return 0;
+      const hostRect = host.getBoundingClientRect();
+      if (hostRect.width <= 0) return 0;
 
-      // 父容器里所有兄弟节点（渠道/模型、发送按钮等）占掉的宽度。
-      // 注意：我等自己当前可能被压缩过，所以不能用「剩余可见宽度」反推，
-      // 必须用「父容器总宽 - 兄弟实际占用」这个与自身形态无关的量。
-      let siblings = 0;
-      let siblingsCount = 0;
-      for (const child of parent.children) {
-        if (child === el) continue;
-        const rect = child.getBoundingClientRect();
-        if (rect.width > 0) {
-          siblings += rect.width;
-          siblingsCount += 1;
-        }
-      }
-      // 兄弟之间还有 gap（官方工具栏 12px / 我们内部 4px），补回去。
-      const gaps = Math.max(0, siblingsCount) * 8;
-      const available = parentRect.width - siblings - gaps;
+      // 这一行里除我们之外的元素（渠道/模型/发送按钮/左侧控件）占掉的宽度。
+      // 用绝对位置算：从左边界到我们左边缘的距离 + 从我们右边缘到右边界的距离，
+      // 这两段与我们自身当前形态无关，所以收起/展开时都不会跳变。
+      const elRect = el.getBoundingClientRect();
+      const leftOccupied = Math.max(0, elRect.left - hostRect.left);
+      const rightOccupied = Math.max(0, hostRect.right - elRect.right);
+      const padding = 8;
+      const available = hostRect.width - leftOccupied - rightOccupied - padding;
       return available > 0 ? available : 0;
     }
 
@@ -150,17 +166,21 @@ window.__ModuleLoader__.load({
           if (frame === 0) frame = requestAnimationFrame(evaluate);
         };
         const observer = new ResizeObserver(schedule);
-        // 自己 + 直接父容器（渠道/模型所在层）+ 上两层：右栏挤压变的是外层列。
+        // 观察整行（而不是可能为 0 宽的包装层）：宽度变化来自这里。
+        const host = findRowHost(el);
+        if (host) observer.observe(host);
         observer.observe(el);
-        let node = el.parentElement;
-        for (let i = 0; i < 3 && node; i += 1) {
-          observer.observe(node);
-          node = node.parentElement;
-        }
+        // 再观察整行的父级：右栏开合时变的是外层列容器。
+        const outer = host ? host.parentElement : null;
+        if (outer) observer.observe(outer);
         if (typeof window !== 'undefined') window.addEventListener('resize', schedule);
+        // 兜底轮询：收起/展开互换后尺寸可能不再变化，观察器不会再触发，
+        // 用低频复查保证两种形态在任何时刻都能互相切换。
+        const timer = setInterval(evaluate, 700);
         schedule();
         return () => {
           observer.disconnect();
+          clearInterval(timer);
           if (frame !== 0) cancelAnimationFrame(frame);
           if (typeof window !== 'undefined') window.removeEventListener('resize', schedule);
         };
@@ -192,11 +212,15 @@ window.__ModuleLoader__.load({
       }
       const row = el ? el.querySelector('[data-composer-effort-chips-row]') : null;
       const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
+      const host = el ? findRowHost(el) : null;
       probeBuffer.push({
         need: Math.round(need),
         have: Math.round(have),
         collapsed,
         parentW: parent ? Math.round(parent.getBoundingClientRect().width) : 0,
+        hostW: host ? Math.round(host.getBoundingClientRect().width) : 0,
+        hostTag: host ? (host.getAttribute('data-composer-effort-chips') !== null ? 'chips' : 'outer') : 'none',
+        hostChildren: host ? host.children.length : 0,
         selfW: el ? Math.round(el.getBoundingClientRect().width) : 0,
         siblings: siblingInfo,
         chipSizes,
