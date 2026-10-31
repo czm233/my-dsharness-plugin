@@ -77,16 +77,26 @@ window.__ModuleLoader__.load({
       if (!el) return chipWidthCache.value;
       const row = el.querySelector('[data-composer-effort-chips-row]');
       if (!row) return chipWidthCache.value;
+      // 关键：胶囊被父级 flex 压缩时，getBoundingClientRect 返回的是压缩后的
+      // 宽度，会让我们以为「展开只占这么点」，于是永远不收起。
+      // scrollWidth 是不受压缩影响的自然内容宽度，用它。
       let total = 0;
       let count = 0;
       for (const child of row.children) {
-        const rect = child.getBoundingClientRect();
-        if (rect.width > 0) {
-          total += rect.width;
+        const width = child.scrollWidth || 0;
+        if (width > 0) {
+          total += width;
           count += 1;
         }
       }
-      if (count > 0) chipWidthCache.value = total + Math.max(0, count - 1) * 4;
+      if (count > 0) {
+        // 胶囊自身有 padding 和 border，scrollWidth 已包含；再加间距。
+        chipWidthCache.value = total + Math.max(0, count - 1) * 4;
+        return chipWidthCache.value;
+      }
+      // 兜底：整排的 scrollWidth（同样不受压缩影响）。
+      const fallback = row.scrollWidth || el.scrollWidth || 0;
+      if (fallback > 0) chipWidthCache.value = fallback;
       return chipWidthCache.value;
     }
 
@@ -96,13 +106,24 @@ window.__ModuleLoader__.load({
       if (!parent) return 0;
       const parentRect = parent.getBoundingClientRect();
       if (parentRect.width <= 0) return 0;
+
+      // 父容器里所有兄弟节点（渠道/模型、发送按钮等）占掉的宽度。
+      // 注意：我等自己当前可能被压缩过，所以不能用「剩余可见宽度」反推，
+      // 必须用「父容器总宽 - 兄弟实际占用」这个与自身形态无关的量。
       let siblings = 0;
+      let siblingsCount = 0;
       for (const child of parent.children) {
         if (child === el) continue;
         const rect = child.getBoundingClientRect();
-        if (rect.width > 0) siblings += rect.width;
+        if (rect.width > 0) {
+          siblings += rect.width;
+          siblingsCount += 1;
+        }
       }
-      return Math.max(0, parentRect.width - siblings);
+      // 兄弟之间还有 gap（官方工具栏 12px / 我们内部 4px），补回去。
+      const gaps = Math.max(0, siblingsCount) * 8;
+      const available = parentRect.width - siblings - gaps;
+      return available > 0 ? available : 0;
     }
 
     /** 观察这一排，决定档位是否收成下拉。 */
@@ -120,18 +141,6 @@ window.__ModuleLoader__.load({
           frame = 0;
           const need = measureChipWidths(el);
           const have = availableForRow(el);
-          if (typeof window !== 'undefined') {
-            window.__chipsDebug = window.__chipsDebug || [];
-            window.__chipsDebug.push({
-              t: Date.now(),
-              need: Math.round(need),
-              have: Math.round(have),
-              collapsed: collapsedRef.current,
-              parentW: el.parentElement ? Math.round(el.parentElement.getBoundingClientRect().width) : 0,
-              parentChildren: el.parentElement ? el.parentElement.children.length : 0,
-            });
-            if (window.__chipsDebug.length > 60) window.__chipsDebug.shift();
-          }
           if (!need || !have) return;
           if (!collapsedRef.current && need - have > COLLAPSE_SLACK) setCollapsed(true);
           else if (collapsedRef.current && have - need > EXPAND_SLACK) setCollapsed(false);
