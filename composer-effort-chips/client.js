@@ -117,52 +117,57 @@ window.__ModuleLoader__.load({
     // 这一排实际还能占多宽。
     //
     // probe 反复证明：我们自己没有被任何容器约束（parentW=0、selfW 恒等于
-    // 内容宽 188），窗口变窄时我们不是被压小，而是原样待着、溢出到输入框外。
+    // 内容宽 189），窗口变窄时不是被压小，而是原样待着、溢出到输入框外。
     // 所以「溢出量」永远是 0，判定永远认为放得下。
     //
-    // 换个问法：这一排**右边缘**离「输入框右边界」还有多远？
-    // 输入框右边界从视口里找：向上爬祖先，取第一个宽度明显小于视口的容器
-    // （就是 composer 那层），它的右边缘就是我们的可用边界。
-    function findComposerRight(el) {
-      if (!el) return 0;
-      const viewport = window.innerWidth || 0;
+    // 换个问法：这一排右边缘离「输入框右边界」还有多远？
+    // 输入框右边界 = 包含我们的、最内层那个「有自己定位的卡片」的右边缘。
+    // 判据：容器宽度 < 视口的 90%（排除整个窗口包装层），且右边缘在我们右边。
+    function findComposerBox(el) {
+      if (!el) return null;
+      const viewport = (window.innerWidth || 0) || 1920;
+      const elRect = el.getBoundingClientRect();
       let node = el.parentElement;
       let hops = 0;
-      while (node && hops < 8) {
+      while (node && hops < 10) {
         hops += 1;
         const rect = node.getBoundingClientRect();
-        // 宽度合理、且明显是「内容容器」而非整个视口包装层
-        if (rect.width > 120 && rect.width <= viewport && rect.right > 0) {
-          return rect.right;
-        }
+        const narrowerThanViewport = rect.width > 120 && rect.width < viewport * 0.9;
+        const containsUs = rect.right >= elRect.right - 1 && rect.left <= elRect.left + 1;
+        if (narrowerThanViewport && containsUs) return rect;
         node = node.parentElement;
       }
-      return viewport;
-    }
-
-    // 我们这排左侧被占掉的宽度（+ / 权限 / 渠道 / 模型 等）。
-    function leftOccupied(el) {
-      if (!el) return 0;
-      const viewport = window.innerWidth || 0;
-      let node = el.parentElement;
-      let hops = 0;
-      while (node && hops < 8) {
-        hops += 1;
-        const rect = node.getBoundingClientRect();
-        if (rect.width > 120 && rect.width <= viewport && rect.left >= 0) {
-          return Math.max(0, el.getBoundingClientRect().left - rect.left);
-        }
-        node = node.parentElement;
-      }
-      return el.getBoundingClientRect().left;
+      return null;
     }
 
     /** 这一排现在还能占多少宽度（与自身形态无关）。 */
     function roomForRow(el) {
       if (!el) return 0;
-      const right = findComposerRight(el);
-      const left = leftOccupied(el);
-      const room = right - left - 8; // 8px 内边距余量
+      const box = findComposerBox(el);
+      if (!box) return 0;
+      const elRect = el.getBoundingClientRect();
+
+      // 行是 row-reverse：我们贴右侧，所以**右边缘稳定、左边缘随宽度变**。
+      // 因此不能从自己的左边缘算（收起时自己变窄，左边缘右移，会算出更多空间，
+      // 展回去后又变少 —— 来回振荡）。
+      //
+      // 稳定量是：卡片右边缘、卡片内的左侧控件右边缘、我们右侧的控件宽度。
+      const rightSide = Math.max(0, box.right - elRect.right);
+
+      // 找同一行里排在我们左边的那个控件（渠道/模型）的右边缘，作为可用起点。
+      let leftLimit = box.left;
+      const parent = el.parentElement;
+      if (parent) {
+        for (const child of parent.children) {
+          if (child === el) continue;
+          const rect = child.getBoundingClientRect();
+          // 排在我们左边（右边缘 < 我们左边缘）的最大那个
+          if (rect.width > 0 && rect.right <= elRect.left + 1 && rect.right > leftLimit) {
+            leftLimit = rect.right;
+          }
+        }
+      }
+      const room = box.right - rightSide - leftLimit - 8;
       return room > 0 ? room : 0;
     }
 
@@ -243,9 +248,12 @@ window.__ModuleLoader__.load({
       }
       const row = el ? el.querySelector('[data-composer-effort-chips-row]') : null;
       const chipSizes = row ? Array.from(row.children).map((c) => Math.round(c.scrollWidth)) : [];
+      const box = el ? findComposerBox(el) : null;
       probeBuffer.push({
         need: Math.round(need),
         room: Math.round(have.visible || 0),
+        boxW: box ? Math.round(box.width) : 0,
+        boxRight: box ? Math.round(box.right) : 0,
         selfLeft: el ? Math.round(el.getBoundingClientRect().left) : 0,
         selfRight: el ? Math.round(el.getBoundingClientRect().right) : 0,
         viewport: typeof window !== 'undefined' ? window.innerWidth : 0,
