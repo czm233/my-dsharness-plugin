@@ -30,6 +30,8 @@ window.__ModuleLoader__.load({
     const P = 'dsh-edit-restart'
     const HOST_ATTR = 'data-edit-restart-host'
     const LAYER_ATTR = 'data-edit-restart-layer'
+    // React 根容器（真正挂进 DOM 的那一层）与内部卡片是两层节点，两层都要能被识别
+    const LAYER_HOST_ATTR = 'data-edit-restart-layer-host'
     const ACTION_ATTR = 'data-edit-restart-action'
     const READY_ATTR = 'data-edit-restart-ready'
     const INDEX_ATTR = 'data-edit-restart-index'
@@ -93,7 +95,8 @@ window.__ModuleLoader__.load({
       let actions = null
       for (const child of Array.from(row.children)) {
         // 跳过我们自己的节点：编辑器里也有按钮，否则会被误当成官方操作行
-        if (child.hasAttribute(LAYER_ATTR) || child.hasAttribute(ACTION_ATTR)) continue
+        if (child.hasAttribute(LAYER_ATTR) || child.hasAttribute(LAYER_HOST_ATTR)
+          || child.hasAttribute(ACTION_ATTR) || child.querySelector(`[${LAYER_ATTR}]`) !== null) continue
         if (hasClassLike(child, '_userStack') && bubble === null && child.querySelector('button') === null) {
           bubble = child
           continue
@@ -351,6 +354,7 @@ window.__ModuleLoader__.load({
       actionEl.setAttribute('aria-label', t('action'))
       actionEl.title = t('action')
       const layerEl = document.createElement('div')
+      layerEl.setAttribute(LAYER_HOST_ATTR, '')
       const actionRoot = createRoot(actionEl)
       const layerRoot = createRoot(layerEl)
 
@@ -588,7 +592,14 @@ window.__ModuleLoader__.load({
           onClose: () => closeEditor(),
           onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
         }))
-        diag('editor rendered', { bubble: describe(liveBubble), width: layerEl.style.width })
+        const chain = []
+        let cursor = actionEl
+        for (let hop = 0; cursor && hop < 4; hop += 1, cursor = cursor.parentElement) chain.push(describe(cursor))
+        diag('editor rendered', {
+          bubble: describe(liveBubble),
+          width: layerEl.style.width,
+          buttonChain: chain.join(' < '),
+        })
       }
 
       /** 枚举当前会话的用户消息，把「修改」按钮挂进官方操作行（复制按钮旁边）。 */
@@ -667,7 +678,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.17.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.18.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

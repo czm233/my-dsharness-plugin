@@ -250,6 +250,16 @@ check('编辑框在流内展开，占据气泡原来的列位置', layer !== und
   check('「修改」按钮位置不动（仍在操作行，没被编辑器里的按钮骗走）',
     actionEl.parentElement === other.second.actionsRow)
   check('编辑器没有被误当成操作行', !actionEl.parentElement.hasAttribute('data-edit-restart-layer'))
+  // 编辑期间再触发一次扫描：必须仍把按钮留在官方操作行（容器层也算"自己的节点"）
+  flushMutations()
+  const pendingScan = rafQueue
+  rafQueue = []
+  for (const fn of pendingScan) fn()
+  check('编辑期间重扫后按钮仍在操作行', actionEl.parentElement === other.second.actionsRow,
+    `parent=${actionEl.parentElement && (actionEl.parentElement.getAttribute('class') || actionEl.parentElement.tagName)}`)
+  const rescan = T.scanChat(other.content)
+  check('重扫时操作行仍是官方 _actions 而不是编辑器',
+    rescan.length === 2 && rescan[1].actions === other.second.actionsRow)
   check('「修改」按钮仍在官方操作行里', actionEl.parentElement === other.second.actionsRow)
   const textarea = layer && layer.querySelector('textarea')
   check('编辑框回填的是第 2 条人发消息的正文', textarea !== undefined && textarea.value === '教我 C++',
