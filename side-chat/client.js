@@ -36,6 +36,12 @@ window.__ModuleLoader__.load({
       'tab.title': '侧边对话',
       'forking.label': '正在创建分支…',
       'fork.error': '创建分支失败',
+      'close.title': '保留这个会话？',
+      'close.keep': '保留',
+      'close.keepHint': '关闭标签页，会话留在左侧列表',
+      'close.discard': '不保留',
+      'close.discardHint': '关闭标签页并归档这个会话',
+      'close.failed': '归档失败',
     }
     const en = {
       'guide.label': 'Side chat',
@@ -43,6 +49,12 @@ window.__ModuleLoader__.load({
       'tab.title': 'Side chat',
       'forking.label': 'Creating branch…',
       'fork.error': 'Failed to create branch',
+      'close.title': 'Keep this session?',
+      'close.keep': 'Keep',
+      'close.keepHint': 'Close the tab; the session stays in the sidebar list',
+      'close.discard': 'Discard',
+      'close.discardHint': 'Close the tab and archive the session',
+      'close.failed': 'Archive failed',
     }
 
     // Module-level map: tab id -> branch record. The tab body writes it after
@@ -66,6 +78,40 @@ window.__ModuleLoader__.load({
         return () => branchListeners.delete(fn)
       }, [tabId])
       return record
+    }
+
+    // Close confirmation. The Sidebar's close handler is synchronous and a
+    // thrown handler preserves the tab, so a close attempt is blocked here,
+    // the tab keeps rendering this body, and the dialog decides the outcome:
+    // an accepted close is re-issued through ctx.sidebarRight.close().
+    const closeGates = new Map()
+    const closeListeners = new Set()
+    const acceptedCloses = new Set()
+    function setCloseGate(tabId, value) {
+      if (value === undefined) closeGates.delete(tabId)
+      else closeGates.set(tabId, value)
+      closeListeners.forEach(fn => fn())
+    }
+    function useCloseGate(tabId) {
+      const [state, setState] = React.useState(() => closeGates.get(tabId))
+      React.useEffect(() => {
+        const fn = () => setState(closeGates.get(tabId))
+        closeListeners.add(fn)
+        fn()
+        return () => closeListeners.delete(fn)
+      }, [tabId])
+      return state
+    }
+
+    /**
+     * Sidebar close handler for this tab kind: block the close of a tab that
+     * already holds a branch and ask; a tab still forking closes straight away.
+     */
+    function handleCloseRequest(_sessionId, tab) {
+      if (acceptedCloses.delete(tab.id)) return
+      if (!branches.has(tab.id)) return
+      setCloseGate(tab.id, 'confirming')
+      throw new Error('side-chat: close awaits confirmation')
     }
 
     function sessionDisplayName(sessionId) {
@@ -111,6 +157,7 @@ window.__ModuleLoader__.load({
       const { tab } = props.useTabInfo()
       const parent = props.useSession(value => value)
       const branch = useBranch(tab.id)
+      const gate = useCloseGate(tab.id)
       const t = translator
 
       React.useEffect(() => {
@@ -135,6 +182,7 @@ window.__ModuleLoader__.load({
             try { reference.release() } catch (_alreadyReleased) { /* noop */ }
           }
           dropBranch(tab.id)
+          setCloseGate(tab.id, undefined)
         }
         // Fork exactly once per tab occurrence.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -146,7 +194,73 @@ window.__ModuleLoader__.load({
       if (!branch || !branch.reference) {
         return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
       }
-      return h(props.SessionProvider, { session: branch.reference }, props.renderSlot(CONV_SLOT, { sessionId: branch.childId }))
+      return h('div', { style: styles.body },
+        h(props.SessionProvider, { session: branch.reference }, props.renderSlot(CONV_SLOT, { sessionId: branch.childId })),
+        gate === 'confirming' ? h(CloseConfirm, { tabId: tab.id, childId: branch.childId }) : null)
+    }
+
+    /**
+     * The close confirmation. Mounted inside the tab body because the blocked
+     * close keeps the body alive; both outcomes re-issue the close through the
+     * controller after marking the tab as accepted.
+     */
+    function CloseConfirm(props) {
+      const { tabId, childId } = props
+      const t = translator
+      const [busy, setBusy] = React.useState(false)
+      const [failure, setFailure] = React.useState(null)
+      const cancel = React.useCallback(() => { setCloseGate(tabId, undefined) }, [tabId])
+
+      React.useEffect(() => {
+        const onKey = (event) => {
+          if (event.key !== 'Escape') return
+          event.stopPropagation()
+          cancel()
+        }
+        window.addEventListener('keydown', onKey, true)
+        return () => window.removeEventListener('keydown', onKey, true)
+      }, [cancel])
+
+      const keep = () => {
+        acceptedCloses.add(tabId)
+        setCloseGate(tabId, undefined)
+        clientCtx.sidebarRight.close(tabId)
+      }
+
+      const discard = async () => {
+        if (busy) return
+        setBusy(true)
+        setFailure(null)
+        try {
+          await clientCtx.uiWorkspace.archiveSession(childId)
+          acceptedCloses.add(tabId)
+          setCloseGate(tabId, undefined)
+          clientCtx.sidebarRight.close(tabId)
+        } catch (error) {
+          setFailure(`${t('close.failed')}: ${error && (error.message || error) || ''}`)
+          setBusy(false)
+        }
+      }
+
+      return h('div', { style: styles.overlay, onClick: cancel },
+        h('div', { style: styles.dialog, onClick: (event) => event.stopPropagation() },
+          h('div', { style: styles.dialogTitle }, t('close.title')),
+          failure !== null ? h('div', { style: styles.dialogError }, failure) : null,
+          h('div', { style: styles.dialogActions },
+            h('button', {
+              type: 'button',
+              style: styles.button,
+              title: t('close.discardHint'),
+              disabled: busy,
+              onClick: discard,
+            }, t('close.discard')),
+            h('button', {
+              type: 'button',
+              style: { ...styles.button, ...styles.buttonPrimary },
+              title: t('close.keepHint'),
+              disabled: busy,
+              onClick: keep,
+            }, t('close.keep')))))
     }
 
     /** Live tab chip: the branch session's display name. */
@@ -166,6 +280,67 @@ window.__ModuleLoader__.load({
     let translator = (key) => zh[key] || key
 
     const styles = {
+      body: {
+        width: '100%',
+        minWidth: 0,
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        position: 'relative',
+      },
+      overlay: {
+        position: 'absolute',
+        inset: 0,
+        zIndex: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(0,0,0,0.28)',
+        padding: 16,
+      },
+      dialog: {
+        width: 260,
+        maxWidth: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        padding: 16,
+        borderRadius: 12,
+        border: '0.5px solid var(--dsw-alias-border-l3)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        boxShadow: 'var(--dsw-elevation-prominent, 0 8px 24px rgba(0,0,0,0.2))',
+      },
+      dialogTitle: {
+        fontSize: 13.5,
+        lineHeight: 1.4,
+        color: 'var(--dsw-alias-label-primary)',
+      },
+      dialogError: {
+        fontSize: 11,
+        lineHeight: 1.4,
+        color: 'var(--dsw-alias-label-secondary)',
+        wordBreak: 'break-word',
+      },
+      dialogActions: {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: 8,
+      },
+      button: {
+        height: 28,
+        padding: '0 12px',
+        borderRadius: 8,
+        border: '0.5px solid var(--dsw-alias-border-l3)',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit',
+        fontSize: 12,
+        cursor: 'pointer',
+      },
+      buttonPrimary: {
+        background: 'var(--dsw-alias-interactive-bg-hover)',
+        borderColor: 'transparent',
+      },
       center: {
         height: '100%',
         display: 'flex',
@@ -187,7 +362,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['sessions', 'slots', 'locale', 'sidebarRight', 'sidebarRightTabs'],
+      inject: ['sessions', 'slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'uiWorkspace'],
       apply(ctx) {
         clientCtx = ctx
         ctx.effect(() => {
@@ -201,6 +376,10 @@ window.__ModuleLoader__.load({
 
         const t = ctx.locale.bind(NS)
         translator = t
+
+        // Block the close of a tab that already holds a branch, so the body can
+        // ask whether to keep the session. A thrown handler preserves the tab.
+        ctx.effect(() => ctx.sidebarRight.registerCloseHandler(KIND, handleCloseRequest), 'side-chat: close handler')
 
         // Slot-scoped translator: slot registrations accept a `locale` and the
         // framework hands components a bound `t` prop.

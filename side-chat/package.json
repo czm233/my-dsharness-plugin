@@ -1,9 +1,9 @@
 {
   "name": "@local/side-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "侧边对话：在官方右栏为当前会话开一个分支（fork 出真实会话，左侧列表同步出现，名字加后缀区分），在右栏 tab 里用完整对话界面继续聊。",
+  "description": "侧边对话：在官方右栏为当前会话开一个分支（fork 出真实会话，左侧列表同步出现，名字加后缀区分），在右栏 tab 里用完整对话界面继续聊；关闭 tab 时询问保留还是归档该会话。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
