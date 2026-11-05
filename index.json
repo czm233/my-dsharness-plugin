@@ -784,8 +784,8 @@
         "zh": "划词引用"
       },
       "description": {
-        "en": "Select text in a chat bubble and click the floating Quote button to insert it as a Markdown blockquote in the composer.",
-        "zh": "在聊天气泡里选中文字,点浮出的「引用」按钮,以 Markdown 引用格式插入输入框。"
+        "en": "Deprecated: DSH now ships native quote-selection; do not install.",
+        "zh": "已废弃：DSH 已内置划词引用功能，请勿安装，已装用户直接卸载即可。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
