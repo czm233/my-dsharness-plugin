@@ -129,6 +129,7 @@ function record(body) {
  * @param ctx - Host context whose `connection` service owns fetch routes.
  */
 export function registerDiagnostics(ctx) {
+  if (typeof ctx.inject !== 'function') return
   ctx.inject(['connection'], (child) => {
     child.effect(() => {
       const dispose = child.connection.fetch.register({
