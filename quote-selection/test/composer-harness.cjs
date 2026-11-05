@@ -31,7 +31,7 @@ const html = `<!doctype html><html><head></head><body>
         <div class="JZLxKW_row">
           <div class="JZLxKW_tools"><button class="JZLxKW_add"></button></div>
           <div class="JZLxKW_trailing"><div class="JZLxKW_standardControls"></div>
-            <button class="JZLxKW_primary" id="send" disabled></button></div>
+            <button class="JZLxKW_primary" id="send" aria-label="发送消息" disabled></button></div>
         </div>
       </div></div>
     </div>
@@ -42,7 +42,7 @@ const dom = new JSDOM(html, { pretendToBeVisual: true });
 const w = dom.window;
 const d = w.document;
 
-for (const key of ['Element', 'Node', 'HTMLElement', 'NodeFilter', 'CSS', 'DataTransfer', 'ClipboardEvent',
+for (const key of ['Element', 'Node', 'HTMLElement', 'NodeFilter', 'CSS', 'PointerEvent',
   'Event', 'KeyboardEvent', 'MouseEvent', 'HTMLTextAreaElement', 'MutationObserver']) {
   globalThis[key] = w[key];
 }
@@ -51,7 +51,43 @@ globalThis.document = d;
 globalThis.getComputedStyle = w.getComputedStyle.bind(w);
 globalThis.requestAnimationFrame = w.requestAnimationFrame.bind(w);
 // jsdom 不做布局:补上插件用到的两个几何/可见性 API。
+// 真实浏览器里合成粘贴由 Lexical 接收(event.defaultPrevented);jsdom 没有编辑器,
+// 这里把「粘贴被接收」近似成宿主收到这段文字。
+class FakeDataTransfer {
+  constructor() { this.data = {}; }
+  setData(type, value) { this.data[type] = value; }
+  getData(type) { return this.data[type] || ''; }
+}
+class FakeClipboardEvent extends w.Event {
+  constructor(type, init = {}) {
+    super(type, init);
+    this.clipboardData = init.clipboardData || new FakeDataTransfer();
+    this.__qsSynthetic = true;
+  }
+}
+w.DataTransfer = FakeDataTransfer;
+w.ClipboardEvent = FakeClipboardEvent;
+globalThis.DataTransfer = FakeDataTransfer;
+globalThis.ClipboardEvent = FakeClipboardEvent;
+// jsdom 没有编辑器:合成粘贴在这里等价于宿主把它写进输入框。
+w.Element.prototype.dispatchEvent = (() => {
+  const orig = w.EventTarget.prototype.dispatchEvent;
+  return function dispatchEvent(event) {
+    if (event && event.type === 'paste' && !event.__qsDelivered) event.__qsDelivered = true;
+    return orig.call(this, event);
+  };
+})();
 w.HTMLElement.prototype.checkVisibility = () => true;
+// jsdom 没实现 execCommand:输入框里的 insertText 当插入文字处理。
+d.execCommand = (command, _ui, value) => {
+  if (command !== 'insertText' || typeof value !== 'string') return false;
+  const sel = w.getSelection();
+  const node = sel && sel.anchorNode ? (sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode) : null;
+  const host = node && node.closest ? node.closest('[data-lexical-editor]') : null;
+  if (!host) return false;
+  host.appendChild(d.createTextNode(value));
+  return true;
+};
 w.Range.prototype.getBoundingClientRect = () => ({ x: 100, y: 100, left: 100, top: 100, right: 400, bottom: 120, width: 300, height: 20 });
 Object.defineProperty(w, 'innerWidth', { value: 1200, configurable: true });
 Object.defineProperty(w, 'innerHeight', { value: 800, configurable: true });
@@ -62,6 +98,27 @@ const plugin = globalThis.__qsModule.factory(() => { throw new Error('quote-sele
 let dispose = () => {};
 plugin.apply({ effect: (fn) => { dispose = fn() || (() => {}); return dispose; } });
 
+// 宿主行为的近似:按钮点击只在有正文时提交(提交 = 清空正文,批注卡跟着消失)。
+let hostSubmits = 0;
+let lastSubmitText = '';
+const sendButton = () => d.querySelector('[aria-label="发送消息"]');
+const composerText = () => d.querySelector('[data-composer-input]').textContent;
+sendButton().addEventListener('click', () => {
+  if (composerText().trim() === '') return;
+  hostSubmits += 1;
+  lastSubmitText = composerText();
+  d.querySelector('[data-composer-input]').innerHTML = '<p><br></p>';
+  d.dispatchEvent(new w.Event('selectionchange'));
+  d.querySelector('.JZLxKW_grow').appendChild(d.createComment('react re-render'));
+});
+
+let finished = false;
+setTimeout(() => {
+  if (finished) return;
+  for (const [status, line] of results) console.log(`${status}  ${line}`);
+  console.log('\nHARNESS TIMEOUT: 用例没有跑完');
+  process.exit(1);
+}, 15000);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const marker = () => d.querySelector(MARKER);
 const results = [];
@@ -85,6 +142,17 @@ async function quoteOnce() {
 }
 
 (async () => {
+  check('插件能认出宿主的发送按钮', () => {
+    const text = d.querySelector('.AkCqbG_bubble').firstChild;
+    const range = d.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 2);
+    const selection = w.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    d.dispatchEvent(new w.Event('selectionchange'));
+    assert.ok(sendButton(), '测试夹具里的发送按钮不在');
+  });
   check('初始无标记节点', () => assert.strictEqual(marker(), null));
 
   await quoteOnce();
@@ -120,6 +188,28 @@ async function quoteOnce() {
   d.querySelector(`${CARD} .dsh-quote-clear`).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   await quoteOnce();
   check('再次引用仍只挂一个标记', () => assert.strictEqual(d.querySelectorAll(MARKER).length, 1));
+
+  // 只有批注、正文留空时点发送:批注必须作为正文发出去
+  const before = hostSubmits;
+  sendButton().dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await sleep(30);
+  check('空正文 + 批注,点发送直接发出', () => assert.strictEqual(hostSubmits, before + 1));
+  check('宿主收到的正文里有批注摘要', () => assert.ok(lastSubmitText.includes('〔引用批注 1「请帮我检'), JSON.stringify(lastSubmitText)));
+  check('发出后批注卡与标记一并清掉', () => {
+    assert.strictEqual(d.querySelector(CARD).style.display, 'none');
+    assert.strictEqual(marker(), null);
+  });
+  check('这一次只发出一轮', () => assert.strictEqual(hostSubmits, before + 1));
+
+  // 再次引用 → Enter
+  await quoteOnce();
+  const editor = d.querySelector('[data-composer-input]');
+  editor.appendChild(d.createTextNode('〔引用批注 1「请帮我检查一下」：这里写错了〕'));
+  d.querySelector('.JZLxKW_grow').appendChild(d.createComment('react re-render'));
+  await sleep(30);
+  editor.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await sleep(30);
+  check('有批注时 Enter 只提交一次', () => assert.strictEqual(hostSubmits, before + 2));
 
   dispose();
   await sleep(20);

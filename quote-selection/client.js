@@ -16,6 +16,8 @@ window.__ModuleLoader__.load({
     const COMPOSER_GROW_CLASS = 'JZLxKW_grow';
     const MARKER_ID = 'dsh-quote-composer-marker';
     const SEND_BUTTON_CLASS = 'JZLxKW_primary';
+    // 发送按钮自带的中文文案(宿主 aria-label),哈希类名失效时按它认按钮。
+    const SEND_LABELS = ['发送消息', '排队发送', '插话发送'];
 
     // 主对话区域(DSH 语义属性):只有这个容器里的选区才允许引用。
     // 没有该属性时返回 null,调用方退回旧启发式。
@@ -96,11 +98,14 @@ window.__ModuleLoader__.load({
       grow.appendChild(marker);
     }
 
-    // 发送按钮:卡片容器内的圆形主按钮(哈希类名优先,兜底找最右边的圆形按钮)。
+    // 发送按钮:卡片容器内的圆形主按钮(哈希类名优先,兜底按文案找,再兜底找最右边的圆形按钮)。
     function findSendButton(card) {
       if (!card) return null;
       const byClass = card.querySelector(`.${SEND_BUTTON_CLASS}`);
       if (byClass && isVisible(byClass)) return byClass;
+      const byLabel = [...card.querySelectorAll('button')]
+        .find((button) => SEND_LABELS.some((label) => (button.getAttribute('aria-label') || '').includes(label)));
+      if (byLabel) return byLabel;
       let best = null;
       for (const button of card.querySelectorAll('button')) {
         if (!isVisible(button)) continue;
@@ -308,7 +313,6 @@ window.__ModuleLoader__.load({
           let currentText = null;
           let currentRect = null;
           let timer = 0;
-          let lastInjectAt = 0;
           let editingIndex = -1; // >=0 时弹窗处于「修改」模式
           // 弹窗打开瞬间的引用原文快照。不能依赖 currentText:点「引用」会清空
           // 选区,selectionchange 随后把 currentText 清 null,确认时就没内容了。
@@ -465,33 +469,79 @@ window.__ModuleLoader__.load({
             const excerpt = q.length > 16 ? `${q.slice(0, 16)}…` : q;
             return `〔引用批注 ${index + 1}「${excerpt}」${item.comment ? `：${item.comment}` : ''}〕`;
           };
-          const flushBeforeSend = () => {
-            if (store.length === 0) return false;
-            const now = Date.now();
-            if (now - lastInjectAt < 200) return false; // 防同一次发送双触发
-            lastInjectAt = now;
-            const payload = store.map(compactBlock).join('\n') + '\n';
+          // 正文为空?宿主用草稿文字判空,批注卡不算正文(只挂标记节点)。
+          // 只看实时 DOM:缓存下来的编辑器节点在宿主重建后可能已经离体。
+          const liveComposerEl = () => document.querySelector('[data-conversation-region="composer"] [data-lexical-editor="true"]')
+            || document.querySelector('[data-lexical-editor="true"]')
+            || document.querySelector('[data-conversation-region="composer"] textarea');
+          const isComposerBlank = () => {
+            const el = liveComposerEl();
+            if (!el) return false;
+            if (el.tagName === 'TEXTAREA') return el.value.trim() === '';
+            if (!el.textContent.trim()) return true;
+            // 引用库自己注入的片段不算正文
+            return !el.textContent.split('\n').some((line) => line.trim() && !/^〔引用批注 \d+「/.test(line.trim()));
+          };
+
+          // 注入正文并清空批注(宿主拿到文本后才会真正提交);成功返回 true。
+          let flushing = false;
+          const flushNow = () => {
+            if (flushing || store.length === 0) return false;
+            flushing = true;
             try {
+              const payload = store.map(compactBlock).join('\n') + '\n';
               if (!insertIntoComposer(payload, true)) return false;
+              store.length = 0;
+              renderCard();
+              ensureAnchor();
+              panelOpen = false;
+              panel.style.display = 'none';
+              return true;
             } catch (error) {
               console.error('[quote-selection] flush failed:', error);
               return false;
+            } finally {
+              flushing = false;
             }
-            store.length = 0;
-            renderCard();
-            ensureAnchor();
-            panelOpen = false;
-            panel.style.display = 'none';
-            return true;
           };
           const tryFlush = () => {
-            try { flushBeforeSend(); } catch (error) { console.error(error); }
+            try { flushNow(); } catch (error) { console.error(error); }
+          };
+
+          // 空稿直接发:只有批注时,点发送按钮不会替我们把批注当正文(宿主判空只看
+          // 确实进过编辑器的文字),所以先把批注落进输入框,让它成为正文的一部分,
+          // 再按发送按钮的玩法通知宿主(先 pointerdown 再 click,顺序跟真人一样)。
+          const sendQuotesAlone = () => {
+            if (store.length === 0) return false;
+            flushNow();
+            const card = findComposerCard();
+            const button = (card || document).querySelector(`.${SEND_BUTTON_CLASS}`) || findSendButton(card);
+            if (!button) return false;
+            const press = (el) => (typeof PointerEvent === 'function'
+              ? el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }))
+              : false);
+            press(button);
+            const current = button.isConnected
+              ? button
+              : (findComposerCard() || document).querySelector(`.${SEND_BUTTON_CLASS}`) || button;
+            current.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+          };
+          const trySend = () => {
+            try { return sendQuotesAlone(); } catch (error) { console.error('[quote-selection] send failed:', error); return false; }
           };
 
           document.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
             const target = event.target;
             if (!(target instanceof Element) || !target.closest('[data-lexical-editor], textarea')) return;
+            // 空稿 + 有批注:直接当一次提交处理。不能让宿主自己提交——它先把文本
+            // 从编辑器清掉、再交给机器结算,机器拿到的仍是空草稿,只发出一个空白轮次。
+            if (isComposerBlank()) {
+              event.preventDefault();
+              trySend();
+              return;
+            }
             tryFlush();
           }, true);
           document.addEventListener('click', (event) => {
@@ -499,7 +549,17 @@ window.__ModuleLoader__.load({
             if (!(target instanceof Element)) return;
             const composerCard = findComposerCard();
             const send = findSendButton(composerCard);
-            if (send && (send === target || send.contains(target))) tryFlush();
+            if (!send || !(send === target || send.contains(target))) return;
+            if (isComposerBlank()) {
+              // 只有批注:先把批注写进输入框再补一次点击;写不进去才拦下这一下。
+              const pressed = trySend();
+              if (pressed) {
+                event.preventDefault();
+                event.stopPropagation();
+              }
+              return;
+            }
+            tryFlush();
           }, true);
 
           // ---- 划词检测 ----
