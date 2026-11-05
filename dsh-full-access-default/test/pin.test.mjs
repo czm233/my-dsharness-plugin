@@ -15,12 +15,24 @@ function fakeSession(id, seed = []) {
   }
 }
 
-function harness({ settings = {}, config = {} } = {}) {
+function harness({ settings = {}, config = {}, injected = false, captured = {} } = {}) {
   const listeners = {}
   const ctx = {
     on: (type, fn) => { listeners[type] = fn },
     logger: { info: () => {}, warn: () => {} },
     settings: { get: (key) => settings[key] },
+    ...(injected
+      ? {
+          inject: (services, fn) => {
+            const routes = []
+            fn({
+              effect: (factory) => { routes.push(factory()); return () => {} },
+              connection: { fetch: { register: (route) => { routes.push(route); return () => {} } } },
+            })
+            captured.routes = routes
+          },
+        }
+      : {}),
   }
   apply(ctx, config)
   return (session) => listeners['session/created'](session)
@@ -44,6 +56,15 @@ test('session that already holds facts keeps them', () => {
   const session = fakeSession('s2', [{ type: 'approval/policy', data: { policy: 'ask' } }])
   create(session)
   assert.equal(session.log.length, 1)
+})
+
+test('diagnostics route is registered through the connection carrier', async () => {
+  const captured = {}
+  harness({ config: { preset: 'danger-full-access' }, injected: true, captured })
+  const route = captured.routes?.find((item) => item?.path === '/api/full-access-default/log')
+  assert.equal(route?.methods?.[0], 'POST')
+  const response = await route.fetch({ json: async () => ({ event: 'test', detail: { ok: true } }) })
+  assert.equal(response.ok, true)
 })
 
 test('settings wins when the config leaves the preset out', () => {
