@@ -139,7 +139,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['configForms', 'locale', 'settingsSchema', 'slots'],
+      inject: ['configForms', 'locale'],
       apply(ctx) {
         report('client/apply', { hasConfigForms: ctx.get('configForms') !== undefined })
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'full-access-default: settings row dictionary')
