@@ -13,6 +13,8 @@ window.__ModuleLoader__.load({
     const BUTTON_ID = 'dsh-quote-selection-button';
     // 2026-10-27 构建的哈希类名(升级会变,见 PITFALLS #12;均带启发式兜底)。
     const COMPOSER_CARD_CLASS = 'JZLxKW_card';
+    const COMPOSER_GROW_CLASS = 'JZLxKW_grow';
+    const MARKER_ID = 'dsh-quote-composer-marker';
     const SEND_BUTTON_CLASS = 'JZLxKW_primary';
 
     // 主对话区域(DSH 语义属性):只有这个容器里的选区才允许引用。
@@ -67,6 +69,31 @@ window.__ModuleLoader__.load({
         if (parseFloat(cs.borderRadius) >= 8 && cs.display.includes('flex')) return el;
       }
       return composer.el.parentElement;
+    }
+
+    // 让输入框算成「有内容」:宿主用草稿文字判定空/非空,空稿时发送按钮恒为
+    // disabled;decorator 节点不计入草稿文字,所以挂一个只做视口的零尺寸节点——
+    // 它命中视口,宿主滚动/尺寸观察器就会把「引用已附着」当成内容变化。
+    // 不往正文塞占位字符(会被当真内容发出去),也不改宿主组件;摘掉后回到原状。
+    function composerGrow() {
+      const composer = findComposer();
+      if (!composer || composer.kind !== 'lexical') return null;
+      return composer.el.querySelector(`.${COMPOSER_GROW_CLASS}`) || composer.el.parentElement;
+    }
+
+    function setComposerMarker(on) {
+      const existing = document.getElementById(MARKER_ID);
+      if (!on) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (existing) return;
+      const grow = composerGrow();
+      if (!grow) return;
+      const marker = document.createElement('div');
+      marker.id = MARKER_ID;
+      marker.setAttribute('aria-hidden', 'true');
+      grow.appendChild(marker);
     }
 
     // 发送按钮:卡片容器内的圆形主按钮(哈希类名优先,兜底找最右边的圆形按钮)。
@@ -242,7 +269,7 @@ window.__ModuleLoader__.load({
           ].join('\n');
           const style = document.createElement('style');
           style.dataset.plugin = '@local/quote-selection';
-          style.textContent = css;
+          style.textContent = [css, '#dsh-quote-composer-marker { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }'].join('\n');
           document.head.appendChild(style);
 
           // ---- 划词按钮 ----
@@ -301,6 +328,7 @@ window.__ModuleLoader__.load({
 
           // ---- 批注卡:持续锚定在输入框卡片第一行 ----
           let panelOpen = false;
+          let markerOn = false;
           const ensureAnchor = () => {
             const composerCard = findComposerCard();
             if (!composerCard || store.length === 0) {
@@ -310,12 +338,20 @@ window.__ModuleLoader__.load({
                 panelOpen = false;
                 panel.style.display = 'none';
               }
+              if (markerOn) {
+                markerOn = false;
+                setComposerMarker(false);
+              }
               return;
             }
             if (card.parentElement !== composerCard || composerCard.firstElementChild !== card) {
               composerCard.insertBefore(card, composerCard.firstChild);
             }
             if (card.style.display === 'none') card.style.display = 'flex';
+            if (!markerOn) {
+              markerOn = true;
+              setComposerMarker(true);
+            }
           };
 
           const renderCard = () => {
@@ -617,6 +653,7 @@ window.__ModuleLoader__.load({
             panel.remove();
             popover.remove();
             style.remove();
+            setComposerMarker(false); // 卸载时把输入框的「有内容」标记一并摘掉
           };
         });
       },
