@@ -1,0 +1,5 @@
+- insert:
+    - id: full-access-default
+      name: '@local/dsh-full-access-default'
+      config:
+        preset: danger-full-access

@@ -1383,6 +1383,32 @@
           }
         }
       ]
+    },
+    {
+      "name": "dsh-full-access-default",
+      "title": {
+        "en": "Full Access by Default",
+        "zh": "新会话默认完全权限"
+      },
+      "description": {
+        "en": "Every newly created session starts under the configured permission preset (danger-full-access by default), including conversations that reuse a previous blank session; Settings › General shows that preset.",
+        "zh": "每个新建会话都按配置的权限预设创建(默认「完全权限」),包括复用上一次空白会话的情况;设置 › 通用 里显示并切换的就是这个预设。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "dsh-full-access-default"
+      },
+      "metadata": {
+        "category": "security",
+        "keywords": [
+          "dsh",
+          "permission",
+          "sandbox",
+          "full-access",
+          "session"
+        ]
+      },
+      "versions": []
     }
   ]
 }
