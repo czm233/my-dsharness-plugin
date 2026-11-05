@@ -1408,7 +1408,18 @@
           "session"
         ]
       },
-      "versions": []
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1793859710,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "834d36b",
+            "path": "dsh-full-access-default"
+          }
+        }
+      ]
     }
   ]
 }
