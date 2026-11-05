@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-full-access-default",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Makes every newly created session start with the configured default permission preset (danger-full-access by default) instead of the composed deployment default.",
