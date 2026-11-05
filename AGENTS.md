@@ -104,7 +104,7 @@
 | composer-usage-plus | 1.3.1 | 用量明细;1.3.1 修复额度条刷新时间不显示(nextResetTime 被解析压扁丢弃);1.3.0 额度条显示 5h/7d 下次刷新时间;1.2.0「今日用量」改为官方 model-usage 接口实数(含缓存,与使用详情页同口径) |
 | composer-effort-chips | 1.3.9 | 推理力度切换;1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
 | turn-cost | 1.15.5 | 单轮成本;1.15.5 强停/中断轮药丸保持原内联位置,不再漂移到兜底行 |
-| quote-selection | 0.5.5 | 划词引用;已装并用(此前漏登记本表) |
+| quote-selection | 0.5.6 | 划词引用;0.5.6 修复确认批注后发送按钮仍禁用(空稿时宿主与原生清除行为不一致,改挂视口标记节点),渲染/交互改动装机前跑 `node quote-selection/test/composer-harness.cjs` |
 | edit-restart | 0.20.0 | 修改重发;在任何一条用户消息旁点「修改」(官方操作行内、与复制按钮同样式),该条气泡原位展开成输入区,改完发送即按这条消息所在轮次的 turn/start 原生 fork 出一条新会话并发出修改后内容(原会话保留);渲染/交互改动装机前跑 `node edit-restart/test/layout-harness.cjs`(PITFALLS #27/#28) |
 
 ---
