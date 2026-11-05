@@ -154,7 +154,6 @@ window.__ModuleLoader__.load({
           }
         }
         const form = ctx.configForms.get(SETTINGS_NS)
-        note('applied')
 
         // The row itself scrolls like every other general row (2 lines of copy
         // plus control); content beyond that is reachable by touching it.
@@ -179,6 +178,7 @@ window.__ModuleLoader__.load({
           lastReported = state
           report('row/mount', { state })
         }
+        note('applied')
         const hiddenRows = new Set()
         let root = null
         let mountedSeat = null
