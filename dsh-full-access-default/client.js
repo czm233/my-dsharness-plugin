@@ -48,6 +48,18 @@ window.__ModuleLoader__.load({
       failed: 'Save failed',
     }
 
+    // 诊断落盘:桌面客户端没有控制台,客户端行为写进 Host 路由能落到的文件。
+    const LOG_PATH = '/api/full-access-default/log'
+    function report(event, detail) {
+      try {
+        const body = JSON.stringify({ event, detail, at: new Date().toISOString() })
+        fetch(LOG_PATH, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+          .catch(() => {})
+      } catch {
+        // 诊断失败不影响功能
+      }
+    }
+
     /** Title-case a conventional preset name the way the shipped picker does. */
     function displayName(value) {
       if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(value)) return value
@@ -129,6 +141,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['configForms', 'locale', 'settingsSchema', 'slots'],
       apply(ctx) {
+        report('client/apply', { hasConfigForms: ctx.get('configForms') !== undefined })
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'full-access-default: settings row dictionary')
         const t = ctx.locale.bind(NS)
         const access = ctx.locale.bind(ACCESS_NS)
@@ -141,6 +154,7 @@ window.__ModuleLoader__.load({
           }
         }
         const form = ctx.configForms.get(SETTINGS_NS)
+        note('applied')
 
         // The row itself scrolls like every other general row (2 lines of copy
         // plus control); content beyond that is reachable by touching it.
@@ -159,6 +173,12 @@ window.__ModuleLoader__.load({
         const onResize = () => { mount() }
         window.addEventListener('resize', onResize)
 
+        let lastReported = ''
+        const note = (state) => {
+          if (state === lastReported) return
+          lastReported = state
+          report('row/mount', { state })
+        }
         const hiddenRows = new Set()
         let root = null
         let mountedSeat = null
@@ -171,7 +191,10 @@ window.__ModuleLoader__.load({
               break
             }
           }
-          if (slot === null) return
+          if (slot === null) {
+            note('no-shipped-row')
+            return
+          }
           const shipped = slot.firstElementChild
           if (shipped !== null && !shipped.hasAttribute(HIDDEN)) {
             shipped.setAttribute(HIDDEN, '1')
@@ -192,6 +215,7 @@ window.__ModuleLoader__.load({
             mountedSeat = seat
           }
           root.render(h(PresetRow, { form, t, tAccess }))
+          note('seated')
         }
 
         const observer = new MutationObserver(mount)

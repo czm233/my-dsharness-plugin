@@ -65,6 +65,7 @@ function hasPermissionFacts(session) {
  */
 export function apply(ctx, config = {}) {
   const configured = configValue(config, 'preset')
+  registerDiagnostics(ctx)
 
   /** Resolve the preset to pin at creation time (Settings is read lazily). */
   const presetOf = () => {
@@ -91,5 +92,59 @@ export function apply(ctx, config = {}) {
     } catch (error) {
       ctx.logger?.warn?.(`[full-access-default] pinning ${session?.id} failed: ${String(error)}`)
     }
+  })
+}
+// ---------------------------------------------------------------------------
+// Diagnostics: the desktop client has no console, so the browser half POSTs its
+// mount/session observations to a Host route that appends one JSON line to a
+// file outside the workspace. Remove this block together with `report()` in
+// client.js once the feature is verified.
+
+import { appendFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+const LOG_DIR = join(process.env.HOME ?? '.', 'Library', 'Application Support', 'dsh-client-plugin-full-access-default')
+const LOG_FILE = join(LOG_DIR, 'client-events.jsonl')
+
+/** Keep each line bounded so a runaway caller cannot fill the disk. */
+function trim(value, depth = 0) {
+  if (typeof value === 'string') return value.length > 500 ? `${value.slice(0, 500)}…` : value
+  if (value === null || typeof value !== 'object' || depth > 3) return value
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => trim(item, depth + 1))
+  return Object.fromEntries(Object.entries(value).slice(0, 20).map(([key, item]) => [key, trim(item, depth + 1)]))
+}
+
+/** Append one client observation; never throws into the request path. */
+function record(body) {
+  try {
+    mkdirSync(LOG_DIR, { recursive: true })
+    appendFileSync(LOG_FILE, `${JSON.stringify({ receivedAt: new Date().toISOString(), ...trim(body) })}\n`)
+  } catch {
+    // diagnostics only
+  }
+}
+
+/**
+ * Register the diagnostics route through the optional web carrier.
+ * @param ctx - Host context whose `connection` service owns fetch routes.
+ */
+export function registerDiagnostics(ctx) {
+  ctx.inject(['connection'], (child) => {
+    child.effect(() => {
+      const dispose = child.connection.fetch.register({
+        path: '/api/full-access-default/log',
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request) => {
+          try {
+            record(await request.json())
+          } catch {
+            record({ event: 'unparsable' })
+          }
+          return Response.json({ ok: true })
+        },
+      })
+      return () => { dispose() }
+    }, 'full-access-default: diagnostics route')
   })
 }
