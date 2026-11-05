@@ -106,6 +106,7 @@ window.__ModuleLoader__.load({
         ]),
         h('select', {
           key: 'select',
+          'data-full-access-select': '',
           'aria-label': t('title'),
           value: current,
           disabled: saving || state.writable === false,
@@ -140,6 +141,23 @@ window.__ModuleLoader__.load({
           }
         }
         const form = ctx.configForms.get(SETTINGS_NS)
+
+        // The row itself scrolls like every other general row (2 lines of copy
+        // plus control); content beyond that is reachable by touching it.
+        const STYLE_ID = 'dsh-full-access-style'
+        if (document.querySelector(`style[data-plugin-css="${STYLE_ID}"]`) === null) {
+          const style = document.createElement('style')
+          style.dataset.plugin = '@local/dsh-full-access-default'
+          style.dataset.pluginCss = STYLE_ID
+          style.textContent = [
+            '[data-full-access-row]{max-height:72px;overflow-y:auto;box-sizing:border-box}',
+            '[data-full-access-row] [data-full-access-select]{flex:none}',
+          ].join('')
+          document.head.appendChild(style)
+        }
+        // Re-anchor when the settings surface is resized or re-parented.
+        const onResize = () => { mount() }
+        window.addEventListener('resize', onResize)
 
         const hiddenRows = new Set()
         let root = null
@@ -181,6 +199,7 @@ window.__ModuleLoader__.load({
         mount()
         ctx.effect(() => () => {
           observer.disconnect()
+          window.removeEventListener('resize', onResize)
           if (root !== null) root.unmount()
           for (const node of hiddenRows) {
             node.removeAttribute(HIDDEN)
