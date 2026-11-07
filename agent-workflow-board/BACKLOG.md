@@ -79,3 +79,14 @@
 - Dify 自动排列（Cmd+O）+ 分支顺序教训 — [issue #34134](https://github.com/langgenius/dify/issues/34134)、[快捷键文档](https://docs.dify.ai/zh/self-host/use-dify/build/shortcut-key)
 - draw.io 多预设布局（Flow/Tree/Radial/Organic，ELK 引擎，记住参数）— [官方博客](https://www.drawio.com/blog/auto-layouts/)、[ELK Layered](https://eclipse.dev/elk/blog/posts/2025/25-08-21-layered.html)
 - ComfyUI 对齐分布生态 — [LVO-Node-Aligner](https://github.com/LVOcode/ComfyUI-LVO-Node-Aligner)、[Node Organizer](https://github.com/PBandDev/comfyui-node-organizer)、[Draftsman](https://github.com/ScrudgMcDack/ComfyUI-Draftsman)
+
+## B9. 钩子动作类型化（检查点/派角色/脚本钩子）⭐⭐
+
+- **需求**：2.18.0 钩子只有"说明"文字（软注入）。讨论定型的扩展方向（2026-11-07，用户暂缓，想清楚自己脚本的真实用法后再启动）：
+  1. **检查点**：说明升级为硬措辞注入（"逐条核对并上报，未过不得交棒"）；
+  2. **派角色**：时机 + 从角色库选角色 + 给它的任务说明——编译成"此时机真实派发该角色"，行为最丰富，复用现有 roster；
+  3. **脚本钩子（轻版）**：脚本库（storage 开 scripts/ 或画布设置指目录，host 提供 scripts:list 扫描）+ 钩子菜单下拉**选**脚本（绝不手打路径），编译进提示词由主会话 bash 执行，带退出码成败标准；
+  4. **脚本钩子（重版）/硬阻断（远期）**：八大时机宿主侧均有真实事件对应（agent/created、tools/pre-execute、agent/disposed 等），宿主直接 spawn 脚本或按 status.json 机器条件拒绝派发；需授权开关/超时/结果回写画布（⚡小块打 ✓✗）。
+- **设计底线**：钩子上限=一个动作；再复杂就该长成画布正式节点。检查类归模型（软/半硬），机器类归宿主（硬）；两分法是本条的核心结论。
+- **验收**：每种子项做完，用 test/host-spec-sim.cjs 断言注入文本形态 + 真实画布跑通对应时机。
+- **工作量**：检查点 极小；派角色 中；脚本轻版 中；重版/硬阻断 大。
