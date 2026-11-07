@@ -228,6 +228,27 @@ function compileSpec(doc) {
     }
   }
   const labelOf = node => (node && node.label ? String(node.label) : String(node.id))
+  // 钩子清单（新模型：node.hooks 数组；兼容旧画布的 type:'hook' 孤岛节点）。
+  // 分派型时机（派发前/后、子agent启/停）跟着所属节点走，注入该节点的步骤段落；
+  // 会话型时机（会话开始/用户消息/每轮结束/会话结束）与旧钩子节点统一进全局时机段。
+  const DISPATCH_TIMINGS = new Set(['before-dispatch', 'after-dispatch', 'subagent-start', 'subagent-end'])
+  const nodeHooks = new Map()
+  const globalHooks = []
+  for (const node of nodes) {
+    if (node.type === 'hook') {
+      globalHooks.push({ timing: node.hookKind || '', note: node.note || node.label || '关键时机动作', owner: '', legacyLabel: labelOf(node) })
+      continue
+    }
+    for (const hk of Array.isArray(node.hooks) ? node.hooks : []) {
+      const entry = { timing: hk.timing || '', note: (hk.note || '').trim() || '关键时机动作', owner: labelOf(node) }
+      if (DISPATCH_TIMINGS.has(hk.timing)) {
+        if (!nodeHooks.has(node.id)) nodeHooks.set(node.id, [])
+        nodeHooks.get(node.id).push(entry)
+      } else {
+        globalHooks.push(entry)
+      }
+    }
+  }
   const lines = [`本会话按流程画布「${(doc && doc.name) || '未命名'}」执行。严格按以下节点顺序推进：`]
   lines.push('启动动作（先于一切节点）：盘点本会话现存子智能体——用你的子代理管理工具查看，仍在运行或待命的逐个停止；若无停止工具或无法停止，明确声明「既往子智能体与既往上下文一律忽略，本会话只按本流程推进」。完成后再进入第 1 个节点。')
   let step = 0
@@ -262,19 +283,32 @@ function compileSpec(doc) {
     } else {
       lines.push(`${n}. ${labelOf(node)}`)
     }
+    // 该节点的分派型钩子：写在节点自己的段落里——谁的钩子跟着谁走。
+    const hooksOf = nodeHooks.get(node.id)
+    if (hooksOf) {
+      for (const hk of hooksOf) lines.push(`   ↳ ${HOOK_TIMING_TEXT[hk.timing] || '时机动作'}：${hk.note}`)
+    }
   }
   lines.push('执行约束：只能沿图中连出的边推进；一个工作节点完成后再进入下一节点；判断节点只走一条分支；到达结束节点即向用户汇报并停止。')
   lines.push('进度上报：用 canvas_report 工具上报进度——进入一个节点时 status="running" 并填该节点的名称（label，与上面【】中的名称完全一致）；完成后 status="done"；失败时 status="error" 并在 note 说明原因。画布上会实时亮灯。')
-  // 钩子节点（M3 生效）：不占流程步骤号，按触发时机单独成段注入提示词。
-  // 钩子取自全量节点——它是时机动作不是流程步骤，不接线（孤岛）也生效。
-  const hooks = nodes.filter(node => node.type === 'hook')
-  if (hooks.length > 0) {
-    lines.push('时机动作（钩子节点，提示性——到对应时机先完成动作再继续，不改变流程走向）：')
-    for (const hook of hooks) {
-      const kindText = HOOK_TIMING_TEXT[hook.hookKind] || ''
-      const note = hook.note || hook.label || '关键时机动作'
-      lines.push(kindText ? `- ${kindText}「${labelOf(hook)}」：${note}` : `- 「${labelOf(hook)}」（未设触发时机）：${note}`)
+  // 全局时机段：旧 hook 孤岛节点 + 各节点的会话型钩子统一在此注入（提示性，不改流程走向）。
+  // 挂在主会话上的会话型钩子不加归属标注——主会话本身就代表整张画布。
+  const startLabel = labelOf(start)
+  const timingLines = []
+  for (const hk of globalHooks) {
+    const kindText = HOOK_TIMING_TEXT[hk.timing] || ''
+    if (kindText) {
+      const ownerTag = hk.owner && !hk.legacyLabel && hk.owner !== startLabel ? `（设于节点「${hk.owner}」）` : ''
+      const nameTag = hk.legacyLabel ? `「${hk.legacyLabel}」` : ''
+      timingLines.push(`- ${kindText}${nameTag}${ownerTag}：${hk.note}`)
+    } else {
+      const nameTag = hk.legacyLabel ? `「${hk.legacyLabel}」` : hk.owner ? `「${hk.owner}」的钩子` : '「钩子」'
+      timingLines.push(`- ${nameTag}（未设触发时机）：${hk.note}`)
     }
+  }
+  if (timingLines.length > 0) {
+    lines.push('时机动作（钩子，提示性——到对应时机先完成动作再继续，不改变流程走向）：')
+    for (const line of timingLines) lines.push(line)
   }
   return lines.join('\n')
 }

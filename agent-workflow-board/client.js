@@ -148,12 +148,12 @@ window.__ModuleLoader__.load({
       errNodeNoLabel: '节点「{a}」的名称不能为空。',
       warnRouterNoLabel: '判断节点「{a}」有一条出线没写分支标签。',
       warnWorkNoPrompt: '工作节点「{a}」还没写提示词。',
-      warnHookNoKind: '钩子节点「{a}」没选触发时机。',
+      warnHookNoKind: '节点「{a}」上有钩子没设时机。',
       descStart: '流程入口，唯一',
       descWork: '干活：派 agent 或主会话自己做',
       descRouter: '写判断条件，选择分支',
       descEnd: '在主会话回复用户，收尾',
-      descHook: '会话关键时机动作（按时机注入提示词）',
+      descHook: '时机动作：拖到某个节点上给它挂钩子',
       typeStart: '主会话',
       typeWork: '工作',
       typeRouter: '判断',
@@ -179,6 +179,9 @@ window.__ModuleLoader__.load({
       hookSessionEnd: '会话结束时',
       fieldHookNote: '动作说明',
       hookPreviewBadge: '按时机注入提示词',
+      hookDropOnNode: '钩子要拖到节点上',
+      hookNoTiming: '未设时机',
+      hookRemove: '移除钩子',
       routerHint: '判断节点每条出线选「是/否」即可；特殊情况选「自定义」再填文字，主会话按判断说明选分支。',
       edgesLabel: '连出的线',
       edgeLabelField: '分支标签',
@@ -303,12 +306,12 @@ window.__ModuleLoader__.load({
       errNodeNoLabel: 'Node "{a}" needs a name.',
       warnRouterNoLabel: 'Router "{a}" has an edge without a branch label.',
       warnWorkNoPrompt: 'Work node "{a}" has no prompt yet.',
-      warnHookNoKind: 'Hook node "{a}" has no trigger selected.',
+      warnHookNoKind: 'Node "{a}" has a hook with no trigger.',
       descStart: 'The entry; exactly one',
       descWork: 'The job: dispatch an agent or let Main do it',
       descRouter: 'Write the condition, pick a branch',
       descEnd: 'Reply to the user in Main, then stop',
-      descHook: 'Actions at key moments (injected into the spec)',
+      descHook: 'Hook: drop onto a node to attach a trigger action',
       typeStart: 'Main',
       typeWork: 'Work',
       typeRouter: 'Router',
@@ -334,6 +337,9 @@ window.__ModuleLoader__.load({
       hookSessionEnd: 'Session end',
       fieldHookNote: 'Action notes',
       hookPreviewBadge: 'Injected at its trigger',
+      hookDropOnNode: 'Drop a hook onto a node',
+      hookNoTiming: 'No trigger',
+      hookRemove: 'Remove hook',
       routerHint: 'Pick Yes/No for each router edge; use Custom only for special cases, the main session picks by decision notes.',
       edgesLabel: 'Outgoing edges',
       edgeLabelField: 'Branch label',
@@ -502,6 +508,14 @@ window.__ModuleLoader__.load({
       '.awbc-node.hook .awbc-port{border-color:var(--dsw-alias-state-error-primary)}',
       // 强制约束改在交互层：结束节点不能向外拉（startLinkDrag 拦截）、主会话不能被连入（落点拦截）。
       '.awbc-link-live{fill:none;stroke:var(--dsw-alias-brand-primary);stroke-width:2;stroke-dasharray:5 4}',
+      // --- 钩子尾巴：从节点底边往下生长的小块，点开选时机；无端口无连线 ---
+      '.awbc-hookrow{position:absolute;top:100%;left:12px;right:12px;display:flex;justify-content:center;align-items:flex-start;gap:14px;pointer-events:none}',
+      '.awbc-hookitem{display:flex;flex-direction:column;align-items:center;pointer-events:none}',
+      '.awbc-hookstem{width:2px;height:14px;background:var(--dsw-alias-border-l2)}',
+      '.awbc-hookchip{pointer-events:auto;display:flex;align-items:center;gap:4px;font:inherit;font-size:10px;line-height:14px;padding:3px 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:7px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap}',
+      '.awbc-hookchip:hover{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-label-primary)}',
+      '.awbc-hookchip .awbc-hookglyph{color:var(--dsw-alias-state-error-primary)}',
+      '.awbc-hooklayer{position:fixed;inset:0;z-index:29}',
       // --- editor panel ---
       '.awbc-editor{flex:0 0 292px;display:flex;flex-direction:column;gap:9px;padding:12px;border-left:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);overflow:auto}',
       '.awbc-field{display:flex;flex-direction:column;gap:3px}',
@@ -641,7 +655,7 @@ window.__ModuleLoader__.load({
         name: '',
         updatedAt: 0,
         nodes: [
-          { id: uid('n'), type: 'start', label: '主会话', description: '', prompt: '', agent: '', exec: 'lead', hookKind: '', note: '', x: 280, y: 200 },
+          { id: uid('n'), type: 'start', label: '主会话', description: '', prompt: '', agent: '', exec: 'lead', note: '', x: 280, y: 200 },
         ],
         edges: [],
       }
@@ -651,19 +665,59 @@ window.__ModuleLoader__.load({
       if (!raw || typeof raw !== 'object') return null
       const nodesRaw = Array.isArray(raw.nodes) ? raw.nodes : null
       if (!nodesRaw) return null
+      // 钩子迁移（旧模型 hook 节点 → 新模型节点 hooks 数组）：
+      // 有一条边 touching 某个普通节点就归它；否则归主会话（整张画布级的保底归属）。
+      const rawEdges = Array.isArray(raw.edges) ? raw.edges : []
+      const sanitizeHook = entry => ({
+        id: String((entry && entry.id) || uid('hk')),
+        timing: HOOK_KINDS.some(kind => kind.value === (entry && entry.timing)) ? entry.timing : '',
+        note: typeof (entry && entry.note) === 'string' ? entry.note.slice(0, 500) : '',
+      })
+      const hookCarry = new Map()
+      for (const node of nodesRaw) {
+        if (!node || typeof node !== 'object' || node.type !== 'hook') continue
+        let owner = ''
+        for (const edge of rawEdges) {
+          if (!edge || typeof edge !== 'object') continue
+          const from = String(edge.from || '')
+          const to = String(edge.to || '')
+          const other = to === node.id ? from : from === node.id ? to : ''
+          if (!other || other === node.id) continue
+          const otherNode = nodesRaw.find(item => item && String(item.id) === other && item.type !== 'hook')
+          if (otherNode) { owner = other; break }
+        }
+        if (!owner) {
+          const start = nodesRaw.find(item => item && item.type === 'start')
+          owner = start ? String(start.id) : ''
+        }
+        if (!owner) continue
+        const entry = sanitizeHook({
+          timing: node.hookKind,
+          note: (typeof node.note === 'string' && node.note) || String(node.label || ''),
+        })
+        if (!hookCarry.has(owner)) hookCarry.set(owner, [])
+        hookCarry.get(owner).push(entry)
+      }
       const nodes = []
       for (const node of nodesRaw) {
         if (!node || typeof node !== 'object') continue
         const type = NODE_TYPES[node.type] ? node.type : 'work'
+        // 钩子不再是节点：旧 hook 节点已被折算进 hookCarry，不再产出。
+        if (type === 'hook') continue
+        const nodeId = String(node.id || uid('n'))
+        const hooks = (Array.isArray(node.hooks) ? node.hooks : [])
+          .map(sanitizeHook)
+          .concat(hookCarry.get(nodeId) || [])
+          .slice(0, 8)
         nodes.push({
-          id: String(node.id || uid('n')),
+          id: nodeId,
           type,
           label: String(node.label || '').slice(0, 80),
           description: typeof node.description === 'string' ? node.description.slice(0, 400) : '',
           prompt: typeof node.prompt === 'string' ? node.prompt.slice(0, 4000) : '',
           agent: typeof node.agent === 'string' ? node.agent.slice(0, 120) : '',
           exec: node.exec === 'lead' ? 'lead' : 'subagent',
-          hookKind: HOOK_KINDS.some(kind => kind.value === node.hookKind) ? node.hookKind : '',
+          hooks,
           note: typeof node.note === 'string' ? node.note.slice(0, 1000) : '',
           x: clamp(Number(node.x) || 0, -100000, 100000),
           y: clamp(Number(node.y) || 0, -100000, 100000),
@@ -741,7 +795,7 @@ window.__ModuleLoader__.load({
           }
         }
         // 工作节点不写提示词是合法默认（按节点名称与上一级要求执行），不作为问题提示。
-        if (node.type === 'hook' && !node.hookKind) {
+        if ((node.hooks || []).some(hk => !hk.timing)) {
           issues.push({ level: 'warn', text: t('warnHookNoKind').replace('{a}', node.label || node.id) })
         }
         // 强制：结束节点是终点（不允许连出），主会话是入口（不允许被连入）。
@@ -784,11 +838,6 @@ window.__ModuleLoader__.load({
         return parts.join(' · ')
       }
       if (node.type === 'router') return node.description || t('routerHint')
-      if (node.type === 'hook') {
-        const kindDef = HOOK_KINDS.find(kind => kind.value === node.hookKind)
-        const kind = kindDef ? t(kindDef.labelKey) : ''
-        return [kind, node.note].filter(Boolean).join(' · ')
-      }
       return node.description || typeDesc(t, node.type)
     }
 
@@ -1327,6 +1376,8 @@ window.__ModuleLoader__.load({
       // Port-to-port linking: set while dragging from a node's port; cx/cy
       // track the cursor in PLANE coordinates for the live rubber-band line.
       const [linkDrag, setLinkDrag] = React.useState(null)
+      // 钩子菜单：{ nodeId, hookId, screenX, screenY }——点节点底下的钩子小块弹出，选时机/写说明/移除。
+      const [hookMenu, setHookMenu] = React.useState(null)
       // Blank-drop picker: { screenX, screenY, x, y, fromId } — offer to
       // create a node at the drop point, auto-linked from the source.
       const [linkMenu, setLinkMenu] = React.useState(null)
@@ -1857,8 +1908,7 @@ window.__ModuleLoader__.load({
               prompt: '',
               agent: '',
               exec: 'subagent',
-              hookKind: '',
-              note: '',
+                  note: '',
               x: planeX != null ? planeX : Math.round(centerX + (Math.random() - 0.5) * 160),
               y: planeY != null ? planeY : Math.round(centerY + (Math.random() - 0.5) * 160),
               ...extra,
@@ -1886,6 +1936,24 @@ window.__ModuleLoader__.load({
           if (!viewport) return
           const rect = viewport.getBoundingClientRect()
           if (upEvent.clientX < rect.left || upEvent.clientX > rect.right || upEvent.clientY < rect.top || upEvent.clientY > rect.bottom) return
+          // 钩子不再是节点：拖到哪个节点上就挂到哪个节点，并直接弹时机菜单；拖到空白只提示。
+          if (payload.type === 'hook') {
+            let targetEl = null
+            try {
+              targetEl = document.elementFromPoint(upEvent.clientX, upEvent.clientY)
+            } catch {
+              targetEl = null
+            }
+            const nodeEl = targetEl && targetEl.closest ? targetEl.closest('[data-node-id]') : null
+            const ownerId = nodeEl ? nodeEl.getAttribute('data-node-id') : ''
+            if (!ownerId) {
+              showToast(t('hookDropOnNode'))
+              return
+            }
+            const hookId = addHookToNode(ownerId)
+            if (hookId) setHookMenu({ nodeId: ownerId, hookId, screenX: upEvent.clientX, screenY: upEvent.clientY })
+            return
+          }
           const planeX = (upEvent.clientX - rect.left - pan.x) / zoomRef.current - NODE_W / 2
           const planeY = (upEvent.clientY - rect.top - pan.y) / zoomRef.current - NODE_H / 2
           addNode(payload.type, payload.extra, planeX, planeY)
@@ -2019,7 +2087,6 @@ window.__ModuleLoader__.load({
           prompt: '',
           agent: '',
           exec: 'subagent',
-          hookKind: '',
           note: '',
           x: 0,
           y: 0,
@@ -2254,6 +2321,43 @@ window.__ModuleLoader__.load({
         branchCustomRef.current[id] = true
         return ''
       }
+      // --- 钩子：节点的时机动作段（新模型，不再是画布节点） ---
+      const openHookMenu = (event, nodeId, hookId) => {
+        event.stopPropagation()
+        setHookMenu({ nodeId, hookId, screenX: event.clientX, screenY: event.clientY })
+      }
+      const addHookToNode = (nodeId) => {
+        if (blocked()) return ''
+        const hookId = uid('hk')
+        setDoc(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(node =>
+            node.id === nodeId ? { ...node, hooks: (node.hooks || []).concat([{ id: hookId, timing: '', note: '' }]) } : node,
+          ),
+        }))
+        return hookId
+      }
+      const updateHook = (nodeId, hookId, patch) => {
+        if (blocked()) return
+        setDoc(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(node =>
+            node.id === nodeId
+              ? { ...node, hooks: (node.hooks || []).map(hk => (hk.id === hookId ? { ...hk, ...patch } : hk)) }
+              : node,
+          ),
+        }))
+      }
+      const removeHookFromNode = (nodeId, hookId) => {
+        if (blocked()) return
+        setDoc(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(node =>
+            node.id === nodeId ? { ...node, hooks: (node.hooks || []).filter(hk => hk.id !== hookId) } : node,
+          ),
+        }))
+      }
+
       const addEdge = (fromId, toId, fromPort, toPort) => {
         if (blocked()) return
         setDoc(prev => {
@@ -2669,7 +2773,34 @@ window.__ModuleLoader__.load({
               h('span', { className: 'awbc-node-title' }, node.label || node.id),
               status === 'running' ? h('span', { className: 'awbc-dot running', title: statusText }) : null,
             ),
-          )
+          ),
+          // 钩子尾巴：从节点底边往下生长，点开选时机；无端口无连线，随节点移动。
+          (node.hooks || []).length > 0
+            ? h(
+                'div',
+                { className: 'awbc-hookrow', key: 'hooks' },
+                (node.hooks || []).map(hk => {
+                  const kindDef = HOOK_KINDS.find(kind => kind.value === hk.timing)
+                  return h(
+                    'div',
+                    { className: 'awbc-hookitem', key: hk.id },
+                    h('div', { className: 'awbc-hookstem' }),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        className: 'awbc-hookchip',
+                        title: kindDef ? t(kindDef.labelKey) : t('hookNoTiming'),
+                        onPointerDown: event => event.stopPropagation(),
+                        onClick: event => openHookMenu(event, node.id, hk.id),
+                      },
+                      h('span', { className: 'awbc-hookglyph', 'aria-hidden': true }, '⚡'),
+                      kindDef ? t(kindDef.labelKey) : t('hookNoTiming'),
+                    ),
+                  )
+                }),
+              )
+            : null,
         )
       })
 
@@ -2837,27 +2968,6 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'awbc-hint', key: 'hint' }, t('routerHint')),
                 ]
               : null,
-            selected.type === 'hook'
-              ? [
-                  h(
-                    'div',
-                    { className: 'awbc-field', key: 'kind' },
-                    h('label', { className: 'awbc-label' }, t('fieldHookKind')),
-                    h(Dropdown, {
-                      value: selected.hookKind,
-                      options: [{ value: '', label: '—' }].concat(HOOK_KINDS.map(kind => ({ value: kind.value, label: t(kind.labelKey) }))),
-                      onChange: next => updateSelected('hookKind', next),
-                    }),
-                  ),
-                  h(
-                    'div',
-                    { className: 'awbc-field', key: 'note' },
-                    h('label', { className: 'awbc-label' }, t('fieldHookNote')),
-                    h('textarea', { className: 'awbc-input awbc-textarea', value: selected.note, onChange: event => updateSelected('note', event.target.value) }),
-                  ),
-                  h('div', { className: 'awbc-warnbadge', key: 'badge' }, t('hookPreviewBadge')),
-                ]
-              : null,
             h(
               'div',
               { className: 'awbc-field', key: 'edges' },
@@ -3008,7 +3118,7 @@ window.__ModuleLoader__.load({
                 className: 'awbc-card',
                 title: card.desc,
                 onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title }),
-                onClick: () => addNode(card.type, card.extra),
+                onClick: () => (card.type === 'hook' ? showToast(t('hookDropOnNode')) : addNode(card.type, card.extra)),
               },
               h('span', { className: `awbc-tile ${card.type}`, 'aria-hidden': true }, NODE_TYPES[card.type].glyph),
               h(
@@ -3410,7 +3520,7 @@ window.__ModuleLoader__.load({
                 },
                 h('div', { className: 'awbc-sec', style: { margin: '2px 6px 6px' } }, t('pickerTitle')),
                 (doc.nodes.some(node => node.type === 'start') ? [] : ['start'])
-                  .concat(['work', 'router', 'end', 'hook'])
+                  .concat(['work', 'router', 'end'])
                   .map(type =>
                   h(
                     'button',
@@ -3455,6 +3565,65 @@ window.__ModuleLoader__.load({
                   : null,
               )
             })()
+          : null,
+        hookMenu
+          ? h(
+              'div',
+              { className: 'awbc-hooklayer', key: 'hook-menu', onPointerDown: () => setHookMenu(null) },
+              (() => {
+                const owner = nodeById(hookMenu.nodeId)
+                const hk = owner && (owner.hooks || []).find(item => item.id === hookMenu.hookId)
+                if (!hk) return null
+                return h(
+                  'div',
+                  {
+                    className: 'awbc-menu',
+                    style: { left: hookMenu.screenX, top: hookMenu.screenY, maxHeight: '60vh', overflowY: 'auto' },
+                    onPointerDown: event => event.stopPropagation(),
+                    onContextMenu: event => event.preventDefault(),
+                  },
+                  HOOK_KINDS.map(kind =>
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        key: kind.value,
+                        className: 'awbc-menu-item',
+                        onClick: () => {
+                          updateHook(hookMenu.nodeId, hookMenu.hookId, { timing: kind.value })
+                          setHookMenu(null)
+                        },
+                      },
+                      hk.timing === kind.value ? '✓ ' : '',
+                      t(kind.labelKey),
+                    ),
+                  ),
+                  h(
+                    'div',
+                    { className: 'awbc-field', key: 'hook-note', style: { padding: '4px 9px 6px' } },
+                    h('label', { className: 'awbc-label' }, t('fieldHookNote')),
+                    h('textarea', {
+                      className: 'awbc-input awbc-textarea',
+                      value: hk.note,
+                      onChange: event => updateHook(hookMenu.nodeId, hookMenu.hookId, { note: event.target.value.slice(0, 500) }),
+                    }),
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      key: 'hook-remove',
+                      className: 'awbc-menu-item',
+                      onClick: () => {
+                        removeHookFromNode(hookMenu.nodeId, hookMenu.hookId)
+                        setHookMenu(null)
+                      },
+                    },
+                    t('hookRemove'),
+                  ),
+                )
+              })(),
+            )
           : null,
         importOpen
           ? h(

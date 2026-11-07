@@ -57,7 +57,7 @@ let refs = []
 let cellCursor = 0
 let refCursor = 0
 const React = {
-  createElement: (tag, props, ...children) => ({ tag, props: props || {}, children: children.flat(9) }),
+  createElement: (tag, props, ...children) => ({ tag, props: props || {}, ref: props && props.ref, children: children.flat(9) }),
   useState(v) {
     const i = cellCursor++
     if (!cells[i]) {
@@ -145,7 +145,17 @@ const fresh = () => {
   winListeners.clear()
   hitTargets.clear()
   T.WORKBENCH.doc = baseDoc()
-  return render()
+  const root = render()
+  // 把渲染树里 viewport 的 ref 接上假矩形：startPaletteDrag 落点处理要用它。
+  const vp = findBy(root, el => String(el.props.className || '').includes('awbc-viewport'))[0]
+  if (vp && vp.ref) {
+    vp.ref.current = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 1600, bottom: 900, width: 1600, height: 900 }),
+      clientWidth: 1600,
+      clientHeight: 900,
+    }
+  }
+  return root
 }
 
 let failed = 0
@@ -252,6 +262,93 @@ const check = (name, cond, detail) => {
   port.props.onPointerDown({ button: 0, clientX: 880, clientY: 230, stopPropagation: noop })
   const doc = cells[0].value
   check('⑥ end 外拉被拦截', (winListeners.get('pointermove') || []).length === 0 && (doc.edges || []).length === 0)
+}
+
+// ⑦ 面板钩子卡拖到节点上 → 节点挂钩子并直接弹时机菜单 → 选时机 → 重开菜单移除
+{
+  const root = fresh()
+  const hookCard = findBy(root, el => el.props.key === 'type-hook')[0]
+  check('⑦ 元素库有钩子卡片', Boolean(hookCard))
+  if (hookCard) {
+    const fakeTarget = { closest: sel => (sel === '[data-node-id]' ? { getAttribute: () => 'n_work' } : null) }
+    hitTargets.set('560,225', fakeTarget)
+    hookCard.props.onPointerDown({ button: 0, clientX: 100, clientY: 100, preventDefault: noop })
+    fire('pointerup', { clientX: 560, clientY: 225 })
+    let doc = cells[0].value
+    const work = (doc.nodes || []).find(n => n.id === 'n_work')
+    check('⑦ 钩子挂到目标节点', work && (work.hooks || []).length === 1, JSON.stringify(work && work.hooks))
+    const menuCell = cells.find(c => c.value && typeof c.value === 'object' && c.value.nodeId === 'n_work' && c.value.hookId)
+    check('⑦ 拖放后自动弹时机菜单', Boolean(menuCell))
+    let tree = render()
+    const item = findBy(tree, el => el.props.className === 'awbc-menu-item' && el.props.key === 'subagent-end')[0]
+    check('⑦ 菜单含八大时机项', Boolean(item))
+    if (item) {
+      item.props.onClick()
+      doc = cells[0].value
+      const work2 = (doc.nodes || []).find(n => n.id === 'n_work')
+      check('⑧ 时机已选中', work2.hooks[0].timing === 'subagent-end', JSON.stringify(work2.hooks))
+      tree = render()
+      check('⑧ 选完菜单关闭', !cells.find(c => c.value && typeof c.value === 'object' && c.value.hookId))
+      const chip = findBy(tree, el => el.props.className === 'awbc-hookchip')[0]
+      check('⑨ 节点底边长出钩子小块', Boolean(chip))
+      if (chip) {
+        chip.props.onClick({ clientX: 560, clientY: 260, stopPropagation: noop })
+        tree = render()
+        const removeBtn = findBy(tree, el => el.props.className === 'awbc-menu-item' && el.props.key === 'hook-remove')[0]
+        check('⑨ 点小块重开菜单含移除', Boolean(removeBtn))
+        if (removeBtn) {
+          removeBtn.props.onClick()
+          doc = cells[0].value
+          const work3 = (doc.nodes || []).find(n => n.id === 'n_work')
+          check('⑨ 移除后钩子清空', ((work3.hooks || []).length === 0), JSON.stringify(work3.hooks))
+        }
+      }
+    }
+  }
+}
+
+// ⑩ 钩子卡拖到空白 → 不挂、不弹菜单（提示由 toast 承担）
+{
+  const root = fresh()
+  const hookCard = findBy(root, el => el.props.key === 'type-hook')[0]
+  hitTargets.set('999,999', null)
+  hookCard.props.onPointerDown({ button: 0, clientX: 100, clientY: 100, preventDefault: noop })
+  fire('pointerup', { clientX: 999, clientY: 999 })
+  const doc = cells[0].value
+  const anyHooks = (doc.nodes || []).some(n => (n.hooks || []).length > 0)
+  check('⑩ 空白落点不挂钩子', !anyHooks && !cells.find(c => c.value && typeof c.value === 'object' && c.value.hookId))
+}
+
+// ⑪ 旧模型迁移：hook 孤岛节点按连线归主，无连线归主会话；hook 节点与旧边消失
+{
+  cells = []
+  refs = []
+  cellCursor = 0
+  refCursor = 0
+  winListeners.clear()
+  hitTargets.clear()
+  T.WORKBENCH.doc = T.normalizeDoc({
+    id: 'sim-legacy',
+    name: '旧画布',
+    nodes: [
+      { id: 'n_start', type: 'start', label: '主会话', x: 100, y: 200 },
+      { id: 'n_work', type: 'work', label: '工作B', x: 500, y: 200 },
+      { id: 'n_hook', type: 'hook', label: '检查产出', hookKind: 'subagent-end', note: '', x: 700, y: 300 },
+      { id: 'n_hook2', type: 'hook', label: '开场动作', hookKind: 'session-start', note: '', x: 100, y: 50 },
+    ],
+    edges: [
+      { id: 'e1', from: 'n_start', to: 'n_work' },
+      { id: 'e2', from: 'n_work', to: 'n_hook' },
+      { id: 'e3', from: 'n_start', to: 'n_hook2' },
+    ],
+  })
+  render()
+  const doc = cells[0].value
+  const work = (doc.nodes || []).find(n => n.id === 'n_work')
+  const start = (doc.nodes || []).find(n => n.id === 'n_start')
+  check('⑪ 旧钩子节点不再出现', !(doc.nodes || []).some(n => n.type === 'hook'), JSON.stringify((doc.nodes || []).map(n => n.type)))
+  check('⑪ 有连线的旧钩子归连线对端', work && (work.hooks || []).some(hk => hk.timing === 'subagent-end'), JSON.stringify(work && work.hooks))
+  check('⑪ 旧边一并清掉', (doc.edges || []).length === 1 && doc.edges[0].from === 'n_start' && doc.edges[0].to === 'n_work', JSON.stringify(doc.edges))
 }
 
 if (failed > 0) { console.error(`RESULT: ${failed} FAILED`); process.exit(1) }
