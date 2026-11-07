@@ -102,7 +102,7 @@
 |---|---|---|
 | agent-workflow-board | 2.18.0 | 流程画布;2.14.x 连线全面重构:电路板式正交走线+平行线分道+同侧端口对(分支语义除外:是=右出/否=下出)、判断分支按钮组、绑定锁(锁徽章可查引用会话与解绑,只锁存活会话)、画布名唯一(时间戳默认名)、蛇形整理布局、空格+滚轮缩放、节点卡片精简(名称自适应宽/等边距/居中,错误=红边框);2.17.5 修复连线全面瘫痪(2.16.2 删 nearestPort 留死调用)+connectMode 死代码;2.18.0 钩子改节点自带时机段(拖面板钩子卡到节点=挂钩子+弹八大时机菜单,节点底边长⚡小块,无连线,旧 hook 节点自动迁移,分派型钩子注入所属节点段落);门禁:渲染层过 test/render-harness.cjs、交互层过 test/link-drag-sim.cjs、host 注入过 test/host-spec-sim.cjs(AGENTS.md §3.5 第4条) |
 | composer-usage-plus | 1.3.1 | 用量明细;1.3.1 修复额度条刷新时间不显示(nextResetTime 被解析压扁丢弃);1.3.0 额度条显示 5h/7d 下次刷新时间;1.2.0「今日用量」改为官方 model-usage 接口实数(含缓存,与使用详情页同口径) |
-| composer-effort-chips | 1.3.9 | 推理力度切换;1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
+| composer-effort-chips | 1.3.25 | 推理力度切换;1.3.25 模型下拉(按钮+菜单)不再限宽省略,模型名完整显示(渠道下拉仍 96px 省略);1.3.9 官方模型选择器让位至最左,我们的组件贴发送按钮 |
 | turn-cost | 1.15.5 | 单轮成本;1.15.5 强停/中断轮药丸保持原内联位置,不再漂移到兜底行 |
 | dsh-full-access-default | 1.0.1 | 新会话默认完全权限;宿主半在 session/created 时固定权限预设,客户端半在设置›通用替换权限行;1.0.1 修复 client.js `note` 先用后定义的 TDZ(新版 DSH 启动激活审计因此判未激活并崩溃),inject 砍掉未用的 settingsSchema/slots;客户端行为可用 ~/Library/Application Support/dsh-client-plugin-full-access-default/client-events.jsonl 离线观测 |
 | quote-selection | 0.5.7 | **已废弃(2026-11-05)**:DSH 官方已内置划词引用,插件不再维护、不再发版,目录仅留档;市场条目已标废弃 |
