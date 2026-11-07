@@ -139,8 +139,22 @@ window.__ModuleLoader__.load({
       fontWeight: 600,
     };
 
+    // fit 下拉（模型）：不限宽不省略，任何模型名都完整显示。
+    const fitButtonOverrides = {
+      flex: '0 0 auto',
+      minWidth: 'auto',
+      maxWidth: 'none',
+      overflow: 'visible',
+    };
+    const fitValueOverrides = {
+      minWidth: 'auto',
+      overflow: 'visible',
+    };
+    const fitMenuOverrides = { maxWidth: 'none' };
+    const fitItemOverrides = { overflow: 'visible' };
+
     function Dropdown(props) {
-      const { label, value, disabled, options, onPick, ariaLabel } = props;
+      const { label, value, disabled, options, onPick, ariaLabel, fit } = props;
       const [open, setOpen] = React.useState(false);
       const rootRef = React.useRef(null);
       React.useEffect(() => {
@@ -165,19 +179,22 @@ window.__ModuleLoader__.load({
           'button',
           {
             type: 'button',
-            style: open ? pickerButtonOpen : pickerButtonBase,
+            style: {
+              ...(open ? pickerButtonOpen : pickerButtonBase),
+              ...(fit ? fitButtonOverrides : {}),
+            },
             disabled,
             'aria-label': ariaLabel,
             'aria-expanded': open,
             onClick: () => setOpen((v) => !v),
           },
           // 只显示当前值；分类名留在 aria-label / 悬停提示里，不占宽度。
-          h('span', { style: pickerValueStyle, title: ariaLabel }, value),
+          h('span', { style: { ...pickerValueStyle, ...(fit ? fitValueOverrides : {}) }, title: ariaLabel }, value),
         ),
         open &&
           h(
             'div',
-            { style: menuStyle, role: 'listbox' },
+            { style: { ...menuStyle, ...(fit ? fitMenuOverrides : {}) }, role: 'listbox' },
             options.length === 0 && h('div', { style: { padding: '5px 8px', fontSize: 12, opacity: 0.6 } }, '—'),
             options.map((option) =>
               h(
@@ -187,7 +204,10 @@ window.__ModuleLoader__.load({
                   type: 'button',
                   role: 'option',
                   'aria-selected': option.active,
-                  style: option.active ? menuItemActive : menuItemBase,
+                  style: {
+                    ...(option.active ? menuItemActive : menuItemBase),
+                    ...(fit ? fitItemOverrides : {}),
+                  },
                   title: option.label,
                   onClick: () => {
                     setOpen(false);
@@ -310,6 +330,7 @@ window.__ModuleLoader__.load({
           disabled,
           options: modelOptions,
           ariaLabel: t('modelLabel'),
+          fit: true,
         }),
       );
     }
