@@ -599,8 +599,6 @@ window.__ModuleLoader__.load({
       '.awbc-menu-item[disabled]{opacity:.4;cursor:not-allowed}',
       // --- 角色档位徽标（v2.8.1）：U=用户级(绿底) / P=项目级(蓝底)，白字，写在名册卡片的图标方块上 ---
       '.awbc-scope-badge{display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:inherit;font-size:12px;font-weight:700;line-height:1;color:#fff}',
-      '.awbc-scope-badge.user{background:#2f9e44}',
-      '.awbc-scope-badge.project{background:#2f6fe0}',
       // --- agent editor（v2.8.0 名册角色新建/编辑弹窗）---
       '.awbc-agent-dialog{width:560px;max-width:92%;max-height:82vh;overflow:auto}',
       '.awbc-agent-dialog textarea{min-height:200px}',
@@ -638,6 +636,14 @@ window.__ModuleLoader__.load({
     // 取名称首字作角色徽章（全栈工程师→全、UIUX 审查→U）；空名回退由调用方兜底。
     function nameInitial(name) {
       return Array.from(String(name || '').trim())[0] || ''
+    }
+    // 角色专属色：按角色 id 哈希从固定色板取色——同一角色处处同色，改名不变色。
+    const AGENT_COLORS = ['#2f9e44', '#3b82f6', '#d97706', '#e5484d', '#8b5cf6', '#0ea5a5', '#ec4899', '#64748b']
+    function agentColor(agent) {
+      const s = String((agent && agent.id) || agent || '')
+      let h = 5381
+      for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0
+      return AGENT_COLORS[h % AGENT_COLORS.length]
     }
 
     // 画布默认名的时间戳部分：YYYYMMDD-HHMMSS（同秒创建由调用方再加后缀去重）
@@ -2581,7 +2587,7 @@ window.__ModuleLoader__.load({
                   title: rosterAgent.scope === 'project' ? t('agentScopeProject') : t('agentScopeUser'),
                   'aria-hidden': true,
                 },
-                h('span', { className: `awbc-scope-badge ${rosterAgent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(rosterAgent.name) || (rosterAgent.scope === 'project' ? 'P' : 'U')),
+                h('span', { className: 'awbc-scope-badge', style: { background: agentColor(rosterAgent) } }, nameInitial(rosterAgent.name) || (rosterAgent.scope === 'project' ? 'P' : 'U')),
               )
             : h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
           h(
@@ -2776,7 +2782,7 @@ window.__ModuleLoader__.load({
             return h(
               'span',
               { className: 'awbc-tile work', title: agent.name || agent.id, 'aria-hidden': true },
-              h('span', { className: `awbc-scope-badge ${agent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
+              h('span', { className: 'awbc-scope-badge', style: { background: agentColor(agent) } }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
             )
           })(),
           h(
@@ -3488,7 +3494,7 @@ window.__ModuleLoader__.load({
                 ? h(
                     'span',
                     { className: 'awbc-tile work', 'aria-hidden': true },
-                    h('span', { className: `awbc-scope-badge ${ghost.agent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(ghost.agent.name) || (ghost.agent.scope === 'project' ? 'P' : 'U')),
+                    h('span', { className: 'awbc-scope-badge', style: { background: agentColor(ghost.agent) } }, nameInitial(ghost.agent.name) || (ghost.agent.scope === 'project' ? 'P' : 'U')),
                   )
                 : h('span', { className: `awbc-tile ${ghost.type}`, 'aria-hidden': true }, NODE_TYPES[ghost.type].glyph),
               ghost.title,
@@ -3581,7 +3587,7 @@ window.__ModuleLoader__.load({
                           h(
                             'span',
                             { className: 'awbc-tile work', 'aria-hidden': true, style: { width: 18, height: 18, fontSize: 9 } },
-                            h('span', { className: `awbc-scope-badge ${agent.scope === 'project' ? 'project' : 'user'}`, style: { fontSize: 9 } }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
+                            h('span', { className: 'awbc-scope-badge', style: { background: agentColor(agent), fontSize: 9 } }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
                           ),
                           agentLabel(agent) + (agent.scope === 'project' ? t('scopeProjectShort') : ''),
                         ),
