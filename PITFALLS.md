@@ -517,3 +517,17 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 能用「父容器 + `inset:0`」定位就绝不算坐标；必须在流内展开时，用**量好的固定宽度**（等于被替换元素宽度）插入，保证同行其它元素不横向跳动。
 - **宽度挂错层级 + 百分比**：把 `width` 写在「由内容决定宽度」的 flex 项内部卡片上、还带 `82%`，百分比会相对该容器求解，结果等于没给宽度 → 编辑区缩成一条竖高条。宽度必须挂在**真正参与布局的外层容器**上，并用**纯 px**（`calc(var(--dsh-chat-content-width,748px) * .702)`），再配一条运行时兜底（计算宽度 <240px 就按父容器 70% 显式写死）。
 - **替换锚点失配是静默的**：用文本替换改代码时，锚点没匹配上不会报错，于是出现过「只加了函数调用、没加函数定义」的 AirBug（`applyEditorWidth is not defined`）。批量替换后必须 grep 验证目标符号存在，或给替换加断言。
+
+## 29. 重构删函数留下调用点：连线全面瘫痪一周没人发现（2026-11-07，agent-workflow-board 2.16.2→2.17.5）
+
+**现象**：用户报「流程画布连线都连不上」。端口拖到节点上松手 → ReferenceError: nearestPort is not defined，边建不出来；拖到空白选类型建节点、工具栏「连线⤳」两点点击同样全灭。任何一张已存画布渲染正常（geometry 是现算的），所以渲染 harness 全绿，故障被掩盖了 8 天。
+
+**根因**：三个，叠加在一起：
+1. 2.16.2（5fae0d3）删掉 `nearestPort`/`bestPair` 等函数时，交互层三处调用点没清干净——JS 引用不存在的函数是运行时错，`node --check` 查不出；
+2. 门禁盲区：render-harness 只执行**渲染树构建**，交互函数（onPointerDown/onUp 闭包体）根本没被执行，`addEdge` 崩不崩它看不见；
+3. 工具栏连线模式（connectMode → 点源 → 点目标）从初版导入起就是死代码：`startNodeDrag` 里 `if (connectMode) return` 把节点点击整个吞掉，`onNodeClick` 永远够不着——主路径（端口拖拽）一直能用，没人注意到兜底路径早断了。
+
+**解法/规则**：
+- 删函数后必须 `grep -n 函数名` 确认调用点清零（同 §22 的改名验证规则，这次是删函数版的同款事故）。
+- 交互路径必须有执行级回归：新增 `test/link-drag-sim.cjs`——加载真实 client.js，用「可重渲染」React stub（useState cells 跨渲染持久、按游标复用）跑完整 pointer 事件序列，断言边真的建出来。渲染 harness（看渲染）+ link-drag-sim（跑交互）+ drag-collision-sim（跑拖帧）三件套互补，改画布交互后三个都要跑。
+- 修复方式：新增 `facingPorts(from,to)`（与 edgeGeometry 现行选口规则同源：水平邻居左右口/垂直邻居上下口），三处调用点全部改用它；connectMode 分支改为 `stopPropagation + onNodeClick(node.id)` 直达两点连线。

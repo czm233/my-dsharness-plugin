@@ -49,6 +49,14 @@ window.__ModuleLoader__.load({
         default: return { x: node.x + w, y: node.y + NODE_H / 2 }
       }
     }
+    // 面向对方的同侧端口对：水平邻居连左右口，垂直邻居连上下口。
+    // 与 edgeGeometry 的现行选口规则保持一致（2.16.2 起连线端口纯按几何现算）。
+    function facingPorts(from, to) {
+      const sdx = to.x - from.x
+      const sdy = to.y - from.y
+      if (Math.abs(sdx) >= Math.abs(sdy)) return sdx >= 0 ? ['right', 'left'] : ['left', 'right']
+      return sdy >= 0 ? ['bottom', 'top'] : ['top', 'bottom']
+    }
 
     const NODE_TYPES = {
       start: { glyph: '▶' },
@@ -1891,7 +1899,12 @@ window.__ModuleLoader__.load({
         if (blocked()) return
         // SPACE pans the canvas — even when pressing on a node.
         if (spaceHeld) return
-        if (connectMode) return
+        if (connectMode) {
+          // 连线模式：点节点即接线（onNodeClick 内含两点连线逻辑），不进入拖拽。
+          event.stopPropagation()
+          onNodeClick(node.id)
+          return
+        }
         event.stopPropagation()
         // Multi-selection: dragging one node of the group moves the group.
         if (!multiIds.includes(node.id) && !tryChangeSelection(node.id)) return
@@ -1969,10 +1982,10 @@ window.__ModuleLoader__.load({
           if (toId && toId !== fromNode.id) {
             const target = doc.nodes.find(node => node.id === toId)
             if (target && target.type === 'start') return
-            const up = toPlane(upEvent.clientX, upEvent.clientY)
             setLinkDrag(null)
             if (doc.edges.some(edge => edge.from === fromNode.id && edge.to === toId)) return
-            addEdge(fromNode.id, toId, fromPort, nearestPort(target, up.cx, up.cy))
+            const [fp, tp] = facingPorts(fromNode, target)
+            addEdge(fromNode.id, toId, fp, tp)
             return
           }
           // Drop on the source node (or nowhere decidable): plain cancel.
@@ -2020,17 +2033,16 @@ window.__ModuleLoader__.load({
           node.x = anchorX - nw / 2
           node.y = anchorY - NODE_H / 2
         }
-        // 新节点的落线端口 = 面向源端口的那一边；源端口与落点相背时（源是 top 拉向下）就近修正。
-        const inPort = nearestPort(node, anchorX, anchorY)
         setDoc(prev => {
           if (type === 'start' && prev.nodes.some(n => n.type === 'start')) return prev
           const edges = fromId
             ? prev.edges.concat([
                 (() => {
                   const id = uid('e')
-                  const from = fromId ? prev.nodes.find(n => n.id === fromId) : null
+                  const from = prev.nodes.find(n => n.id === fromId) || null
                   const label = from && from.type === 'router' ? branchLabelFor(prev.edges.filter(edge => edge.from === fromId), id) : ''
-                  return { id, from: fromId, to: node.id, fromPort: fromPort || 'right', toPort: inPort, label }
+                  const [fp, tp] = from ? facingPorts(from, node) : ['right', 'left']
+                  return { id, from: fromId, to: node.id, fromPort: fp, toPort: tp, label }
                 })(),
               ])
             : prev.edges
@@ -2077,9 +2089,8 @@ window.__ModuleLoader__.load({
           const src = doc.nodes.find(node => node.id === connectSource)
           const dst = target
           if (src && dst) {
-            const c = { x: dst.x + measureNodeWidth(dst.label) / 2, y: dst.y + NODE_H / 2 }
-            const s = { x: src.x + measureNodeWidth(src.label) / 2, y: src.y + NODE_H / 2 }
-            addEdge(connectSource, nodeId, nearestPort(src, c.x, c.y), nearestPort(dst, s.x, s.y))
+            const [fp, tp] = facingPorts(src, dst)
+            addEdge(connectSource, nodeId, fp, tp)
           } else addEdge(connectSource, nodeId)
           setConnectSource('')
           return
