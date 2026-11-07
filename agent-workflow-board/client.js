@@ -635,6 +635,11 @@ window.__ModuleLoader__.load({
       return t('descWork')
     }
 
+    // 取名称首字作角色徽章（全栈工程师→全、UIUX 审查→U）；空名回退由调用方兜底。
+    function nameInitial(name) {
+      return Array.from(String(name || '').trim())[0] || ''
+    }
+
     // 画布默认名的时间戳部分：YYYYMMDD-HHMMSS（同秒创建由调用方再加后缀去重）
     function stampName() {
       const d = new Date()
@@ -2576,7 +2581,7 @@ window.__ModuleLoader__.load({
                   title: rosterAgent.scope === 'project' ? t('agentScopeProject') : t('agentScopeUser'),
                   'aria-hidden': true,
                 },
-                h('span', { className: `awbc-scope-badge ${rosterAgent.scope === 'project' ? 'project' : 'user'}` }, rosterAgent.scope === 'project' ? 'P' : 'U'),
+                h('span', { className: `awbc-scope-badge ${rosterAgent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(rosterAgent.name) || (rosterAgent.scope === 'project' ? 'P' : 'U')),
               )
             : h('span', { className: 'awbc-tile work', 'aria-hidden': true }, NODE_TYPES.work.glyph),
           h(
@@ -2763,7 +2768,17 @@ window.__ModuleLoader__.load({
               onDoubleClick: event => openPortPicker(event, node, port),
             }),
           ),
-          h('div', { className: `awbc-tile ${node.type}`, 'aria-hidden': true }, NODE_TYPES[node.type].glyph),
+          // 挂了角色的节点：图标与左栏角色卡同款（角色名首字 + 级别配色）；未挂角色保持类型默认图标。
+          (() => {
+            if (node.type !== 'work' || !node.agent) return h('div', { className: `awbc-tile ${node.type}`, 'aria-hidden': true }, NODE_TYPES[node.type].glyph)
+            const agent = agents.find(entry => entry.id === node.agent)
+            if (!agent) return h('div', { className: `awbc-tile work`, 'aria-hidden': true }, NODE_TYPES.work.glyph)
+            return h(
+              'span',
+              { className: 'awbc-tile work', title: agent.name || agent.id, 'aria-hidden': true },
+              h('span', { className: `awbc-scope-badge ${agent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
+            )
+          })(),
           h(
             'div',
             { className: 'awbc-node-main' },
