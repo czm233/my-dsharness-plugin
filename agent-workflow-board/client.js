@@ -2553,7 +2553,7 @@ window.__ModuleLoader__.load({
             className: 'awbc-card',
             title: card.desc,
             style: { position: 'relative' },
-            onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title }),
+            onPointerDown: event => startPaletteDrag(event, { type: card.type, extra: card.extra, title: card.title, agent: rosterAgent }),
             onClick: () => addNode(card.type, card.extra),
           },
           rosterAgent
@@ -3484,7 +3484,13 @@ window.__ModuleLoader__.load({
           ? h(
               'div',
               { className: 'awbc-ghost', key: 'ghost', style: { left: ghost.x + 10, top: ghost.y + 10 } },
-              h('span', { className: `awbc-tile ${ghost.type}`, 'aria-hidden': true }, NODE_TYPES[ghost.type].glyph),
+              ghost.agent
+                ? h(
+                    'span',
+                    { className: 'awbc-tile work', 'aria-hidden': true },
+                    h('span', { className: `awbc-scope-badge ${ghost.agent.scope === 'project' ? 'project' : 'user'}` }, nameInitial(ghost.agent.name) || (ghost.agent.scope === 'project' ? 'P' : 'U')),
+                  )
+                : h('span', { className: `awbc-tile ${ghost.type}`, 'aria-hidden': true }, NODE_TYPES[ghost.type].glyph),
               ghost.title,
             )
           : null,
@@ -3572,7 +3578,11 @@ window.__ModuleLoader__.load({
                               setLinkDrag(null)
                             },
                           },
-                          h('span', { className: 'awbc-tile work', 'aria-hidden': true, style: { width: 18, height: 18, fontSize: 9 } }, NODE_TYPES.work.glyph),
+                          h(
+                            'span',
+                            { className: 'awbc-tile work', 'aria-hidden': true, style: { width: 18, height: 18, fontSize: 9 } },
+                            h('span', { className: `awbc-scope-badge ${agent.scope === 'project' ? 'project' : 'user'}`, style: { fontSize: 9 } }, nameInitial(agent.name) || (agent.scope === 'project' ? 'P' : 'U')),
+                          ),
                           agentLabel(agent) + (agent.scope === 'project' ? t('scopeProjectShort') : ''),
                         ),
                       ),
