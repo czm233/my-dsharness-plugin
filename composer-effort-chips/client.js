@@ -335,6 +335,48 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // 子智能体对话（右栏）没有官方模型位：那里按会话保存的选择只承诺「下一次触发」，
+    // 而子智能体的模型是父会话派发时定下的。所以这里只读、不可选，显示不了就说显示不了。
+    const FIXED_MODEL_LABEL = {
+      border: 'none',
+      padding: '2px 8px',
+      fontSize: 12,
+      lineHeight: '18px',
+      whiteSpace: 'nowrap',
+      maxWidth: 240,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-secondary, inherit)',
+      fontVariantNumeric: 'tabular-nums',
+      cursor: 'default',
+    };
+
+    function SubagentModelLabel(props) {
+      const { directory, load } = props;
+      const state = useDirectory(directory);
+      React.useEffect(() => {
+        load();
+      }, [load]);
+      const current = state.current;
+      let name = null;
+      if (current) {
+        for (const group of state.groups) {
+          if (group.id !== current.provider) continue;
+          for (const model of group.models) {
+            if (model.id === current.model) name = model.name || model.id;
+          }
+        }
+      }
+      const text = name !== null
+        ? name
+        : current
+          ? `${current.provider} / ${current.model}`
+          : state.status === 'loading' ? '…' : '—';
+      const title = current ? `${current.provider} / ${current.model}` : text;
+      return h('span', { style: FIXED_MODEL_LABEL, title, 'data-subagent-model': '' }, text);
+    }
+
     function FlatModelPicker(props) {
       const { locked, available, directory, load, select, t } = props;
       const state = useDirectory(directory);
@@ -566,11 +608,12 @@ window.__ModuleLoader__.load({
                 inject: (sessionId) => {
                   const directory = models.directoryFor(sessionId);
                   const available = sessions.subagentAddress(sessionId) === undefined;
+                  // 子智能体会话照常拉目录（只读展示），但选不了。
                   return {
                     available,
                     directory: directory.store,
                     load: () => {
-                      if (available) directory.load().catch(() => {});
+                      directory.load().catch(() => {});
                     },
                     select: (selection) =>
                       available ? directory.select(selection) : Promise.resolve(undefined),
@@ -602,6 +645,30 @@ window.__ModuleLoader__.load({
                 },
               },
               ChannelModelPickers,
+            ),
+          );
+          // 子智能体对话没有模型位，也没有可选的渠道/模型：只放一个当前模型的只读标签。
+          scope.slots.inject('conversation.input.right', () =>
+            scope.slots.register(
+              {
+                name: 'conversation.input.right',
+                id: 'composer-subagent-model',
+                order: 11,
+                inject: (sessionId) => {
+                  const directory = models.directoryFor(sessionId);
+                  return {
+                    available: sessions.subagentAddress(sessionId) !== undefined,
+                    directory: directory.store,
+                    load: () => {
+                      directory.load().catch(() => {});
+                    },
+                  };
+                },
+              },
+              (props) => {
+                if (!props.available) return null;
+                return h(SubagentModelLabel, { directory: props.directory, load: props.load });
+              },
             ),
           );
         });
