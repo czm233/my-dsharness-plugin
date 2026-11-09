@@ -17,6 +17,14 @@
  *     { action: 'getBinding', sessionId }       -> { binding } | { binding: null }
  *     { action: 'getStatus', id }               -> { status: {label: {status,note,updatedAt}} }
  *     { action: 'specPreview', canvas }         -> { spec }  (compileSpec on the client's current doc)
+ *     { action: 'listModels' }                  -> { models: [{provider,id,name}] | null }（null=未知）
+ *     { action: 'checkModels', canvas, sessionId? } -> { ok, issues }（启动主检查）
+ *
+ * v2.19.0 节点级模型：工作节点可带 { model:{provider,id}, onModelMissing }，
+ * 角色 .md frontmatter 可带 provider:/model: 作默认值。生效模型 = 节点 ?? 角色。
+ * 绑定时宿主向会话 append 官方 subagent/model-selection-policy 事件授权画布
+ * 路由（方案A，PLAN-node-model.md 阶段0结论4）；围栏在派发时校正 subagent 的
+ * provider/model 参数；compileSpec 按 ok/missing+fallback/missing+stop 三态措辞。
  *
  * Canvases persist as JSON documents under the DSH internal storage area
  * (~/.dsh/storages/agent-workflow-board/), never inside project directories.
@@ -177,6 +185,146 @@ function readBindingsSync() {
   }
 }
 
+// --- v2.19.0 节点级模型：目录缓存与路由解析 ---------------------------------
+// 数据源与 list_subagent_models 工具同源：ctx.get('llm')（@deepseek-ai/dsh-llm）。
+//   listProviders()            → 同步，已注册 adapter 的渠道 [{id,name}]
+//   listModels(providerId)     → 异步，渠道广告目录 [{provider,id,name}]
+//   resolveModelInfo(p,m)      → 异步精确解析；目录外的合法路由靠它兜底确认
+// 目录拿不到（服务缺失/全部渠道失败/零渠道）→ null =「未知」，一律按可用放行，
+// 绝不误伤（与围栏同一原则）。目录 30 秒缓存；resolveModelInfo 命中记入
+// verifiedRoutes 常驻集合，供 compileSpec 的同步路径复用（prompt 组装是同步的）。
+const MODEL_TTL_MS = 30000
+let catalogCache = { at: 0, value: null }
+let catalogInFlight = null
+const verifiedRoutes = new Set()
+
+function routeKey(provider, id) {
+  return `${provider}\u0000${id}`
+}
+
+function llmOf(ctx) {
+  try {
+    const service = typeof ctx.get === 'function' ? ctx.get('llm') : undefined
+    if (service && typeof service.listProviders === 'function') return service
+  } catch { /* fall through */ }
+  try {
+    if (ctx.llm && typeof ctx.llm.listProviders === 'function') return ctx.llm
+  } catch { /* fall through */ }
+  try {
+    if (ctx.root && ctx.root.llm && typeof ctx.root.llm.listProviders === 'function') return ctx.root.llm
+  } catch { /* fall through */ }
+  return null
+}
+
+async function fetchCatalog(ctx) {
+  const llm = llmOf(ctx)
+  if (!llm) return null
+  try {
+    const providers = Array.isArray(llm.listProviders()) ? llm.listProviders() : []
+    if (providers.length === 0) return null // 零渠道按未知处理，不误判 missing
+    const models = []
+    let anySuccess = false
+    for (const provider of providers.slice(0, 50)) {
+      const pid = provider && typeof provider.id === 'string' ? provider.id : ''
+      if (!pid) continue
+      try {
+        const listed = await llm.listModels(pid)
+        anySuccess = true
+        for (const entry of Array.isArray(listed) ? listed : []) {
+          if (!entry || typeof entry.id !== 'string' || !entry.id) continue
+          models.push({ provider: pid, id: entry.id.slice(0, 200), name: typeof entry.name === 'string' && entry.name ? entry.name.slice(0, 200) : entry.id.slice(0, 200) })
+        }
+      } catch {
+        /* 单渠道失败跳过，其余渠道照常 */
+      }
+    }
+    return anySuccess ? models : null
+  } catch {
+    return null
+  }
+}
+
+async function getCatalog(ctx) {
+  const now = Date.now()
+  if (catalogCache.value !== null && now - catalogCache.at < MODEL_TTL_MS) return catalogCache.value
+  if (catalogInFlight) return catalogInFlight
+  catalogInFlight = fetchCatalog(ctx)
+    .then(value => {
+      catalogInFlight = null
+      if (value !== null) catalogCache = { at: Date.now(), value }
+      return value !== null ? value : catalogCache.value
+    })
+    .catch(() => {
+      catalogInFlight = null
+      return catalogCache.value
+    })
+  return catalogInFlight
+}
+
+/** 异步精确判定：true=可用 false=不可用 null=未知（目录拿不到）。 */
+async function routeAvailable(ctx, provider, id) {
+  if (typeof provider !== 'string' || !provider || typeof id !== 'string' || !id) return null
+  if (verifiedRoutes.has(routeKey(provider, id))) return true
+  const catalog = await getCatalog(ctx)
+  if (catalog === null) return null
+  if (catalog.some(entry => entry.provider === provider && entry.id === id)) {
+    verifiedRoutes.add(routeKey(provider, id))
+    return true
+  }
+  const llm = llmOf(ctx)
+  if (llm && typeof llm.resolveModelInfo === 'function') {
+    try {
+      await llm.resolveModelInfo(provider, id)
+      verifiedRoutes.add(routeKey(provider, id))
+      return true
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+/** 同步判定（compileSpec 用）：只查常驻缓存，拿不到 → null 按可用处理。 */
+function routeAvailableSync(provider, id) {
+  if (typeof provider !== 'string' || !provider || typeof id !== 'string' || !id) return null
+  if (verifiedRoutes.has(routeKey(provider, id))) return true
+  const catalog = catalogCache.value
+  if (catalog === null) return null
+  return catalog.some(entry => entry.provider === provider && entry.id === id)
+}
+
+/** 节点的期望路由：节点覆盖 > 角色默认 > 无。只对派发型工作节点生效。 */
+function wantedRouteFor(node, rosterById) {
+  if (!node || node.type !== 'work' || node.exec === 'lead') return null
+  const model = node.model
+  if (model && typeof model === 'object' && typeof model.provider === 'string' && model.provider && typeof model.id === 'string' && model.id) {
+    return { provider: model.provider, id: model.id, source: 'node' }
+  }
+  const role = node.agent && rosterById ? rosterById.get(node.agent) : null
+  if (role && typeof role.provider === 'string' && role.provider && typeof role.model === 'string' && role.model) {
+    return { provider: role.provider, id: role.model, source: 'role' }
+  }
+  return null
+}
+
+/**
+ * 统一解析：{ wanted, effective, status }。
+ * status: none（没设）| ok | missing | unknown（目录拿不到，按 ok 处理不误伤）。
+ * available(provider,id) → true/false/null，同步异步两个路径共用本函数。
+ */
+function resolveNodeModel(node, rosterById, available) {
+  const wanted = wantedRouteFor(node, rosterById)
+  if (!wanted) return { wanted: null, effective: null, status: 'none' }
+  const verdict = typeof available === 'function' ? available(wanted.provider, wanted.id) : null
+  if (verdict === null) return { wanted, effective: wanted, status: 'unknown' }
+  if (verdict) return { wanted, effective: wanted, status: 'ok' }
+  return { wanted, effective: null, status: 'missing' }
+}
+
+function modelPolicyOf(node) {
+  return node && node.onModelMissing === 'stop' ? 'stop' : 'fallback'
+}
+
 // 八种钩子时机 → 注入规范时的措辞（对应 DSH 事件：agent/created、
 // agent/inbox/claimed、tools/pre-execute、tools/post-execute、subagent/start、
 // subagent/end、agent/turn-stopping、agent/disposed）。
@@ -271,8 +419,22 @@ function compileSpec(doc) {
       } else if (node.agent) {
         agentNote = `，子 agent 使用 agent preset「${node.agent}」`
       }
-      const promptNote = node.prompt ? `任务说明：${node.prompt}` : '（节点未写任务说明：按节点名称理解职责，以上游节点派发的要求为准执行，完成后交棒下一节点）'
-      lines.push(`${n}. 【工作】${labelOf(node)}：${exec}${agentNote}。${promptNote}`)
+      // v2.19.0 节点级模型：同步解析（目录缓存拿不到 = unknown，按可用处理不误伤）。
+      const resolved = resolveNodeModel(node, rosterById, routeAvailableSync)
+      const routeText = resolved.wanted ? `${resolved.wanted.provider}/${resolved.wanted.id}` : ''
+      if (resolved.status === 'missing' && modelPolicyOf(node) === 'stop') {
+        // 兜底路径：正常情况下启动检查已拦下；走到这里就明确停住，不派发。
+        lines.push(`${n}. 【工作】${labelOf(node)}：节点设定的模型 ${routeText} 当前不可用，流程在此停止——不要派发该节点，向用户说明「模型 ${routeText} 不可用」并等待用户重新选择模型后再继续。`)
+      } else {
+        let modelNote = ''
+        if (resolved.status === 'ok' || resolved.status === 'unknown') {
+          modelNote = `派发时 subagent 工具参数必须带 provider="${resolved.wanted.provider}" model="${resolved.wanted.id}"（本节点指定模型，不要改用其他模型，也不要省略）。`
+        } else if (resolved.status === 'missing') {
+          modelNote = `注意：节点设定的模型 ${routeText} 当前不可用，本节点改用默认模型执行（派发时不带 provider/model 参数），完成汇报时注明「原定模型 ${routeText} 不可用，已用默认模型」。`
+        }
+        const promptNote = node.prompt ? `任务说明：${node.prompt}` : '（节点未写任务说明：按节点名称理解职责，以上游节点派发的要求为准执行，完成后交棒下一节点）'
+        lines.push(`${n}. 【工作】${labelOf(node)}：${exec}${agentNote}。${modelNote}${promptNote}`)
+      }
     } else if (node.type === 'router') {
       const branches = outsOfNode
         .map(edge => `标签「${edge.label || '(未命名)'}」→ 节点「${labelOf(byId.get(edge.to))}」`)
@@ -332,6 +494,42 @@ function pickRunningLabel(statusEntry) {
     }
   }
   return best
+}
+
+/**
+ * v2.19.0 模型围栏（方案A，阶段0已确认可行）：当前 running 节点是派发型且有
+ * 生效模型时——参数缺失或不一致 → 整体替换 exec.arguments 改写为节点模型
+ * （arguments 的值被官方 deepFreeze，不能原地改，但 exec 对象本身可写，
+ * dispatchToolBody 读的是同一个 exec）；节点模型失效 → 删掉指向失效路由的
+ * 参数后放行（默认模型兜底）。任何异常放行（宁漏勿误伤）。
+ */
+async function applyModelFence(ctx, exec, node, canvas) {
+  try {
+    const rosterById = new Map(readRosterSync(canvas && typeof canvas.projectDir === 'string' ? canvas.projectDir : '').map(agent => [agent.id, agent]))
+    const wanted = wantedRouteFor(node, rosterById)
+    if (!wanted) return
+    const args = exec.arguments && typeof exec.arguments === 'object' && !Array.isArray(exec.arguments) ? exec.arguments : null
+    if (!args) return
+    const verdict = await routeAvailable(ctx, wanted.provider, wanted.id)
+    if (verdict !== false) {
+      if (args.provider !== wanted.provider || args.model !== wanted.id) {
+        const rewritten = { ...args, provider: wanted.provider, model: wanted.id }
+        // 路由被改写时力度一并去掉：按官方语义，换路由后省略的力度回落模型默认
+        delete rewritten.reasoning_effort
+        exec.arguments = rewritten
+      }
+      return
+    }
+    if (args.provider === wanted.provider && args.model === wanted.id) {
+      const stripped = { ...args }
+      delete stripped.provider
+      delete stripped.model
+      delete stripped.reasoning_effort
+      exec.arguments = stripped
+    }
+  } catch {
+    /* 围栏异常一律放行 */
+  }
 }
 
 function fenceReasonFor(node) {
@@ -405,6 +603,9 @@ function parseAgentFile(id, text) {
   const trimmed = String(text || '')
   let name = ''
   let description = ''
+  // v2.19.0：角色默认模型（可选 frontmatter 字段 provider: / model:）
+  let provider = ''
+  let model = ''
   let body = trimmed
   if (trimmed.startsWith('---')) {
     const end = trimmed.indexOf('\n---', 3)
@@ -416,10 +617,12 @@ function parseAgentFile(id, text) {
         if (!match) continue
         if (match[1] === 'name') name = match[2].trim().slice(0, 80)
         if (match[1] === 'description') description = match[2].trim().slice(0, 200)
+        if (match[1] === 'provider') provider = match[2].trim().slice(0, 120)
+        if (match[1] === 'model') model = match[2].trim().slice(0, 200)
       }
     }
   }
-  return { id, name: name || id, description, prompt: body.trim().slice(0, 8000) }
+  return { id, name: name || id, description, provider, model, prompt: body.trim().slice(0, 8000) }
 }
 
 // v2.6.1：用户级 = storageDir()/agents；项目级 = <projectDir>/agents。
@@ -455,8 +658,9 @@ function readRosterSync(projectDir) {
 
 function listAgents(projectDir) {
   // 客户端只要展示字段；人设正文留在宿主侧给 compileSpec 用。
+  // v2.19.0 附带角色默认模型（provider/model），供节点面板显示「默认（角色）」来源。
   return Promise.resolve(
-    readRosterSync(projectDir).map(agent => ({ id: agent.id, name: agent.name, description: agent.description, scope: agent.scope }))
+    readRosterSync(projectDir).map(agent => ({ id: agent.id, name: agent.name, description: agent.description, scope: agent.scope, provider: agent.provider || '', model: agent.model || '' }))
   )
 }
 
@@ -473,7 +677,10 @@ function agentFilePath(id, scope, projectDir) {
 
 function serializeAgentFile(agent) {
   const oneLine = value => String(value || '').replace(/[\r\n]+/g, ' ').trim()
-  return `---\nname: ${oneLine(agent.name)}\ndescription: ${oneLine(agent.description)}\n---\n\n${String(agent.prompt || '').trim()}\n`
+  const provider = oneLine(agent.provider)
+  const model = oneLine(agent.model)
+  const modelLines = provider && model ? `provider: ${provider}\nmodel: ${model}\n` : ''
+  return `---\nname: ${oneLine(agent.name)}\ndescription: ${oneLine(agent.description)}\n${modelLines}---\n\n${String(agent.prompt || '').trim()}\n`
 }
 
 // NOTE: `connection` is deliberately NOT a module-level inject. On a
@@ -482,6 +689,22 @@ function serializeAgentFile(agent) {
 // register. Follow the workflow-lite pattern instead: apply() starts without
 // it and registers the route from a `ctx.inject(['connection'])` sub-context.
 export const inject = []
+
+// 测试钩子：host-spec-sim / model-fence-sim 的临时副本导出用——预置目录缓存
+// 与 verifiedRoutes，让同步/异步解析走确定路径（测的是真实 host.js 代码）。
+const __modelTestHooks = {
+  setCatalog(models) {
+    catalogCache = { at: Date.now(), value: Array.isArray(models) ? models : null }
+  },
+  markVerified(provider, id) {
+    verifiedRoutes.add(routeKey(provider, id))
+  },
+  reset() {
+    catalogCache = { at: 0, value: null }
+    catalogInFlight = null
+    verifiedRoutes.clear()
+  },
+}
 
 // --- M2.3 节点亮灯投影 -----------------------------------------------------
 // fold 会话日志里的 tool/call（subagent 派发）与 tool/result，把「哪个工作节点
@@ -503,8 +726,12 @@ const boardProjectionDefinition = {
     if (event.type === 'tool/call' && data && data.name === 'subagent') {
       const desc = data.arguments && typeof data.arguments.description === 'string' ? data.arguments.description.trim() : ''
       if (!desc) return state
+      // v2.19.0：记录派发实际请求的模型（tool/call 落库的是模型原始参数，
+      // 在围栏改写之前——正常路径 compileSpec 已要求主会话自己带对参数）。
+      const args = data.arguments && typeof data.arguments === 'object' ? data.arguments : {}
+      const model = typeof args.provider === 'string' && args.provider && typeof args.model === 'string' && args.model ? `${args.provider}/${args.model}` : ''
       const lanes = state.lanes.filter(lane => lane.label !== desc)
-      lanes.push({ label: desc, status: 'running', startedAt: Date.now(), callId: typeof data.callId === 'string' ? data.callId : '' })
+      lanes.push({ label: desc, status: 'running', startedAt: Date.now(), callId: typeof data.callId === 'string' ? data.callId : '', model })
       return { lanes }
     }
     if (event.type === 'tool/result' && data && data.message && typeof data.message.callId === 'string') {
@@ -522,9 +749,140 @@ const boardProjectionDefinition = {
   wire: {
     viewSchema: boardViewSchema,
     view: state => ({
-      lanes: state.lanes.map(lane => ({ label: lane.label, status: lane.status, startedAt: lane.startedAt })),
+      lanes: state.lanes.map(lane => ({ label: lane.label, status: lane.status, startedAt: lane.startedAt, model: typeof lane.model === 'string' ? lane.model : '' })),
     }),
   },
+}
+
+// --- v2.19.0 会话模型授权（阶段0调研结论4，用户拍板方案A） --------------------
+// DSH 运行时约束：会话没有记录 subagent/model-selection-policy 事件时，
+// subagent 显式传 provider/model 只允许等于父会话当前路由（官方
+// assertAllowedModelSelection）。所以画布「启动」绑定时，宿主给会话 append
+// 官方同名事件，授权本画布用到的全部路由（与官方设置服务同一写法）。
+// 策略「先到先 recorded」（官方投影 apply 只认第一条），因此：
+//   - 绑定前先用我们自己的只读投影（本定义）查会话是否已有策略；
+//   - 无策略 → append 画布路由并集；已有且覆盖 → 不动；已有但不覆盖 → 报
+//     policy 问题（无法追加，只能换新会话启动）。
+// 子会话自动继承父策略（官方 agent/created 逻辑），无需处理。
+const modelPolicyProjectionDefinition = {
+  key: 'agentWorkflowBoardModelPolicy',
+  stateVersion: 1,
+  init: () => null,
+  apply: (state, event) => {
+    if (state !== null) return state
+    if (!event || event.type !== 'subagent/model-selection-policy') return state
+    const list = event.data && Array.isArray(event.data.allowedModels) ? event.data.allowedModels : null
+    if (!list || list.length === 0) return state
+    const routes = []
+    for (const entry of list) {
+      if (!entry || typeof entry.provider !== 'string' || !entry.provider || typeof entry.model !== 'string' || !entry.model) continue
+      routes.push({ provider: entry.provider, model: entry.model })
+    }
+    return routes.length > 0 ? routes : state
+  },
+}
+
+/** 画布全部派发节点的期望路由并集（去重，含 missing 的——授权只是允许清单）。 */
+function collectCanvasRoutes(canvas) {
+  const nodes = Array.isArray(canvas && canvas.nodes) ? canvas.nodes : []
+  const rosterById = new Map(readRosterSync(canvas && typeof canvas.projectDir === 'string' ? canvas.projectDir : '').map(agent => [agent.id, agent]))
+  const seen = new Set()
+  const routes = []
+  for (const node of nodes) {
+    const wanted = wantedRouteFor(node, rosterById)
+    if (!wanted) continue
+    const key = routeKey(wanted.provider, wanted.id)
+    if (seen.has(key)) continue
+    seen.add(key)
+    routes.push({ provider: wanted.provider, model: wanted.id })
+  }
+  return routes
+}
+
+function agentsRegistry(ctx) {
+  try {
+    const registry = typeof ctx.get === 'function' ? ctx.get('agents') : undefined
+    if (registry && typeof registry.get === 'function') return registry
+  } catch { /* fall through */ }
+  if (ctx && ctx.agents && typeof ctx.agents.get === 'function') return ctx.agents
+  return null
+}
+
+/**
+ * 绑定时保证会话具备画布所需的路由授权。
+ * 返回 { appended, covered, routes }；任何异常吞掉（授权失败不阻断绑定，
+ * 派发失败时官方报错会教模型/用户回头处理）。
+ */
+async function ensureModelPolicy(ctx, sessionId, canvas, policyHandlePromise) {
+  const result = { appended: false, covered: true, routes: [] }
+  try {
+    const routes = collectCanvasRoutes(canvas)
+    result.routes = routes
+    if (routes.length === 0) return result
+    const registry = agentsRegistry(ctx)
+    const agent = registry ? registry.get(sessionId) : null
+    const session = agent && agent.session
+    if (!session || typeof session.append !== 'function') return result
+    let existing = null
+    if (policyHandlePromise) {
+      const handle = await policyHandlePromise
+      if (handle && typeof handle.stateOf === 'function') existing = handle.stateOf(session)
+    }
+    if (Array.isArray(existing) && existing.length > 0) {
+      result.covered = routes.every(route => existing.some(entry => entry.provider === route.provider && entry.model === route.model))
+      return result
+    }
+    session.append('subagent/model-selection-policy', { allowedModels: routes })
+    result.appended = true
+    return result
+  } catch {
+    return result
+  }
+}
+
+/**
+ * 启动主检查 + compileSpec 兜底共用的检查函数（异步精确版）。
+ * issues: [{kind:'model'|'policy', nodeId, label, wanted, policy}]
+ *   kind=model  → 设定模型不可用；policy=fallback 不阻断 / stop 阻断
+ *   kind=policy → 会话已有授权策略但不含该路由（阻断，需换新会话或改模型）
+ * ok = 没有阻断项。目录拿不到（unknown）不产生 issue。
+ */
+async function checkCanvasModels(ctx, doc, sessionId, policyHandlePromise) {
+  const issues = []
+  const nodes = Array.isArray(doc && doc.nodes) ? doc.nodes : []
+  const rosterById = new Map(readRosterSync(doc && typeof doc.projectDir === 'string' ? doc.projectDir : '').map(agent => [agent.id, agent]))
+  const wantedByNode = []
+  for (const node of nodes) {
+    const wanted = wantedRouteFor(node, rosterById)
+    if (!wanted) continue
+    wantedByNode.push({ node, wanted })
+    const verdict = await routeAvailable(ctx, wanted.provider, wanted.id)
+    if (verdict === false) {
+      issues.push({ kind: 'model', nodeId: String(node.id), label: String(node.label || node.id), wanted: { provider: wanted.provider, id: wanted.id }, source: wanted.source, policy: modelPolicyOf(node) })
+    }
+  }
+  // 会话授权覆盖检查（仅当调用方给了 sessionId 且能读到会话时）。
+  if (sessionId && policyHandlePromise && wantedByNode.length > 0) {
+    try {
+      const registry = agentsRegistry(ctx)
+      const agent = registry ? registry.get(sessionId) : null
+      const session = agent && agent.session
+      const handle = await policyHandlePromise
+      const existing = session && handle && typeof handle.stateOf === 'function' ? handle.stateOf(session) : null
+      if (Array.isArray(existing) && existing.length > 0) {
+        for (const { node, wanted } of wantedByNode) {
+          const covered = existing.some(entry => entry.provider === wanted.provider && entry.model === wanted.id)
+          if (!covered) {
+            issues.push({ kind: 'policy', nodeId: String(node.id), label: String(node.label || node.id), wanted: { provider: wanted.provider, id: wanted.id }, source: wanted.source, policy: 'stop' })
+          }
+        }
+      }
+    } catch {
+      /* 读不到策略状态就跳过覆盖检查（宁漏勿误伤） */
+    }
+  }
+  const ok = issues.every(issue => issue.kind === 'model' && issue.policy === 'fallback')
+  return { ok, issues }
 }
 
 // --- v2.7.0 启动/停止：规范段的统一挂载口 -----------------------------------
@@ -588,10 +946,16 @@ export function apply(ctx) {
   })
 
   // M2.3: 注册会话投影。亮灯是增强功能：服务缺失或注册失败都不能影响编辑器。
+  // v2.19.0：另注册一个只读投影，读会话已有的模型授权策略（host 内部用，无 wire）。
+  let modelPolicyReady = null
   try {
     const projections = (ctx.root && ctx.root.sessionProjections) || ctx.sessionProjections
     if (projections && typeof projections.register === 'function') {
       ctx.effect(() => projections.register(boardProjectionDefinition))
+      ctx.effect(() => {
+        modelPolicyReady = Promise.resolve(projections.register(modelPolicyProjectionDefinition))
+        modelPolicyReady.catch(() => {})
+      })
     }
   } catch {
     /* projection registration is best-effort */
@@ -662,7 +1026,10 @@ export function apply(ctx) {
         const nodes = Array.isArray(canvas && canvas.nodes) ? canvas.nodes : []
         const current = nodes.find(node => node && String(node.label || '').trim() === runningLabel)
         if (!current) return next()
-        if (current.type === 'work' && current.exec !== 'lead') return next()
+        if (current.type === 'work' && current.exec !== 'lead') {
+          await applyModelFence(ctx, exec, current, canvas)
+          return next()
+        }
         return { kind: 'deny', reason: fenceReasonFor(current) }
       } catch {
         return next()
@@ -719,6 +1086,8 @@ export function apply(ctx) {
                 const text = serializeAgentFile({
                   name: String(body.name || '').slice(0, 80),
                   description: String(body.description || '').slice(0, 200),
+                  provider: String(body.provider || '').slice(0, 120),
+                  model: String(body.model || '').slice(0, 200),
                   prompt: prompt.slice(0, 8000),
                 })
                 await fsp.writeFile(filePath, text, 'utf8')
@@ -798,12 +1167,27 @@ export function apply(ctx) {
                 }
                 return json({ ok: true })
               }
+              if (action === 'listModels') {
+                // v2.19.0：当前可用模型目录（30s 缓存）。null = 未知（≠ 空），
+                // 客户端把「未知」退化为只显示「默认」项，不阻断任何操作。
+                const models = await getCatalog(ctx)
+                return json({ models })
+              }
+              if (action === 'checkModels') {
+                // v2.19.0：启动主检查（客户端 toggleRun 前调用）。传当前画布文档
+                // （含未保存修改）与可选 sessionId（检查会话授权覆盖）。
+                const canvas = body && typeof body.canvas === 'object' && body.canvas ? body.canvas : null
+                if (!canvas) return json({ error: 'bad-canvas' }, 400)
+                const result = await checkCanvasModels(ctx, canvas, sanitizeSessionId(body.sessionId), modelPolicyReady)
+                return json(result)
+              }
               if (action === 'bind') {
                 const sessionId = sanitizeSessionId(body.sessionId)
                 const canvasId = sanitizeId(body.canvasId)
                 if (!sessionId || !canvasId) return json({ error: 'bad-binding' }, 400)
+                let canvas
                 try {
-                  await readCanvas(canvasId)
+                  canvas = await readCanvas(canvasId)
                 } catch {
                   return json({ error: 'not-found' }, 404)
                 }
@@ -811,7 +1195,9 @@ export function apply(ctx) {
                 bindings[sessionId] = { canvasId, boundAt: Date.now() }
                 await writeBindings(bindings)
                 attachSpec(ctx, sessionId)
-                return json({ binding: bindings[sessionId] })
+                // v2.19.0 方案A：给会话授权画布所需模型路由（无策略时 append 官方事件）
+                const policy = await ensureModelPolicy(ctx, sessionId, canvas, modelPolicyReady)
+                return json({ binding: bindings[sessionId], modelPolicy: { appended: policy.appended, covered: policy.covered } })
               }
               if (action === 'unbind') {
                 const sessionId = sanitizeSessionId(body.sessionId)
