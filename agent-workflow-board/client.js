@@ -1318,6 +1318,9 @@ window.__ModuleLoader__.load({
       const [models, setModels] = React.useState(null)
       // v2.19.0 启动拦截弹窗：{ issues, draft: {nodeId: value}, busy } | null
       const [modelGate, setModelGate] = React.useState(null)
+      // v2.19.0 两级联动：用户选了渠道但还没选模型时，用这个独立 state 记住渠道
+      // （否则 currentProvider 从 selected.model 推导，清空 model 后渠道也丢了）
+      const [pendingProvider, setPendingProvider] = React.useState('')
       // v2.19.0 节点卡片失效标记：checkModels 的 kind='model' 问题（按 nodeId 找）
       const [modelIssues, setModelIssues] = React.useState([])
       const refreshModels = React.useCallback(() => {
@@ -2255,6 +2258,7 @@ window.__ModuleLoader__.load({
         }
         if (!tryChangeSelection(nodeId)) return
         setSpecMode(false)
+        setPendingProvider('')
         setMultiIds([nodeId])
         setSelectedId(nodeId)
       }
@@ -3165,7 +3169,8 @@ window.__ModuleLoader__.load({
                     // v2.19.0 模型选择：渠道 → 模型 两级联动
                     const roleModel = roleModelOf(selected.agent)
                     const currentValue = modelValueOf(selected.model)
-                    const currentProvider = currentValue ? currentValue.split('\u0000')[0] : ''
+                    // pendingProvider 优先（用户刚切了渠道但还没选模型）；否则从已存模型推导
+                    const currentProvider = pendingProvider || (currentValue ? currentValue.split('\u0000')[0] : '')
                     const defaultLabel = roleModel ? t('modelDefaultViaRole').replace('{a}', modelRouteLabel(roleModel)) : t('modelDefault')
                     const provOpts = withProviderGuard([{ value: '', label: defaultLabel }].concat(providerOptions), currentValue)
                     const mdlOpts = withModelGuardForProvider(
@@ -3181,12 +3186,13 @@ window.__ModuleLoader__.load({
                           value: currentProvider,
                           options: provOpts,
                           onChange: next => {
-                            if (!next) { setNodeModel(selected.id, null); return }
+                            if (!next) { setPendingProvider(''); setNodeModel(selected.id, null); return }
+                            setPendingProvider(next)
                             // 切渠道时清掉旧模型（不同渠道的 id 不通用）
                             setNodeModel(selected.id, null)
-                            // 如果新渠道只有一个模型，自动选中
+                            // 如果新渠道只有一个模型，自动选中并清 pending
                             const autoModels = modelsForProvider(next)
-                            if (autoModels.length === 1) setNodeModel(selected.id, parseModelValue(autoModels[0].value))
+                            if (autoModels.length === 1) { setNodeModel(selected.id, parseModelValue(autoModels[0].value)); setPendingProvider('') }
                           },
                         }),
                       ),
@@ -3198,7 +3204,7 @@ window.__ModuleLoader__.load({
                           value: currentValue,
                           options: mdlOpts,
                           disabled: !currentProvider,
-                          onChange: next => setNodeModel(selected.id, parseModelValue(next)),
+                          onChange: next => { setPendingProvider(''); setNodeModel(selected.id, parseModelValue(next)) },
                         }),
                       ),
                     ]
@@ -3290,7 +3296,7 @@ window.__ModuleLoader__.load({
               for (const issue of blocking) {
                 if (issue.wanted && issue.wanted.provider && issue.wanted.id) draft[issue.nodeId] = `${issue.wanted.provider}\u0000${issue.wanted.id}`
               }
-              setModelGate({ issues: blocking, draft, busy: false })
+              setModelGate({ issues: blocking, draft, pendingProviders: {}, busy: false })
               return
             }
             const fallbacks = issues.filter(issue => issue && issue.kind === 'model' && issue.policy === 'fallback')
@@ -4058,7 +4064,7 @@ window.__ModuleLoader__.load({
                 (() => {
                   // v2.19.0 角色默认模型：渠道 → 模型 两级联动
                   const cv = agentEditor.modelValue || ''
-                  const cp = cv ? cv.split('\u0000')[0] : ''
+                  const cp = agentEditor.pendingProvider || (cv ? cv.split('\u0000')[0] : '')
                   const provOpts = withProviderGuard([{ value: '', label: t('modelDefault') }].concat(providerOptions), cv)
                   const mdlOpts = withModelGuardForProvider(
                     [{ value: '', label: t('modelDefault') }].concat(modelsForProvider(cp)),
@@ -4073,10 +4079,10 @@ window.__ModuleLoader__.load({
                         value: cp,
                         options: provOpts,
                         onChange: next => {
-                          if (!next) { setAgentEditor(prev => ({ ...prev, modelValue: '' })); return }
-                          setAgentEditor(prev => ({ ...prev, modelValue: '' }))
+                          if (!next) { setAgentEditor(prev => ({ ...prev, modelValue: '', pendingProvider: '' })); return }
+                          setAgentEditor(prev => ({ ...prev, modelValue: '', pendingProvider: next }))
                           const autoModels = modelsForProvider(next)
-                          if (autoModels.length === 1) setAgentEditor(prev => ({ ...prev, modelValue: autoModels[0].value }))
+                          if (autoModels.length === 1) setAgentEditor(prev => ({ ...prev, modelValue: autoModels[0].value, pendingProvider: '' }))
                         },
                       }),
                     ),
@@ -4088,7 +4094,7 @@ window.__ModuleLoader__.load({
                         value: cv,
                         options: mdlOpts,
                         disabled: !cp,
-                        onChange: value => setAgentEditor(prev => ({ ...prev, modelValue: value })),
+                        onChange: value => setAgentEditor(prev => ({ ...prev, modelValue: value, pendingProvider: '' })),
                       }),
                     ),
                   ]
@@ -4130,7 +4136,8 @@ window.__ModuleLoader__.load({
                 modelGate.issues.map(issue => {
                   const wantedValue = issue.wanted && issue.wanted.provider && issue.wanted.id ? `${issue.wanted.provider}\u0000${issue.wanted.id}` : ''
                   const currentValue = Object.prototype.hasOwnProperty.call(modelGate.draft, issue.nodeId) ? modelGate.draft[issue.nodeId] : wantedValue
-                  const cp = currentValue ? currentValue.split('\u0000')[0] : ''
+                  const pendingProv = modelGate.pendingProviders && modelGate.pendingProviders[issue.nodeId]
+                  const cp = pendingProv || (currentValue ? currentValue.split('\u0000')[0] : '')
                   const provOpts = withProviderGuard([{ value: '', label: t('modelDefault') }].concat(providerOptions), currentValue)
                   const mdlOpts = withModelGuardForProvider(
                     [{ value: '', label: t('modelDefault') }].concat(modelsForProvider(cp)),
@@ -4149,17 +4156,17 @@ window.__ModuleLoader__.load({
                         value: cp,
                         options: provOpts,
                         onChange: next => {
-                          if (!next) { setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' } } : prev)); return }
-                          setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' } } : prev))
+                          if (!next) { setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' }, pendingProviders: { ...prev.pendingProviders, [issue.nodeId]: '' } } : prev)); return }
+                          setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' }, pendingProviders: { ...(prev.pendingProviders || {}), [issue.nodeId]: next } } : prev))
                           const autoModels = modelsForProvider(next)
-                          if (autoModels.length === 1) setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: autoModels[0].value } } : prev))
+                          if (autoModels.length === 1) setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: autoModels[0].value }, pendingProviders: { ...(prev.pendingProviders || {}), [issue.nodeId]: '' } } : prev))
                         },
                       }),
                       h(Dropdown, {
                         value: currentValue,
                         options: mdlOpts,
                         disabled: !cp,
-                        onChange: value => setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: value } } : prev)),
+                        onChange: value => setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: value }, pendingProviders: { ...(prev.pendingProviders || {}), [issue.nodeId]: '' } } : prev)),
                       }),
                     ),
                   )
