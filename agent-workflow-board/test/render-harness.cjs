@@ -103,6 +103,44 @@ const run = (name, rawDoc) => {
   }
 }
 if (cases) for (const f of cases) run(path.basename(f), JSON.parse(fs.readFileSync(f, 'utf8')))
+// v2.19.0：带 model/onModelMissing 字段的合成画布也要全量渲染（节点模型/角色默认/失效策略三种形态）
+run('(model doc)', {
+  version: 1,
+  id: 'model-sim',
+  name: '模型字段渲染',
+  projectDir: '',
+  updatedAt: 0,
+  nodes: [
+    { id: 's', type: 'start', label: '主会话', x: 0, y: 0 },
+    { id: 'w1', type: 'work', label: '带模型节点', exec: 'subagent', model: { provider: 'p1', id: 'm1' }, onModelMissing: 'fallback', x: 260, y: 0 },
+    { id: 'w2', type: 'work', label: '停止策略节点', exec: 'subagent', model: { provider: 'gone', id: 'dead' }, onModelMissing: 'stop', agent: 'some-role', x: 520, y: 0 },
+    { id: 'w3', type: 'work', label: '主会话自己做', exec: 'lead', x: 780, y: 0 },
+    { id: 'e', type: 'end', label: '结束', x: 1040, y: 0 },
+  ],
+  edges: [
+    { id: 'e1', from: 's', to: 'w1', fromPort: 'right', toPort: 'left', label: '' },
+    { id: 'e2', from: 'w1', to: 'w2', fromPort: 'right', toPort: 'left', label: '' },
+    { id: 'e3', from: 'w2', to: 'w3', fromPort: 'right', toPort: 'left', label: '' },
+    { id: 'e4', from: 'w3', to: 'e', fromPort: 'right', toPort: 'left', label: '' },
+  ],
+})
+// normalizeDoc 必须保留 model/onModelMissing 且强制派发（exec:'lead' 与模型互斥）
+{
+  const kept = T.normalizeDoc({
+    nodes: [
+      { id: 's', type: 'start', label: '主会话', x: 0, y: 0 },
+      { id: 'w', type: 'work', label: 'W', exec: 'lead', model: { provider: 'p', id: 'm' }, onModelMissing: 'stop', x: 200, y: 0 },
+      { id: 'w2', type: 'work', label: 'W2', exec: 'subagent', x: 400, y: 0 },
+    ],
+    edges: [{ id: 'e1', from: 's', to: 'w' }, { id: 'e2', from: 'w', to: 'w2' }],
+  })
+  const w = kept.nodes.find(n => n.id === 'w')
+  const w2 = kept.nodes.find(n => n.id === 'w2')
+  const keepOk = w.model && w.model.provider === 'p' && w.model.id === 'm' && w.onModelMissing === 'stop' && w.exec === 'subagent'
+  const cleanOk = w2.model === undefined && w2.onModelMissing === undefined
+  if (keepOk && cleanOk) console.log('PASS (normalizeDoc keeps model / old shape untouched)')
+  else { failed++; console.log('FAIL (normalizeDoc model) ::', JSON.stringify({ w, w2 })) }
+}
 run('(empty doc)', T.emptyDoc())
 if (!cases) console.log('(storage 里没有画布，仅渲染空画布)')
 

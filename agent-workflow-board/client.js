@@ -167,6 +167,20 @@ window.__ModuleLoader__.load({
       execLead: '主会话自己做',
       fieldAgent: '执行 agent',
       agentLead: '主会话（默认）',
+      fieldModel: '模型',
+      modelDefault: '默认',
+      modelDefaultViaRole: '默认（角色：{a}）',
+      fieldOnModelMissing: '模型不可用时',
+      onModelFallback: '用默认模型',
+      onModelStop: '停止流程',
+      modelWarnFallback: '{a} 不可用，将用默认模型',
+      modelWarnStop: '{a} 不可用，启动时将停止',
+      modelIssuesToast: n => `${n} 个节点改用默认模型`,
+      modelStopTitle: '模型不可用，未启动',
+      modelDialogRun: '保存并启动',
+      modelPolicyTag: '会话授权未覆盖',
+      modelPolicyHint: '本会话已记录过模型授权范围（此前启动过画布或 DSH 设置写入），不含上述模型且无法追加。可改选模型，或在新会话里启动本画布。',
+      agentModelLabel: '默认模型（节点可覆盖；不设 = 跟随会话默认）',
       fieldRouterDesc: '判断说明（怎么选分支，写给主会话看）',
       fieldHookKind: '触发时机',
       hookSessionStart: '会话开始时',
@@ -325,6 +339,20 @@ window.__ModuleLoader__.load({
       execLead: 'Main session itself',
       fieldAgent: 'Executor agent',
       agentLead: 'Main session (default)',
+      fieldModel: 'Model',
+      modelDefault: 'Default',
+      modelDefaultViaRole: 'Default (role: {a})',
+      fieldOnModelMissing: 'When model unavailable',
+      onModelFallback: 'Use default model',
+      onModelStop: 'Stop the flow',
+      modelWarnFallback: '{a} unavailable; the default model will be used',
+      modelWarnStop: '{a} unavailable; start will be blocked',
+      modelIssuesToast: n => `${n} node(s) fall back to the default model`,
+      modelStopTitle: 'Model unavailable — not started',
+      modelDialogRun: 'Save & start',
+      modelPolicyTag: 'not authorized for this session',
+      modelPolicyHint: 'This session already recorded a model authorization scope (from an earlier canvas start or DSH settings) that excludes the models above and cannot be extended. Pick different models, or start this canvas in a new session.',
+      agentModelLabel: 'Default model (nodes may override; unset = follow the session default)',
       fieldRouterDesc: 'Decision notes (how to pick a branch)',
       fieldHookKind: 'Trigger',
       hookSessionStart: 'Session start',
@@ -489,6 +517,7 @@ window.__ModuleLoader__.load({
       '.awbc-dot.error{background:var(--dsw-alias-state-error-primary)}',
       '.awbc-node-sub{margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px;max-height:30px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all}',
       '.awbc-node-badge{margin-top:3px;color:var(--dsw-alias-state-warning-primary,#c78a1d);font-size:10px;line-height:13px}',
+      '.awbc-modelwarn{flex:0 0 auto;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:11px;line-height:16px;cursor:help}',
       // --- connection ports: 四边各一个，可进可出 ---
       '.awbc-port{position:absolute;width:10px;height:10px;border-radius:50%;box-sizing:border-box;background:#0e1116;border:2px solid var(--dsw-alias-label-tertiary);cursor:crosshair;z-index:2;transition:border-color .12s linear, transform .12s linear}',
       // Generous invisible hit area around the small visible dot.
@@ -714,7 +743,7 @@ window.__ModuleLoader__.load({
           .map(sanitizeHook)
           .concat(hookCarry.get(nodeId) || [])
           .slice(0, 8)
-        nodes.push({
+        const normalizedNode = {
           id: nodeId,
           type,
           label: String(node.label || '').slice(0, 80),
@@ -726,7 +755,21 @@ window.__ModuleLoader__.load({
           note: typeof node.note === 'string' ? node.note.slice(0, 1000) : '',
           x: clamp(Number(node.x) || 0, -100000, 100000),
           y: clamp(Number(node.y) || 0, -100000, 100000),
-        })
+        }
+        // v2.19.0 节点级模型：可选字段，不设时完全不写（旧画布形状不变）。
+        // 选了模型 → 强制派发（exec:'lead' 与模型互斥）。
+        const modelRaw = node.model
+        if (
+          type === 'work' &&
+          modelRaw && typeof modelRaw === 'object' && !Array.isArray(modelRaw) &&
+          typeof modelRaw.provider === 'string' && modelRaw.provider.trim() &&
+          typeof modelRaw.id === 'string' && modelRaw.id.trim()
+        ) {
+          normalizedNode.exec = 'subagent'
+          normalizedNode.model = { provider: modelRaw.provider.trim().slice(0, 120), id: modelRaw.id.trim().slice(0, 200) }
+          normalizedNode.onModelMissing = node.onModelMissing === 'stop' ? 'stop' : 'fallback'
+        }
+        nodes.push(normalizedNode)
       }
       const ids = new Set(nodes.map(node => node.id))
       const seen = new Set()
@@ -1263,6 +1306,17 @@ window.__ModuleLoader__.load({
       const [connectSource, setConnectSource] = React.useState('')
       const [agents, setAgents] = React.useState([])
       const [agentsState, setAgentsState] = React.useState('loading')
+      // v2.19.0 模型目录：null = 未知（加载中或拿不到），下拉退化为「默认」+ 当前值守卫项
+      const [models, setModels] = React.useState(null)
+      // v2.19.0 启动拦截弹窗：{ issues, draft: {nodeId: value}, busy } | null
+      const [modelGate, setModelGate] = React.useState(null)
+      // v2.19.0 节点卡片失效标记：checkModels 的 kind='model' 问题（按 nodeId 找）
+      const [modelIssues, setModelIssues] = React.useState([])
+      const refreshModels = React.useCallback(() => {
+        apiCall({ action: 'listModels' })
+          .then(data => setModels(Array.isArray(data && data.models) ? data.models : null))
+          .catch(() => setModels(null))
+      }, [])
       // v2.8.0 角色编辑：名册不再只读——null=关闭，否则是编辑草稿 {isNew,id,name,description,prompt,scope,busy}
       const [agentEditor, setAgentEditor] = React.useState(null)
       // v2.5.2 面板宽度：左右两栏都可拖拽调宽；初始同宽 292px，拖完的选择记 localStorage
@@ -1547,6 +1601,29 @@ window.__ModuleLoader__.load({
       // error 级问题数（很小的图，直接算不贵）：>0 时自动保存被挡，徽章显示「未保存」而非「保存中…」。
       const errorCount = React.useMemo(() => validateDoc(doc, t).filter(issue => issue.level === 'error').length, [doc, t])
 
+      // v2.19.0：节点卡片失效标记——编辑停顿后防抖 2s 查 checkModels（只查可能带模型的工作节点）
+      React.useEffect(() => {
+        const hasCandidates = doc.nodes.some(node => node.type === 'work' && node.exec !== 'lead' && (node.model || node.agent))
+        if (!hasCandidates) {
+          setModelIssues(prev => (prev.length > 0 ? [] : prev))
+          return undefined
+        }
+        let alive = true
+        const timer = setTimeout(() => {
+          apiCall({ action: 'checkModels', canvas: doc })
+            .then(data => {
+              if (!alive) return
+              setModelIssues(data && Array.isArray(data.issues) ? data.issues.filter(issue => issue && issue.kind === 'model') : [])
+            })
+            .catch(() => {})
+        }, 2000)
+        return () => {
+          alive = false
+          clearTimeout(timer)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [doc])
+
       const showToast = React.useCallback(text => {
         setToast(text || '')
       }, [])
@@ -1576,7 +1653,8 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         refreshDocs()
         refreshAgents()
-      }, [refreshDocs, refreshAgents])
+        refreshModels()
+      }, [refreshDocs, refreshAgents, refreshModels])
 
       // v2.6.1：项目目录变化 → 名册按「用户级 + 该项目」重取
       React.useEffect(() => {
@@ -2181,6 +2259,27 @@ window.__ModuleLoader__.load({
         }))
       }
 
+      // v2.19.0：设置/清除节点模型（null = 恢复默认，字段整个删掉，保持旧画布形状）
+      const setNodeModel = (nodeId, model) => {
+        if (blocked()) return
+        setDoc(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(node => {
+            if (node.id !== nodeId) return node
+            const next = { ...node }
+            if (model) {
+              next.model = model
+              next.onModelMissing = next.onModelMissing === 'stop' ? 'stop' : 'fallback'
+              next.exec = 'subagent' // 选了模型 → 强制派发（lead 与模型互斥）
+            } else {
+              delete next.model
+              delete next.onModelMissing
+            }
+            return next
+          }),
+        }))
+      }
+
       const deleteSelected = () => {
         if (blocked()) return
         const ids = multiIds.length > 0 ? multiIds.slice() : selectedId ? [selectedId] : []
@@ -2528,6 +2627,41 @@ window.__ModuleLoader__.load({
         agentOptions.push({ value: selected.agent, label: hidden ? agentLabel(hidden) : selected.agent })
       }
 
+      // --- v2.19.0 节点级模型：下拉值 = "provider\u0000id"（官方 routeKey 同款分隔符，
+      // 模型 id 可能含 '/'，不能用斜杠拼）；空串 = 默认。 ---
+      const modelValueOf = model => (model && model.provider && model.id ? `${model.provider}\u0000${model.id}` : '')
+      const parseModelValue = value => {
+        if (typeof value !== 'string' || !value) return null
+        const idx = value.indexOf('\u0000')
+        if (idx <= 0 || idx === value.length - 1) return null
+        return { provider: value.slice(0, idx), id: value.slice(idx + 1) }
+      }
+      const modelRouteLabel = model => `${model.provider}/${model.id}`
+      const modelOptions = React.useMemo(() => {
+        const list = Array.isArray(models) ? models : []
+        const sorted = [...list].sort((a, b) =>
+          String(a.provider) === String(b.provider) ? String(a.id).localeCompare(String(b.id)) : String(a.provider).localeCompare(String(b.provider)),
+        )
+        return sorted.map(entry => ({
+          value: `${entry.provider}\u0000${entry.id}`,
+          label: entry.name && entry.name !== entry.id ? `${entry.name} (${entry.provider})` : `${entry.provider}/${entry.id}`,
+        }))
+      }, [models])
+      // 当前值不在目录里（未知/失效/目录没拿到）时补一个守卫项，下拉始终能显示已选值
+      const withModelGuard = (options, value) => {
+        if (!value || options.some(option => option.value === value)) return options
+        const parsed = parseModelValue(value)
+        return parsed ? options.concat([{ value, label: modelRouteLabel(parsed) }]) : options
+      }
+      // 角色默认模型（名册 frontmatter provider/model，宿主 agents 接口带回）
+      const roleModelOf = agentId => {
+        if (!agentId) return null
+        const role = agents.find(entry => entry.id === agentId)
+        return role && role.provider && role.model ? { provider: role.provider, id: role.model } : null
+      }
+      // 生效模型 = 节点覆盖 ?? 角色默认 ?? 无（与宿主 wantedRouteFor 同语义）
+      const effectiveModelOf = node => (node && node.model ? node.model : node ? roleModelOf(node.agent) : null)
+
       const paletteCards = ['start', 'work', 'router', 'end', 'hook'].map(type => ({
         key: 'type-' + type,
         type,
@@ -2735,6 +2869,11 @@ window.__ModuleLoader__.load({
         const lane = node.type === 'work' ? pickLane(lanes, node.label) : null
         // canvas_report 上报的状态优先（覆盖主会话自己执行与判断/结束节点），投影 lane 兜底。
         const reported = runtimeStatus[node.label]
+        // v2.19.0：设定模型失效的红色标记（不加常驻文字，悬停看原因）
+        const modelIssue = node.type === 'work' ? modelIssues.find(issue => issue.nodeId === node.id) : null
+        const modelWarnText = modelIssue
+          ? (modelIssue.policy === 'stop' ? t('modelWarnStop') : t('modelWarnFallback')).replace('{a}', `${modelIssue.wanted.provider}/${modelIssue.wanted.id}`)
+          : ''
         const status = reported
           ? reported.status === 'done'
             ? 'done'
@@ -2762,7 +2901,7 @@ window.__ModuleLoader__.load({
             'data-node-id': node.id,
             className: `awbc-node${status === 'error' ? ' error' : ''}${multiIds.includes(node.id) ? ' selected' : ''}${connectSource === node.id ? ' connect-src' : ''}`,
             style: { left: node.x, top: node.y, width: measureNodeWidth(node.label) },
-            title: status === 'error' && reported && reported.note ? `${nodeSubText(node, t)}\n失败：${reported.note}` : nodeSubText(node, t),
+            title: (status === 'error' && reported && reported.note ? `${nodeSubText(node, t)}\n失败：${reported.note}` : nodeSubText(node, t)) + (modelWarnText ? `\n${modelWarnText}` : ''),
             onPointerDown: event => startNodeDrag(event, node),
             onContextMenu: event => openNodeMenu(event, node.id),
           },
@@ -2794,6 +2933,7 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'awbc-node-titlerow' },
               h('span', { className: 'awbc-node-title' }, node.label || node.id),
+              modelIssue ? h('span', { className: 'awbc-modelwarn', title: modelWarnText, 'aria-hidden': true }, '⚠') : null,
               status === 'running' ? h('span', { className: 'awbc-dot running', title: statusText }) : null,
             ),
           ),
@@ -2954,11 +3094,14 @@ window.__ModuleLoader__.load({
                     { className: 'awbc-field', key: 'exec' },
                     h('label', { className: 'awbc-label' }, t('fieldExec')),
                     h(Dropdown, {
-                      value: selected.exec,
-                      options: [
-                        { value: 'subagent', label: t('execSubagent') },
-                        { value: 'lead', label: t('execLead') },
-                      ],
+                      value: selected.model ? 'subagent' : selected.exec,
+                      // v2.19.0：选了模型的节点强制派发（exec:'lead' 与模型互斥），只留一个选项
+                      options: selected.model
+                        ? [{ value: 'subagent', label: t('execSubagent') }]
+                        : [
+                            { value: 'subagent', label: t('execSubagent') },
+                            { value: 'lead', label: t('execLead') },
+                          ],
                       onChange: next => updateSelected('exec', next),
                     }),
                   ),
@@ -2972,6 +3115,37 @@ window.__ModuleLoader__.load({
                       onChange: next => updateSelected('agent', next),
                     }),
                   ),
+                  (() => {
+                    // v2.19.0 模型下拉：首项「默认」；角色带默认模型时在「默认」里注明角色路由
+                    const roleModel = roleModelOf(selected.agent)
+                    const currentValue = modelValueOf(selected.model)
+                    const defaultLabel = roleModel ? t('modelDefaultViaRole').replace('{a}', modelRouteLabel(roleModel)) : t('modelDefault')
+                    return h(
+                      'div',
+                      { className: 'awbc-field', key: 'model' },
+                      h('label', { className: 'awbc-label' }, t('fieldModel')),
+                      h(Dropdown, {
+                        value: currentValue,
+                        options: withModelGuard([{ value: '', label: defaultLabel }].concat(modelOptions), currentValue),
+                        onChange: next => setNodeModel(selected.id, parseModelValue(next)),
+                      }),
+                    )
+                  })(),
+                  effectiveModelOf(selected)
+                    ? h(
+                        'div',
+                        { className: 'awbc-field', key: 'onModelMissing' },
+                        h('label', { className: 'awbc-label' }, t('fieldOnModelMissing')),
+                        h(Dropdown, {
+                          value: selected.onModelMissing === 'stop' ? 'stop' : 'fallback',
+                          options: [
+                            { value: 'fallback', label: t('onModelFallback') },
+                            { value: 'stop', label: t('onModelStop') },
+                          ],
+                          onChange: next => updateSelected('onModelMissing', next),
+                        }),
+                      )
+                    : null,
                   h(
                     'div',
                     { className: 'awbc-field', key: 'prompt' },
@@ -3031,6 +3205,31 @@ window.__ModuleLoader__.load({
       )
 
       // v2.7.0 启动开关：看哪张图开哪张图。开启前三步串行——补 id（新画布）→ 落盘 → 绑定（宿主对活会话即时挂规范）。
+      // v2.19.0 落盘后先过启动主检查（checkModels，与宿主 compileSpec 兜底共用同一检查函数）：
+      //   无问题 → 照旧绑定；只有 fallback → 照旧绑定 + toast 一句；
+      //   有 stop / 会话授权未覆盖 → 不绑定，弹窗改选模型（保存并启动 = 落盘后重查再绑）。
+      const runCheckAndBind = base => {
+        apiCall({ action: 'checkModels', canvas: base, sessionId })
+          .then(data => {
+            const issues = data && Array.isArray(data.issues) ? data.issues : []
+            const blocking = issues.filter(issue => issue && issue.policy === 'stop')
+            if (blocking.length > 0) {
+              const draft = {}
+              for (const issue of blocking) {
+                if (issue.wanted && issue.wanted.provider && issue.wanted.id) draft[issue.nodeId] = `${issue.wanted.provider}\u0000${issue.wanted.id}`
+              }
+              setModelGate({ issues: blocking, draft, busy: false })
+              return
+            }
+            const fallbacks = issues.filter(issue => issue && issue.kind === 'model' && issue.policy === 'fallback')
+            if (fallbacks.length > 0) showToast(t('modelIssuesToast')(fallbacks.length))
+            setSessionBinding(base.id)
+          })
+          .catch(() => {
+            // 检查失败 → 照旧绑定（未知 ≠ 阻断，宿主侧还有 compileSpec/围栏兜底）
+            setSessionBinding(base.id)
+          })
+      }
       const toggleRun = () => {
         if (!sessionId) return
         if (binding === doc.id && doc.id) {
@@ -3046,16 +3245,52 @@ window.__ModuleLoader__.load({
               return
             }
             setDoc(prev => ({ ...prev, id: targetId }))
-            setSessionBinding(targetId)
+            runCheckAndBind(base)
           })
           .catch(() => showToast(t('loadFailed')))
+      }
+      // 弹窗「保存并启动」：改选写回文档 → 落盘 → 重查绑定（仍有 stop 项会再弹回）
+      const applyModelGate = () => {
+        if (!modelGate || modelGate.busy) return
+        const changes = modelGate.draft || {}
+        const nextNodes = doc.nodes.map(node => {
+          if (!Object.prototype.hasOwnProperty.call(changes, node.id)) return node
+          const parsed = parseModelValue(changes[node.id])
+          const next = { ...node }
+          if (parsed) {
+            next.model = parsed
+            next.onModelMissing = next.onModelMissing === 'stop' ? 'stop' : 'fallback'
+            next.exec = 'subagent'
+          } else {
+            delete next.model
+            delete next.onModelMissing
+          }
+          return next
+        })
+        const nextDoc = { ...doc, nodes: nextNodes }
+        setModelGate(prev => ({ ...prev, busy: true }))
+        Promise.resolve(persistDoc(nextDoc, { silent: true }))
+          .then(ok => {
+            if (ok === false) {
+              setModelGate(null)
+              showToast(t('loadFailed'))
+              return
+            }
+            setDoc(nextDoc)
+            setModelGate(null)
+            runCheckAndBind(nextDoc)
+          })
+          .catch(() => {
+            setModelGate(null)
+            showToast(t('loadFailed'))
+          })
       }
 
       // v2.8.0 角色编辑：画布内直接新建/编辑/删除角色 .md（宿主 agentGet/agentPut/agentDelete）。
       const currentProjectDir = () => (doc && typeof doc.projectDir === 'string' ? doc.projectDir : '')
       const openAgentEditor = agent => {
         if (!agent) {
-          setAgentEditor({ isNew: true, id: '', name: '', description: '', prompt: '', scope: 'user', busy: false })
+          setAgentEditor({ isNew: true, id: '', name: '', description: '', prompt: '', scope: 'user', modelValue: '', busy: false })
           return
         }
         setAgentEditor({
@@ -3065,6 +3300,8 @@ window.__ModuleLoader__.load({
           description: agent.description || '',
           prompt: '',
           scope: agent.scope === 'project' ? 'project' : 'user',
+          // v2.19.0：名册列表已带角色默认模型（frontmatter provider/model），agentGet 回来再校准
+          modelValue: agent.provider && agent.model ? `${agent.provider}\u0000${agent.model}` : '',
           busy: true,
         })
         apiCall({ action: 'agentGet', id: agent.id, projectDir: currentProjectDir() })
@@ -3072,7 +3309,7 @@ window.__ModuleLoader__.load({
             const full = data && data.agent
             setAgentEditor(prev =>
               prev && prev.id === agent.id
-                ? { ...prev, name: (full && full.name && full.name !== full.id) || prev.name, description: (full && full.description) || prev.description, prompt: (full && full.prompt) || '', busy: false }
+                ? { ...prev, name: (full && full.name && full.name !== full.id) || prev.name, description: (full && full.description) || prev.description, prompt: (full && full.prompt) || '', modelValue: full && full.provider && full.model ? `${full.provider}\u0000${full.model}` : prev.modelValue, busy: false }
                 : prev,
             )
           })
@@ -3090,11 +3327,14 @@ window.__ModuleLoader__.load({
           showToast(t('agentInvalid'))
           return
         }
+        const route = parseModelValue(draft.modelValue)
         apiCall({
           action: 'agentPut',
           id,
           name: draft.name.trim() || id,
           description: draft.description.trim(),
+          provider: route ? route.provider : '',
+          model: route ? route.id : '',
           prompt,
           scope: draft.scope,
           projectDir: currentProjectDir(),
@@ -3163,7 +3403,7 @@ window.__ModuleLoader__.load({
             'div',
             { style: { display: 'flex', gap: 6, alignSelf: 'flex-start' } },
             h('button', { type: 'button', className: 'awbc-btn', onClick: () => openAgentEditor(null) }, t('agentNew')),
-            h('button', { type: 'button', className: 'awbc-btn', onClick: () => refreshAgents(currentProjectDir()) }, t('refresh')),
+            h('button', { type: 'button', className: 'awbc-btn', onClick: () => { refreshAgents(currentProjectDir()); refreshModels() } }, t('refresh')),
           ),
           h('div', { className: 'awbc-sec' }, t('secDocs')),
           docsList.length === 0 ? h('div', { className: 'awbc-hint' }, t('docsEmpty')) : null,
@@ -3740,6 +3980,16 @@ window.__ModuleLoader__.load({
                 h(
                   'div',
                   { className: 'awbc-field' },
+                  h('label', null, t('agentModelLabel')),
+                  h(Dropdown, {
+                    value: agentEditor.modelValue || '',
+                    options: withModelGuard([{ value: '', label: t('modelDefault') }].concat(modelOptions), agentEditor.modelValue || ''),
+                    onChange: value => setAgentEditor(prev => ({ ...prev, modelValue: value })),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'awbc-field' },
                   h('label', null, t('agentPromptLabel')),
                   h('textarea', {
                     className: 'awbc-input awbc-textarea',
@@ -3759,6 +4009,42 @@ window.__ModuleLoader__.load({
                     h('button', { type: 'button', className: 'awbc-btn', onClick: () => setAgentEditor(null) }, t('close')),
                     h('button', { type: 'button', className: 'awbc-btn primary', disabled: agentEditor.busy, onClick: saveAgentEditor }, t('agentSave')),
                   ),
+                ),
+              ),
+            )
+          : null,
+        modelGate
+          ? h(
+              'div',
+              { className: 'awbc-overlay', key: 'model-gate', onPointerDown: event => event.stopPropagation() },
+              h(
+                'div',
+                { className: 'awbc-dialog' },
+                h('div', { className: 'awbc-dialog-title' }, t('modelStopTitle')),
+                modelGate.issues.map(issue => {
+                  const wantedValue = issue.wanted && issue.wanted.provider && issue.wanted.id ? `${issue.wanted.provider}\u0000${issue.wanted.id}` : ''
+                  const currentValue = Object.prototype.hasOwnProperty.call(modelGate.draft, issue.nodeId) ? modelGate.draft[issue.nodeId] : wantedValue
+                  return h(
+                    'div',
+                    { className: 'awbc-field', key: `${issue.kind}-${issue.nodeId}` },
+                    h(
+                      'label',
+                      { className: 'awbc-label' },
+                      `${issue.label}${wantedValue ? ` · ${issue.wanted.provider}/${issue.wanted.id}` : ''}${issue.kind === 'policy' ? `（${t('modelPolicyTag')}）` : ''}`,
+                    ),
+                    h(Dropdown, {
+                      value: currentValue,
+                      options: withModelGuard([{ value: '', label: t('modelDefault') }].concat(modelOptions), currentValue),
+                      onChange: value => setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: value } } : prev)),
+                    }),
+                  )
+                }),
+                modelGate.issues.some(issue => issue.kind === 'policy') ? h('div', { className: 'awbc-hint' }, t('modelPolicyHint')) : null,
+                h(
+                  'div',
+                  { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
+                  h('button', { type: 'button', className: 'awbc-btn', onClick: () => setModelGate(null) }, t('close')),
+                  h('button', { type: 'button', className: 'awbc-btn primary', disabled: modelGate.busy, onClick: applyModelGate }, t('modelDialogRun')),
                 ),
               ),
             )
