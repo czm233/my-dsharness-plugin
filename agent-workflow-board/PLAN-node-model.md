@@ -10,10 +10,11 @@
 | 问题 | 决定 |
 |---|---|
 | 模型挂在哪层 | 角色给默认值，节点可覆盖；都没设 = 默认模型 |
-| 围栏遇到模型不一致 | 自动改写 subagent 参数（待确认 pre-execute 能否改参，见阶段 0） |
+| 围栏遇到模型不一致 | 自动改写 subagent 参数（阶段 0 已确认可改参，方案 A 成立） |
 | 模型失效 | 节点开关「用默认模型（默认）/ 停止」；保存的值不清空 |
 | 检查时机 | 点「启动」时主检查 + compileSpec 兜底，共用一个检查函数 |
 | 适用节点 | 只有派发型工作节点；选了模型的节点强制派发，`exec: 'lead'` 与模型互斥 |
+| 会话级模型授权（阶段 0 新增） | 绑定时插件向会话 append 官方 model-selection-policy 事件，授权画布路由并集（用户 2026-11-09 拍板方案 A） |
 
 ## 数据结构
 
@@ -86,6 +87,17 @@
 - 模型列表拿不到 → 全部按 unknown 放行，退化为「只靠提示词」，不会阻断。
 - 调度、汇总仍由主会话模型完成，不在本功能范围。
 
-## 阶段 0 调研结论
+## 阶段 0 调研结论（2026-11-09，源码出自 app.asar 内官方包）
 
-（待填）
+1. **模型列表**：host ctx 可用 `ctx.get('llm')`（`@deepseek-ai/dsh-llm` 注册的服务，与 `list_subagent_models` 工具同源）。方法：
+   - `listProviders()` → 同步，`[{id, name, ...}]`（已注册且有 adapter 的渠道）
+   - `await listModels(providerId)` → 广告目录 `[{provider, id, name, description?}]`；目录是 advisory，不在目录 ≠ 一定不能用，还可用 `await resolveModelInfo(providerId, modelId, signal)` 精确解析（不存在则抛 LlmError）。missing 判定 = 目录未命中且 resolveModelInfo 也失败。
+   - 任何一步异常 → 列表视为拿不到（unknown），按 ok 放行，与计划一致。
+2. **围栏改参（方案 A 成立）**：`tools/pre-execute` 收到的 exec 对象未被冻结，官方流水线自己就会改 `exec.signal`；`exec.arguments` 的**值**被 deepFreeze（不能原地改属性），但属性本身可**整体重赋值**：`exec.arguments = { ...exec.arguments, provider, model }`。`dispatchToolBody` 之后读的是同一个 exec 对象的 `exec.arguments`，改写生效。后续 guards / ask（审批）看到的也是改写后的参数。
+3. **tool/call 字段名**：subagent 工具参数为 `provider` / `model` / `reasoning_effort`（snake_case）。`tool/call` 事件在 `pipeline.prepare` **之前**用模型原始 block.arguments 落库，所以投影 lane.model 记录的是「主会话请求的模型」；围栏改写不体现在投影里（正常路径 compileSpec 已要求主会话自己带对参数，可接受）。
+4. **计划外硬约束（阻断性）→ 已拍板方案 A**：`@deepseek-ai/dsh-tool-subagent` 的 `assertAllowedModelSelection` 规定——会话若没有记录 `subagent/model-selection-policy` 事件（DSH 设置「Model selection」未开启时即为如此，本机全部会话抽查均为 null），subagent 显式传 provider/model 只允许等于父会话当前路由，否则派发直接报错。
+   **决定（用户 2026-11-09 确认）**：画布「启动」绑定时，宿主给该会话 append 官方 `subagent/model-selection-policy` 事件（`agent.session.append`，与官方设置服务同一写法），allowedModels = 本画布全部生效路由的并集（去重、非空才写）。
+   - 会话策略「先到先 recorded」：投影 apply 只认第一条。绑定前用插件自己注册的同事件投影 reader（key=agentWorkflowBoardModelPolicy）检查：已有策略且覆盖画布路由 → 不写、直接用；已有策略但不覆盖 → checkModels 报 issue（policy 类），提示换新会话启动；无策略 → append。
+   - 子会话自动继承父策略（官方 agent/created 逻辑），无需额外处理。
+   - 画布无模型节点时不 append（无路由可授权，事件 schema 要求 min(1)）。
+5. 会话绑定后画布本来就被 bound-lock 禁改，运行中改模型的场景 = 先停再改再启动，新路由若超出已 recorded 策略即落入上面「policy 不覆盖」分支，行为明确。
