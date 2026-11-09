@@ -531,3 +531,10 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 删函数后必须 `grep -n 函数名` 确认调用点清零（同 §22 的改名验证规则，这次是删函数版的同款事故）。
 - 交互路径必须有执行级回归：新增 `test/link-drag-sim.cjs`——加载真实 client.js，用「可重渲染」React stub（useState cells 跨渲染持久、按游标复用）跑完整 pointer 事件序列，断言边真的建出来。渲染 harness（看渲染）+ link-drag-sim（跑交互）+ drag-collision-sim（跑拖帧）三件套互补，改画布交互后三个都要跑。
 - 修复方式：新增 `facingPorts(from,to)`（与 edgeGeometry 现行选口规则同源：水平邻居左右口/垂直邻居上下口），三处调用点全部改用它；connectMode 分支改为 `stopPropagation + onNodeClick(node.id)` 直达两点连线。
+
+## 30. flex column + max-height 滚动容器会压缩子项：overflow:hidden 让自动最小高度归零（2026-11-09，agent-workflow-board 2.19.0 模型下拉）
+
+- **现象**：模型下拉选项一多（超过弹层 max-height 260px）就逐行叠字看不清；选项少时完全正常。
+- **根因**：`.awbc-dd-pop` 是 `display:flex;flex-direction:column;max-height:260px;overflow:auto`；子项 `.awbc-dd-item` 带 `overflow:hidden`（省略号需要）。按 flex 规范，子项 overflow 非 visible 时自动最小尺寸（min-height:auto）归 0，容器高度不够时子项被等比压缩（实测 28px→15px），文字溢出盒子与邻行重叠。角色下拉选项数从没超过限高，所以 2.14 以来从未暴露；模型目录十几条第一次踩中。
+- **解法**：`.awbc-dd-item` 加 `flex:0 0 auto`（禁止压缩，滚动交给容器）。
+- **教训/门禁**：任何 flex column 容器加滚动限高时，检查子项是否 overflow 非 visible，是则必须显式 `flex-shrink:0`。此类布局 bug 的复现办法：从 client.js 抽真实 CSS + 照组件结构拼 markup，headless Chrome 截图（`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot=...`），再用 `getBoundingClientRect` 探针拿数值证据（行高 15 vs 28 一眼定罪）——别肉眼读 CSS 规则猜。
