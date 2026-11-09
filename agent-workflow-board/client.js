@@ -168,6 +168,7 @@ window.__ModuleLoader__.load({
       fieldAgent: '执行 agent',
       agentLead: '主会话（默认）',
       fieldModel: '模型',
+      fieldProvider: '渠道',
       modelDefault: '默认',
       modelDefaultViaRole: '默认（角色：{a}）',
       fieldOnModelMissing: '模型不可用时',
@@ -340,6 +341,7 @@ window.__ModuleLoader__.load({
       fieldAgent: 'Executor agent',
       agentLead: 'Main session (default)',
       fieldModel: 'Model',
+      fieldProvider: 'Provider',
       modelDefault: 'Default',
       modelDefaultViaRole: 'Default (role: {a})',
       fieldOnModelMissing: 'When model unavailable',
@@ -559,6 +561,7 @@ window.__ModuleLoader__.load({
       '.awbc-dd-trigger{display:flex;align-items:center;gap:6px;width:100%;min-width:0;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;padding:3px 8px;border-radius:6px;cursor:pointer;text-align:left}',
       '.awbc-dd-trigger:hover{border-color:var(--dsw-alias-border-l2)}',
       '.awbc-dd-trigger.open,.awbc-dd-trigger:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+      '.awbc-dd.disabled .awbc-dd-trigger{opacity:.45;cursor:default}',
       '.awbc-dd-value{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.awbc-dd-arrow{flex:0 0 auto;width:10px;height:6px;background:center/contain no-repeat url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' fill=\'none\' stroke=\'%23888f9b\' stroke-width=\'1.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E");transition:transform .12s linear}',
       '.awbc-dd-trigger.open .awbc-dd-arrow{transform:rotate(180deg)}',
@@ -1259,13 +1262,14 @@ window.__ModuleLoader__.load({
         }
       }, [open, place])
 
-      return h('div', { className: 'awbc-dd' + (props.className ? ' ' + props.className : '') },
+      return h('div', { className: 'awbc-dd' + (props.className ? ' ' + props.className : '') + (props.disabled ? ' disabled' : '') },
         h('button', {
           type: 'button',
           ref: btnRef,
           className: 'awbc-dd-trigger' + (open ? ' open' : ''),
           title: props.title || (current ? current.label : ''),
-          onClick: () => setOpen(state => !state),
+          disabled: !!props.disabled,
+          onClick: () => { if (!props.disabled) setOpen(state => !state) },
         },
           h('span', { className: 'awbc-dd-value' }, current ? current.label : '\u00a0'),
           h('span', { className: 'awbc-dd-arrow', 'aria-hidden': true }),
@@ -2657,6 +2661,44 @@ window.__ModuleLoader__.load({
         const parsed = parseModelValue(value)
         return parsed ? options.concat([{ value, label: modelRouteLabel(parsed) }]) : options
       }
+      // 渠道列表（去重、排序）；空串 = 默认
+      const providerOptions = React.useMemo(() => {
+        const list = Array.isArray(models) ? models : []
+        const seen = new Set()
+        const opts = []
+        for (const entry of [...list].sort((a, b) => String(a.provider).localeCompare(String(b.provider)))) {
+          if (seen.has(entry.provider)) continue
+          seen.add(entry.provider)
+          opts.push({ value: entry.provider, label: entry.provider })
+        }
+        return opts
+      }, [models])
+      // 给定渠道下的模型选项（不含「默认」首项——由调用方拼）
+      const modelsForProvider = React.useCallback(provider => {
+        if (!provider) return []
+        const list = Array.isArray(models) ? models : []
+        return list
+          .filter(entry => entry.provider === provider)
+          .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+          .map(entry => ({
+            value: `${entry.provider}\u0000${entry.id}`,
+            label: entry.name && entry.name !== entry.id ? entry.name : entry.id,
+          }))
+      }, [models])
+      // 渠道守卫：当前值的 provider 不在目录里时补一项
+      const withProviderGuard = (options, value) => {
+        if (!value) return options
+        const parsed = parseModelValue(value)
+        if (!parsed || options.some(o => o.value === parsed.provider)) return options
+        return options.concat([{ value: parsed.provider, label: parsed.provider }])
+      }
+      // 模型守卫：当前值不在该渠道的选项里时补一项
+      const withModelGuardForProvider = (options, value, provider) => {
+        if (!value || !provider) return options
+        if (options.some(o => o.value === value)) return options
+        const parsed = parseModelValue(value)
+        return parsed ? options.concat([{ value, label: parsed.id }]) : options
+      }
       // 角色默认模型（名册 frontmatter provider/model，宿主 agents 接口带回）
       const roleModelOf = agentId => {
         if (!agentId) return null
@@ -3120,20 +3162,46 @@ window.__ModuleLoader__.load({
                     }),
                   ),
                   (() => {
-                    // v2.19.0 模型下拉：首项「默认」；角色带默认模型时在「默认」里注明角色路由
+                    // v2.19.0 模型选择：渠道 → 模型 两级联动
                     const roleModel = roleModelOf(selected.agent)
                     const currentValue = modelValueOf(selected.model)
+                    const currentProvider = currentValue ? currentValue.split('\u0000')[0] : ''
                     const defaultLabel = roleModel ? t('modelDefaultViaRole').replace('{a}', modelRouteLabel(roleModel)) : t('modelDefault')
-                    return h(
-                      'div',
-                      { className: 'awbc-field', key: 'model' },
-                      h('label', { className: 'awbc-label' }, t('fieldModel')),
-                      h(Dropdown, {
-                        value: currentValue,
-                        options: withModelGuard([{ value: '', label: defaultLabel }].concat(modelOptions), currentValue),
-                        onChange: next => setNodeModel(selected.id, parseModelValue(next)),
-                      }),
+                    const provOpts = withProviderGuard([{ value: '', label: defaultLabel }].concat(providerOptions), currentValue)
+                    const mdlOpts = withModelGuardForProvider(
+                      [{ value: '', label: t('modelDefault') }].concat(modelsForProvider(currentProvider)),
+                      currentValue, currentProvider,
                     )
+                    return [
+                      h(
+                        'div',
+                        { className: 'awbc-field', key: 'provider' },
+                        h('label', { className: 'awbc-label' }, t('fieldProvider')),
+                        h(Dropdown, {
+                          value: currentProvider,
+                          options: provOpts,
+                          onChange: next => {
+                            if (!next) { setNodeModel(selected.id, null); return }
+                            // 切渠道时清掉旧模型（不同渠道的 id 不通用）
+                            setNodeModel(selected.id, null)
+                            // 如果新渠道只有一个模型，自动选中
+                            const autoModels = modelsForProvider(next)
+                            if (autoModels.length === 1) setNodeModel(selected.id, parseModelValue(autoModels[0].value))
+                          },
+                        }),
+                      ),
+                      h(
+                        'div',
+                        { className: 'awbc-field', key: 'model' },
+                        h('label', { className: 'awbc-label' }, t('fieldModel')),
+                        h(Dropdown, {
+                          value: currentValue,
+                          options: mdlOpts,
+                          disabled: !currentProvider,
+                          onChange: next => setNodeModel(selected.id, parseModelValue(next)),
+                        }),
+                      ),
+                    ]
                   })(),
                   effectiveModelOf(selected)
                     ? h(
@@ -3987,16 +4055,44 @@ window.__ModuleLoader__.load({
                     onChange: value => setAgentEditor(prev => ({ ...prev, scope: value })),
                   }),
                 ),
-                h(
-                  'div',
-                  { className: 'awbc-field' },
-                  h('label', null, t('agentModelLabel')),
-                  h(Dropdown, {
-                    value: agentEditor.modelValue || '',
-                    options: withModelGuard([{ value: '', label: t('modelDefault') }].concat(modelOptions), agentEditor.modelValue || ''),
-                    onChange: value => setAgentEditor(prev => ({ ...prev, modelValue: value })),
-                  }),
-                ),
+                (() => {
+                  // v2.19.0 角色默认模型：渠道 → 模型 两级联动
+                  const cv = agentEditor.modelValue || ''
+                  const cp = cv ? cv.split('\u0000')[0] : ''
+                  const provOpts = withProviderGuard([{ value: '', label: t('modelDefault') }].concat(providerOptions), cv)
+                  const mdlOpts = withModelGuardForProvider(
+                    [{ value: '', label: t('modelDefault') }].concat(modelsForProvider(cp)),
+                    cv, cp,
+                  )
+                  return [
+                    h(
+                      'div',
+                      { className: 'awbc-field', key: 'agent-provider' },
+                      h('label', null, t('fieldProvider')),
+                      h(Dropdown, {
+                        value: cp,
+                        options: provOpts,
+                        onChange: next => {
+                          if (!next) { setAgentEditor(prev => ({ ...prev, modelValue: '' })); return }
+                          setAgentEditor(prev => ({ ...prev, modelValue: '' }))
+                          const autoModels = modelsForProvider(next)
+                          if (autoModels.length === 1) setAgentEditor(prev => ({ ...prev, modelValue: autoModels[0].value }))
+                        },
+                      }),
+                    ),
+                    h(
+                      'div',
+                      { className: 'awbc-field', key: 'agent-model' },
+                      h('label', null, t('fieldModel') + ' — ' + t('agentModelLabel')),
+                      h(Dropdown, {
+                        value: cv,
+                        options: mdlOpts,
+                        disabled: !cp,
+                        onChange: value => setAgentEditor(prev => ({ ...prev, modelValue: value })),
+                      }),
+                    ),
+                  ]
+                })(),
                 h(
                   'div',
                   { className: 'awbc-field' },
@@ -4034,6 +4130,12 @@ window.__ModuleLoader__.load({
                 modelGate.issues.map(issue => {
                   const wantedValue = issue.wanted && issue.wanted.provider && issue.wanted.id ? `${issue.wanted.provider}\u0000${issue.wanted.id}` : ''
                   const currentValue = Object.prototype.hasOwnProperty.call(modelGate.draft, issue.nodeId) ? modelGate.draft[issue.nodeId] : wantedValue
+                  const cp = currentValue ? currentValue.split('\u0000')[0] : ''
+                  const provOpts = withProviderGuard([{ value: '', label: t('modelDefault') }].concat(providerOptions), currentValue)
+                  const mdlOpts = withModelGuardForProvider(
+                    [{ value: '', label: t('modelDefault') }].concat(modelsForProvider(cp)),
+                    currentValue, cp,
+                  )
                   return h(
                     'div',
                     { className: 'awbc-field', key: `${issue.kind}-${issue.nodeId}` },
@@ -4042,11 +4144,24 @@ window.__ModuleLoader__.load({
                       { className: 'awbc-label' },
                       `${issue.label}${wantedValue ? ` · ${issue.wanted.provider}/${issue.wanted.id}` : ''}${issue.kind === 'policy' ? `（${t('modelPolicyTag')}）` : ''}`,
                     ),
-                    h(Dropdown, {
-                      value: currentValue,
-                      options: withModelGuard([{ value: '', label: t('modelDefault') }].concat(modelOptions), currentValue),
-                      onChange: value => setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: value } } : prev)),
-                    }),
+                    h('div', { style: { display: 'flex', gap: 6 } },
+                      h(Dropdown, {
+                        value: cp,
+                        options: provOpts,
+                        onChange: next => {
+                          if (!next) { setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' } } : prev)); return }
+                          setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: '' } } : prev))
+                          const autoModels = modelsForProvider(next)
+                          if (autoModels.length === 1) setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: autoModels[0].value } } : prev))
+                        },
+                      }),
+                      h(Dropdown, {
+                        value: currentValue,
+                        options: mdlOpts,
+                        disabled: !cp,
+                        onChange: value => setModelGate(prev => (prev ? { ...prev, draft: { ...prev.draft, [issue.nodeId]: value } } : prev)),
+                      }),
+                    ),
                   )
                 }),
                 modelGate.issues.some(issue => issue.kind === 'policy') ? h('div', { className: 'awbc-hint' }, t('modelPolicyHint')) : null,
