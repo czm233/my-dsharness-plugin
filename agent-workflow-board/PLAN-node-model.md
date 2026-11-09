@@ -101,3 +101,10 @@
    - 子会话自动继承父策略（官方 agent/created 逻辑），无需额外处理。
    - 画布无模型节点时不 append（无路由可授权，事件 schema 要求 min(1)）。
 5. 会话绑定后画布本来就被 bound-lock 禁改，运行中改模型的场景 = 先停再改再启动，新路由若超出已 recorded 策略即落入上面「policy 不覆盖」分支，行为明确。
+
+## 实施记录（2026-11-09）
+
+- 阶段 1 host.js：完成（commit 26e47be）。listModels 目录缓存 30s + resolveModelInfo 精确兜底（verifiedRoutes 常驻集合供 compileSpec 同步路径复用）；resolveNodeModel 四态；checkCanvasModels（model/policy 两类 issue）；RPC 新增 listModels/checkModels，agents/agentGet/agentPut 带角色 provider/model；compileSpec 三态措辞；围栏 pre-execute 改写 provider/model（换路由时一并删 reasoning_effort，官方语义：省略力度回落模型默认）、失效删参放行；bind 时 ensureModelPolicy append 授权事件；lane.model 记录 tool/call 原始参数里的模型。
+- 阶段 2 client.js：完成（commit 1b92a90）。节点面板「模型」下拉（首项默认，角色带默认模型时注明角色路由）+「模型不可用时」二选一；选模型锁派发；角色编辑器默认模型下拉写 frontmatter；节点卡片失效红 ⚠ + 悬停提示（无常驻文字）；toggleRun 启动前 checkModels：fallback=照跑+toast，stop/policy=弹窗逐节点改选后「保存并启动」（重查重绑，仍有问题会再弹回）；normalizeDoc 保留 model/onModelMissing 且无模型节点不写字段（旧画布形状不变）；中英文案齐。
+- 阶段 3 测试：四门禁全绿——host-spec-sim（原钩子用例 + 模型语义 21 项）、model-fence-sim（新增，改写/删参/异常放行/frozen 替换 12 项）、render-harness（真实画布 + 新增 model 合成画布 + normalizeDoc 保留断言）、link-drag-sim 回归。
+- 阶段 4：版本 2.19.0、AGENTS.md 插件表、index.json 登记完成（commit 0f5d339 / f9bfd8c）；plugin_manager remove+install 成功（application=applied），宿主新代码已在跑（投影缓存出现 agentWorkflowBoardModelPolicy key）。客户端新 UI 需页面重新加载后生效 → 需重启 DSH 应用；真实冒烟（两节点两模型派发、手工改死 model.id 验 fallback/stop、旧画布回归）待重启后进行。push 前的敏感信息扫描已做（干净），push 等用户验收后执行。
