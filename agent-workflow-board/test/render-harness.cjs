@@ -131,15 +131,19 @@ run('(model doc)', {
       { id: 's', type: 'start', label: '主会话', x: 0, y: 0 },
       { id: 'w', type: 'work', label: 'W', exec: 'lead', model: { provider: 'p', id: 'm' }, onModelMissing: 'stop', x: 200, y: 0 },
       { id: 'w2', type: 'work', label: 'W2', exec: 'subagent', x: 400, y: 0 },
+      // 角色默认模型 + 弹窗降级产物：无 node.model 但显式 onModelMissing，必须保留
+      { id: 'w3', type: 'work', label: 'W3', exec: 'subagent', onModelMissing: 'fallback', x: 600, y: 0 },
     ],
-    edges: [{ id: 'e1', from: 's', to: 'w' }, { id: 'e2', from: 'w', to: 'w2' }],
+    edges: [{ id: 'e1', from: 's', to: 'w' }, { id: 'e2', from: 'w', to: 'w2' }, { id: 'e3', from: 'w2', to: 'w3' }],
   })
   const w = kept.nodes.find(n => n.id === 'w')
   const w2 = kept.nodes.find(n => n.id === 'w2')
+  const w3 = kept.nodes.find(n => n.id === 'w3')
   const keepOk = w.model && w.model.provider === 'p' && w.model.id === 'm' && w.onModelMissing === 'stop' && w.exec === 'subagent'
   const cleanOk = w2.model === undefined && w2.onModelMissing === undefined
-  if (keepOk && cleanOk) console.log('PASS (normalizeDoc keeps model / old shape untouched)')
-  else { failed++; console.log('FAIL (normalizeDoc model) ::', JSON.stringify({ w, w2 })) }
+  const demoteOk = w3.model === undefined && w3.onModelMissing === 'fallback'
+  if (keepOk && cleanOk && demoteOk) console.log('PASS (normalizeDoc keeps model / demoted policy / old shape untouched)')
+  else { failed++; console.log('FAIL (normalizeDoc model) ::', JSON.stringify({ w, w2, w3 })) }
 }
 run('(empty doc)', T.emptyDoc())
 if (!cases) console.log('(storage 里没有画布，仅渲染空画布)')

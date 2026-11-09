@@ -768,6 +768,10 @@ window.__ModuleLoader__.load({
           normalizedNode.exec = 'subagent'
           normalizedNode.model = { provider: modelRaw.provider.trim().slice(0, 120), id: modelRaw.id.trim().slice(0, 200) }
           normalizedNode.onModelMissing = node.onModelMissing === 'stop' ? 'stop' : 'fallback'
+        } else if (type === 'work' && (node.onModelMissing === 'stop' || node.onModelMissing === 'fallback')) {
+          // 无节点模型但显式写了策略：来自启动弹窗对「角色默认模型 + stop」的降级
+          // （选「默认」= 该节点策略降为 fallback，模型仍随角色）。
+          normalizedNode.onModelMissing = node.onModelMissing
         }
         nodes.push(normalizedNode)
       }
@@ -3253,6 +3257,8 @@ window.__ModuleLoader__.load({
       const applyModelGate = () => {
         if (!modelGate || modelGate.busy) return
         const changes = modelGate.draft || {}
+        const sourceByNode = {}
+        for (const issue of modelGate.issues) if (issue && issue.nodeId) sourceByNode[issue.nodeId] = issue.source || 'node'
         const nextNodes = doc.nodes.map(node => {
           if (!Object.prototype.hasOwnProperty.call(changes, node.id)) return node
           const parsed = parseModelValue(changes[node.id])
@@ -3261,6 +3267,10 @@ window.__ModuleLoader__.load({
             next.model = parsed
             next.onModelMissing = next.onModelMissing === 'stop' ? 'stop' : 'fallback'
             next.exec = 'subagent'
+          } else if (!next.model && sourceByNode[node.id] === 'role') {
+            // 选「默认」但模型来自角色：节点上没有可删的覆盖 → 把该节点策略降级为
+            // fallback（继续用角色模型作期望值，不可用时改用默认模型执行）。
+            next.onModelMissing = 'fallback'
           } else {
             delete next.model
             delete next.onModelMissing
