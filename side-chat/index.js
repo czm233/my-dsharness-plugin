@@ -8,6 +8,11 @@
  * conversation turns. The child therefore continues the parent conversation
  * with full inherited context, never joins the left session list, and is
  * chatted with through the official subagent delivery surface.
+ *
+ * Service access follows the shipped plugins' conventions: only the optional
+ * web carrier (`connection`) goes through a runtime inject sub-context, and
+ * the core services resolve lazily via ctx.get at request time — the same way
+ * goal-round-driver reaches `subagents`.
  */
 
 /** Cap the catalog label so one long first message cannot flood the tab strip. */
@@ -15,18 +20,18 @@ const LABEL_MAX = 40
 
 /**
  * Create one fork-backend continuable child for the session.
- * @param child - injected Host context carrying the session controller,
- *   subagent service, and connection.
+ * @param ctx - Host plugin context.
  * @param body - `{ sessionId, text }` from the Client half.
  * @returns `{ childId, label }`.
  */
-async function createBranch(child, body) {
+async function createBranch(ctx, body) {
   const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
   const text = typeof body?.text === 'string' ? body.text.trim() : ''
   if (sessionId === '' || text === '') throw new Error('sessionId and text are required')
 
-  const controller = child['session-controller']
-  const subagents = child.subagents
+  if (typeof ctx.get !== 'function') throw new Error('host context exposes no service lookup')
+  const controller = ctx.get('sessionController')
+  const subagents = ctx.get('subagents')
   if (typeof controller?.resolveAgent !== 'function') throw new Error('session controller unavailable')
   if (typeof subagents?.startActivation !== 'function') throw new Error('subagent service unavailable')
 
@@ -54,7 +59,7 @@ async function createBranch(child, body) {
  */
 export function apply(ctx) {
   if (typeof ctx.inject !== 'function') return
-  ctx.inject(['session-controller', 'subagents', 'connection'], (child) => {
+  ctx.inject(['connection'], (child) => {
     child.effect(() => {
       const dispose = child.connection.fetch.register({
         path: '/api/side-chat/create',
@@ -62,10 +67,10 @@ export function apply(ctx) {
         requestBody: 'buffered',
         fetch: async (request) => {
           try {
-            const result = await createBranch(child, await request.json())
+            const result = await createBranch(ctx, await request.json())
             return Response.json(result)
           } catch (error) {
-            child.logger?.warn?.(`[side-chat] create failed: ${String(error)}`)
+            ctx.logger?.warn?.(`[side-chat] create failed: ${String(error)}`)
             return Response.json({ error: String((error && error.message) || error) }, { status: 500 })
           }
         },
