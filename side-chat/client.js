@@ -1,30 +1,26 @@
 /**
- * Client half of Side Chat (侧边对话).
+ * Client half of Side Chat (侧边对话), fork-subagent edition.
  *
- * Adds one guide entry to the official right Sidebar. Picking it forks the
- * session on screen (a real session, full inherited history, `increaseTitle`
- * suffixes the name) and opens the branch in a new `forkchat` tab that
- * renders the shared Conversation factory bound to the child session — the
- * same mechanism the shipped subagent Sidebar chat uses. The branch therefore
- * also shows in the left session list (archived sessions are read-only, so
- * hiding it there is not an option). Closing the tab asks whether to keep it
- * in the list or archive it; archiving the branch from the left list instead
- * closes the tab automatically, so a dead read-only side chat never lingers.
+ * The guide entry opens a first-message surface in the official right
+ * Sidebar; sending the first message asks the Host half to create a
+ * continuable child session through the `fork` subagent backend
+ * (`dsh-subagent-fork-in-process`), whose seed is the parent's completed
+ * conversation turns — the child continues this conversation with full
+ * inherited context. The tab then renders the shared Conversation factory
+ * bound to that child, exactly like the shipped subagent Sidebar chat;
+ * the session's own subagent projections drive delivery, queueing, and the
+ * composer semantics.
  *
- * A tab owns exactly one branch:
- *   - `keepMounted: true` keeps the body (and the official Session view that
- *     hosts it) mounted while another session is on screen, so switching
- *     sessions never unwinds a live side chat.
- *   - the tab → child-session mapping is persisted in localStorage, so a
- *     remount (full reload, session view retirement) re-binds the same branch
- *     instead of forking another one. Tab ids are minted per session, so the
- *     key is (session id, tab id), never the tab id alone.
+ * Subagent children never join the left session list, so there is no
+ * archive interplay at all: closing the tab only closes the tab, and the
+ * child stays reachable from the parent's subagent catalog.
  *
- * Structure mirrors @deepseek-ai/dsh-client-ui-subagent's registerSidebarChat:
- *   - one tab type (`forkchat`, page kind, `multiple: true`)
- *   - one tab body slot declaring a nested session-scoped conversation slot
- *   - one conversation slot rendering the shared `conversation.content`
- *     factory in `embedded` variant with the View fixed to Chat
+ * A tab owns exactly one child:
+ *   - `keepMounted: true` keeps the body mounted while another session or
+ *     tab is on screen, so a live side chat never unwinds.
+ *   - the tab → child mapping is persisted in localStorage, so a remount
+ *     (full reload, session view retirement) re-binds the same child.
+ *     Tab ids are minted per session, so the key is (session id, tab id).
  */
 
 window.__ModuleLoader__.load({
@@ -37,6 +33,7 @@ window.__ModuleLoader__.load({
     const KIND = 'forkchat'
     const TAB_ID = '@local/side-chat/forkchat'
     const CONV_SLOT = 'sidechat.conversation'
+    const CREATE_PATH = '/api/side-chat/create'
 
     // The apply() ctx, captured for component closures: `ctx` is not a module
     // binding, so views reach services through this captured reference.
@@ -46,27 +43,17 @@ window.__ModuleLoader__.load({
       'guide.label': '侧边对话',
       'guide.desc': '把当前会话分出一个分支，在右栏继续聊',
       'tab.title': '侧边对话',
-      'forking.label': '正在创建分支…',
+      'first.placeholder': '发消息，开始侧边对话',
+      'first.send': '发送',
       'fork.error': '创建分支失败',
-      'close.title': '保留这个侧边对话？',
-      'close.keep': '保留',
-      'close.keepHint': '关闭标签页，会话留在左侧列表',
-      'close.discard': '不保留',
-      'close.discardHint': '关闭标签页并归档这个会话',
-      'close.failed': '操作失败',
     }
     const en = {
       'guide.label': 'Side chat',
       'guide.desc': 'Fork the current session and keep chatting in the right sidebar',
       'tab.title': 'Side chat',
-      'forking.label': 'Creating branch…',
+      'first.placeholder': 'Send a message to start this side chat',
+      'first.send': 'Send',
       'fork.error': 'Failed to create branch',
-      'close.title': 'Keep this side chat?',
-      'close.keep': 'Keep',
-      'close.keepHint': 'Close the tab; the session stays in the sidebar list',
-      'close.discard': 'Discard',
-      'close.discardHint': 'Close the tab and archive the session',
-      'close.failed': 'Operation failed',
     }
 
     // One branch per tab, remembered across body remounts and page reloads.
@@ -117,131 +104,6 @@ window.__ModuleLoader__.load({
       return childId
     }
 
-    // Session-catalog readers: a persisted branch is reused only while its
-    // session still exists, so a stale mapping cannot resurrect a dead tab.
-    function sessionsList() {
-      try { return clientCtx.sessions.list.getSnapshot() } catch (_serviceUnavailable) { return undefined }
-    }
-
-    function sessionKnown(sessionId) {
-      const list = sessionsList()
-      return list !== undefined && list.byId[sessionId] !== undefined
-    }
-
-    function waitForSessionList() {
-      return new Promise((resolve) => {
-        let unsubscribe = () => {}
-        const check = () => {
-          const list = sessionsList()
-          if (list !== undefined && list.phase === 'ready') {
-            unsubscribe()
-            resolve()
-          }
-        }
-        try {
-          unsubscribe = clientCtx.sessions.list.subscribe(check)
-        } catch (_serviceUnavailable) {
-          resolve()
-          return
-        }
-        check()
-      })
-    }
-
-    // Close confirmation. The Sidebar's close handler is synchronous and a
-    // thrown handler preserves the tab, so a close attempt is blocked here,
-    // the tab keeps rendering this body, and the dialog decides the outcome:
-    // an accepted close is re-issued through ctx.sidebarRight.close().
-    const closeGates = new Map()
-    const closeListeners = new Set()
-    const acceptedCloses = new Set()
-    const archivedBranches = new Set()
-    function setCloseGate(key, value) {
-      if (value === undefined) closeGates.delete(key)
-      else closeGates.set(key, value)
-      closeListeners.forEach(fn => fn())
-    }
-    function useCloseGate(key) {
-      const [state, setState] = React.useState(() => key === undefined ? undefined : closeGates.get(key))
-      React.useEffect(() => {
-        if (key === undefined) return undefined
-        const fn = () => setState(closeGates.get(key))
-        closeListeners.add(fn)
-        fn()
-        return () => closeListeners.delete(fn)
-      }, [key])
-      return state
-    }
-
-    /**
-     * Composer desync signature. The official composer renders its placeholder
-     * overlay only while the input store's draft is empty, so a visible
-     * placeholder beside non-empty editable text is impossible in a consistent
-     * composer: the visible editor and the store the composer subscribes to
-     * have split into two input shells (observed after the underlying session
-     * binding churns). Remounting the tab's conversation subtree rebuilds the
-     * scope and re-wires one shell for both.
-     */
-    function composerDesynced(body) {
-      for (const placeholder of body.querySelectorAll('[data-composer-placeholder]')) {
-        const editable = placeholder.previousElementSibling
-        if (editable === null) continue
-        const visible = typeof placeholder.checkVisibility === 'function'
-          ? placeholder.checkVisibility()
-          : placeholder.getClientRects().length > 0
-        if (!visible) continue
-        if ((editable.textContent || '').trim() !== '') return true
-      }
-      return false
-    }
-
-    /** Silent diagnostic trail for heals (read post-mortem from leveldb), capped. */
-    const HEAL_STORAGE = 'dsh.side-chat.heal.v1'
-    function recordHealTrace(key) {
-      try {
-        const list = JSON.parse(localStorage.getItem(HEAL_STORAGE) || '[]')
-        if (!Array.isArray(list)) return
-        list.push({ t: Date.now(), key })
-        while (list.length > 20) list.shift()
-        localStorage.setItem(HEAL_STORAGE, JSON.stringify(list))
-      } catch (_storageUnavailable) { /* diagnostics stay silent */ }
-    }
-
-    /**
-     * How a close of a branch tab treats the session. `archive` archives the
-     * branch and lets the tab close straight away; `ask` (active) blocks the
-     * close and shows CloseConfirm: keep leaves the session in the left list,
-     * discard archives it.
-     */
-    const CLOSE_MODE = 'ask'
-
-    /**
-     * Sidebar close handler for this tab kind. A tab still forking closes
-     * straight away; a tab holding a branch blocks the close for the dialog,
-     * which re-issues the close through ctx.sidebarRight.close().
-     */
-    function handleCloseRequest(sessionId, tab) {
-      const key = tabKey(sessionId, tab.id)
-      if (acceptedCloses.delete(key)) return
-      const childId = readBranch(key)
-      if (childId === undefined) return
-      if (CLOSE_MODE === 'ask') {
-        setCloseGate(key, 'confirming')
-        throw new Error('side-chat: close awaits confirmation')
-      }
-      archiveBranch(key, childId)
-    }
-
-    /** Archive a branch session when it still exists; failures stay silent. */
-    function archiveBranch(key, childId) {
-      if (archivedBranches.has(key)) return
-      archivedBranches.add(key)
-      forgetBranch(key)
-      clientCtx.uiWorkspace.archiveSession(childId).catch(() => {
-        archivedBranches.delete(key)
-      })
-    }
-
     function sessionDisplayName(sessionId) {
       try {
         const row = clientCtx.sessions.list.getSnapshot().byId[sessionId]
@@ -257,10 +119,11 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Render the shared Conversation content for the branch session, mirroring
-     * the shipped sidebar chat panel: embedded variant, no width handles, no
-     * main header. The ambient session is the branch (bound by the body's
-     * SessionProvider); props.sessionId from the body wins when present.
+     * Render the shared Conversation content for the branch child session,
+     * mirroring the shipped sidebar chat panel: embedded variant, no width
+     * handles, no main header. The ambient session is the child (bound by the
+     * body's SessionProvider); props.sessionId from the body wins when
+     * present. The child session's subagent projections drive delivery.
      */
     function ConversationPanel(props) {
       const session = props.useSession(value => value)
@@ -277,91 +140,117 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Tab body: binds the tab's branch (reusing the persisted child, or
-     * forking the session on screen on first open) and hosts the conversation
-     * slot. `keepMounted` keeps this body alive while its session is off
-     * screen; unmount only happens on tab close or a full reload, so the
-     * branch mapping is never discarded here — the replacement mount resolves
-     * the very same child instead of forking again.
+     * First-message surface shown until the child exists. Sending posts the
+     * text to the Host route, which creates the fork-backend child with the
+     * parent's inherited context; the draft survives a failed attempt.
+     */
+    function FirstMessage({ onSend, pending, failure, t }) {
+      const [draft, setDraft] = React.useState('')
+      const submit = async () => {
+        const text = draft.trim()
+        if (text === '' || pending) return
+        const ok = await onSend(text)
+        if (ok) setDraft('')
+      }
+      const onKeyDown = (event) => {
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+        event.preventDefault()
+        submit()
+      }
+      return h('div', { style: styles.firstWrap },
+        h('textarea', {
+          style: styles.firstInput,
+          value: draft,
+          placeholder: t('first.placeholder'),
+          'aria-label': t('guide.label'),
+          disabled: pending,
+          onChange: (event) => setDraft(event.target.value),
+          onKeyDown,
+        }),
+        h('div', { style: styles.firstRow },
+          failure !== null ? h('div', { style: styles.firstError }, `${t('fork.error')}: ${failure}`) : null,
+          h('button', {
+            type: 'button',
+            style: { ...styles.firstSend, ...(pending ? styles.firstSendBusy : null) },
+            disabled: pending || draft.trim() === '',
+            onClick: submit,
+          }, t('first.send'))))
+    }
+
+    /**
+     * Tab body: binds the tab's child (creating it from the first message, or
+     * re-binding the persisted one) and hosts the conversation slot.
+     * `keepMounted` keeps this body alive while its session is off screen;
+     * unmount only happens on tab close or a full reload, so the branch
+     * mapping is never discarded here — the replacement mount resolves the
+     * very same child.
      */
     function ForkChatTab(props) {
       const { tab } = props.useTabInfo()
       const parent = props.useSession(value => value)
       const parentId = parent && (parent.sessionId || parent.id)
       const key = parentId === undefined ? undefined : tabKey(parentId, tab.id)
-      const gate = useCloseGate(key)
+      const childId = useBranch(key)
       const [bound, setBound] = React.useState(null)
+      const [pending, setPending] = React.useState(false)
       const [failure, setFailure] = React.useState(null)
       const [healSeq, setHealSeq] = React.useState(0)
       const bodyRef = React.useRef(null)
       const t = translator
 
+      // Create the child from the first message through the Host route.
+      const send = React.useCallback(async (text) => {
+        if (key === undefined || parentId === undefined || pending) return false
+        setPending(true)
+        setFailure(null)
+        try {
+          const response = await fetch(CREATE_PATH, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ sessionId: parentId, text }),
+          })
+          const payload = typeof response.json === 'function' ? await response.json() : undefined
+          if (!response.ok) throw new Error((payload && payload.error) || `HTTP ${response.status}`)
+          if (payload === undefined || typeof payload.childId !== 'string' || payload.childId === '') throw new Error('missing childId')
+          rememberBranch(key, payload.childId)
+          return true
+        } catch (error) {
+          setFailure(String((error && error.message) || error))
+          return false
+        } finally {
+          setPending(false)
+        }
+      }, [key, parentId, pending])
+
+      // Retain the child through its durable direct-parent address once the
+      // mapping holds one; a reference whose session no longer resolves drops
+      // the stale mapping so the tab falls back to the first-message surface.
       React.useEffect(() => {
-        if (key === undefined || parentId === undefined) return undefined
-        let cancelled = false
+        if (childId === undefined || parentId === undefined) return undefined
+        const address = { parentSessionId: parentId, childSessionId: childId, mode: 'continuable' }
         let reference = null
-        ;(async () => {
-          try {
-            let childId = readBranch(key)
-            if (childId !== undefined && !sessionKnown(childId)) {
-              await waitForSessionList()
-              if (cancelled) return
-              if (!sessionKnown(childId)) childId = undefined
-            }
-            if (childId === undefined) {
-              childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
-              if (cancelled) return
-              rememberBranch(key, childId)
-            }
-            reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
-            if (cancelled) {
-              reference.release()
-              reference = null
-              return
-            }
-            setBound({ key, childId, reference })
-          } catch (error) {
-            if (!cancelled) setFailure({ key, error })
+        let cancelled = false
+        try {
+          reference = clientCtx.sessions.retain(address, { source: 'sideChat', signal: tab.signal })
+        } catch (_unresolvable) {
+          forgetBranch(key)
+          return undefined
+        }
+        reference.ready.catch(() => {
+          if (!cancelled) {
+            forgetBranch(key)
+            setBound(null)
           }
-        })()
+        })
+        if (!cancelled) setBound({ childId, reference })
         return () => {
           cancelled = true
-          if (reference !== null) {
-            try { reference.release() } catch (_alreadyReleased) { /* noop */ }
-            reference = null
-          }
+          try { reference.release() } catch (_alreadyReleased) { /* noop */ }
         }
-        // Resolve once per (session, tab); tab.signal is occurrence-scoped and
-        // would re-run the fork path if it were a dependency.
+        // tab.signal is occurrence-scoped and would re-run creation-adjacent
+        // work if it were a dependency.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [key, parentId])
-
-      // Archive watchdog. Archived sessions are read-only (prompting gets
-      // blocked), so once the branch is archived from the left list the tab
-      // has no purpose: clear the mapping and close this tab automatically.
-      React.useEffect(() => {
-        if (bound === null || bound.key !== key) return undefined
-        let workspaces
-        try { workspaces = clientCtx.uiWorkspace.workspaces } catch (_serviceUnavailable) { return undefined }
-        const list = workspaces !== undefined ? workspaces.list : undefined
-        if (list === undefined || typeof list.subscribe !== 'function') return undefined
-        const sync = () => {
-          if (acceptedCloses.has(bound.key)) return
-          const snapshot = list.getSnapshot()
-          if (snapshot === undefined || !Array.isArray(snapshot.archivedSessionIds)) return
-          if (!snapshot.archivedSessionIds.includes(bound.childId)) return
-          forgetBranch(bound.key)
-          setCloseGate(bound.key, undefined)
-          acceptedCloses.add(bound.key)
-          clientCtx.sidebarRight.close(tab.id)
-        }
-        sync()
-        const unsubscribe = list.subscribe(sync)
-        return () => {
-          try { unsubscribe() } catch (_alreadyUnsubscribed) { /* noop */ }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [key, bound])
+      }, [childId, parentId])
 
       // Composer self-heal. Two audit stages 400ms/500ms apart, so the
       // single-frame race between the editor's DOM update and React's
@@ -398,89 +287,53 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [key, bound])
 
-      if (failure !== null && failure.key === key) {
-        const error = failure.error
-        return h('div', { style: styles.center }, `${t('fork.error')}: ${(error && (error.message || error)) || ''}`)
-      }
-      if (bound === null || bound.key !== key) {
+      if (childId !== undefined && (bound === null || bound.childId !== childId)) {
         return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
       }
       return h('div', { style: styles.body, ref: bodyRef },
-        h(props.SessionProvider, {
-          key: `sidechat-conv-${healSeq}`,
-          session: bound.reference,
-        }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId })),
-        gate === 'confirming' ? h(CloseConfirm, { gateKey: key, tabId: tab.id, childId: bound.childId }) : null)
+        bound !== null && bound.childId === childId
+          ? h(props.SessionProvider, {
+              key: `sidechat-conv-${healSeq}`,
+              session: bound.reference,
+            }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId }))
+          : h(FirstMessage, { onSend: send, pending, failure, t }))
     }
 
     /**
-     * The close confirmation. Mounted inside the tab body because the blocked
-     * close keeps the body alive; keep closes the tab and leaves the branch in
-     * the left list, discard archives it; both clear the branch mapping and
-     * re-issue the close through the controller after marking it accepted.
+     * Composer desync signature. The official composer renders its placeholder
+     * overlay only while the input store's draft is empty, so a visible
+     * placeholder beside non-empty editable text is impossible in a consistent
+     * composer: the visible editor and the store the composer subscribes to
+     * have split into two input shells (observed after the underlying session
+     * binding churns). Remounting the tab's conversation subtree rebuilds the
+     * scope and re-wires one shell for both.
      */
-    function CloseConfirm(props) {
-      const { gateKey, tabId, childId } = props
-      const t = translator
-      const [busy, setBusy] = React.useState(false)
-      const [failure, setFailure] = React.useState(null)
-      const cancel = React.useCallback(() => { setCloseGate(gateKey, undefined) }, [gateKey])
-
-      React.useEffect(() => {
-        const onKey = (event) => {
-          if (event.key !== 'Escape') return
-          event.stopPropagation()
-          cancel()
-        }
-        window.addEventListener('keydown', onKey, true)
-        return () => window.removeEventListener('keydown', onKey, true)
-      }, [cancel])
-
-      const keep = () => {
-        acceptedCloses.add(gateKey)
-        forgetBranch(gateKey)
-        setCloseGate(gateKey, undefined)
-        clientCtx.sidebarRight.close(tabId)
+    function composerDesynced(body) {
+      for (const placeholder of body.querySelectorAll('[data-composer-placeholder]')) {
+        const editable = placeholder.previousElementSibling
+        if (editable === null) continue
+        const visible = typeof placeholder.checkVisibility === 'function'
+          ? placeholder.checkVisibility()
+          : placeholder.getClientRects().length > 0
+        if (!visible) continue
+        if ((editable.textContent || '').trim() !== '') return true
       }
-
-      const discard = async () => {
-        if (busy) return
-        setBusy(true)
-        setFailure(null)
-        try {
-          await clientCtx.uiWorkspace.archiveSession(childId)
-          forgetBranch(gateKey)
-          acceptedCloses.add(gateKey)
-          setCloseGate(gateKey, undefined)
-          clientCtx.sidebarRight.close(tabId)
-        } catch (error) {
-          setFailure(`${t('close.failed')}: ${(error && (error.message || error)) || ''}`)
-          setBusy(false)
-        }
-      }
-
-      return h('div', { style: styles.overlay, onClick: cancel },
-        h('div', { style: styles.dialog, onClick: (event) => event.stopPropagation() },
-          h('div', { style: styles.dialogTitle }, t('close.title')),
-          failure !== null ? h('div', { style: styles.dialogError }, failure) : null,
-          h('div', { style: styles.dialogActions },
-            h('button', {
-              type: 'button',
-              style: styles.button,
-              title: t('close.discardHint'),
-              disabled: busy,
-              onClick: discard,
-            }, t('close.discard')),
-            h('button', {
-              type: 'button',
-              style: { ...styles.button, ...styles.buttonPrimary },
-              title: t('close.keepHint'),
-              disabled: busy,
-              onClick: keep,
-            }, t('close.keep')))))
+      return false
     }
 
-    /** Live tab chip: the branch session's display name. */
+    /** Silent diagnostic trail for heals (read post-mortem from leveldb), capped. */
+    const HEAL_STORAGE = 'dsh.side-chat.heal.v1'
+    function recordHealTrace(key) {
+      try {
+        const list = JSON.parse(localStorage.getItem(HEAL_STORAGE) || '[]')
+        if (!Array.isArray(list)) return
+        list.push({ t: Date.now(), key })
+        while (list.length > 20) list.shift()
+        localStorage.setItem(HEAL_STORAGE, JSON.stringify(list))
+      } catch (_storageUnavailable) { /* diagnostics stay silent */ }
+    }
+
+    /** Live tab chip: the branch child's display name. */
     function BranchTitle(props) {
       const { tab } = props.useTabInfo()
       const parent = props.useSession(value => value)
@@ -504,59 +357,6 @@ window.__ModuleLoader__.load({
         display: 'flex',
         position: 'relative',
       },
-      overlay: {
-        position: 'absolute',
-        inset: 0,
-        zIndex: 20,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.28)',
-        padding: 16,
-      },
-      dialog: {
-        width: 260,
-        maxWidth: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-        padding: 16,
-        borderRadius: 12,
-        border: '0.5px solid var(--dsw-alias-border-l3)',
-        background: 'var(--dsw-alias-bg-layer-1)',
-        boxShadow: 'var(--dsw-elevation-prominent, 0 8px 24px rgba(0,0,0,0.2))',
-      },
-      dialogTitle: {
-        fontSize: 13.5,
-        lineHeight: 1.4,
-        color: 'var(--dsw-alias-label-primary)',
-      },
-      dialogError: {
-        fontSize: 11,
-        lineHeight: 1.4,
-        color: 'var(--dsw-alias-label-secondary)',
-        wordBreak: 'break-word',
-      },
-      dialogActions: {
-        display: 'flex',
-        justifyContent: 'flex-end',
-        gap: 8,
-      },
-      button: {
-        height: 28,
-        padding: '0 12px',
-        borderRadius: 8,
-        border: '0.5px solid var(--dsw-alias-border-l3)',
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-primary)',
-        font: 'inherit',
-        fontSize: 12,
-        cursor: 'pointer',
-      },
-      buttonPrimary: {
-        background: 'var(--dsw-alias-interactive-bg-hover)',
-        borderColor: 'transparent',
-      },
       center: {
         height: '100%',
         display: 'flex',
@@ -574,11 +374,65 @@ window.__ModuleLoader__.load({
         borderTopColor: 'var(--dsw-alias-label-tertiary)',
         animation: 'sidechat-spin 0.8s linear infinite',
       },
+      firstWrap: {
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 16,
+      },
+      firstInput: {
+        boxSizing: 'border-box',
+        width: '100%',
+        minHeight: 96,
+        maxHeight: 220,
+        resize: 'none',
+        borderRadius: 12,
+        border: '0.5px solid var(--dsw-alias-border-l3)',
+        background: 'var(--dsw-specific-input-major)',
+        color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit',
+        fontSize: 13,
+        lineHeight: 1.5,
+        padding: '10px 12px',
+        outline: 'none',
+      },
+      firstRow: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 8,
+        minHeight: 24,
+      },
+      firstError: {
+        marginRight: 'auto',
+        fontSize: 11,
+        lineHeight: 1.4,
+        color: 'var(--dsw-alias-state-error-primary)',
+        wordBreak: 'break-word',
+      },
+      firstSend: {
+        height: 28,
+        padding: '0 14px',
+        borderRadius: 999,
+        border: 'none',
+        background: 'var(--dsw-alias-button-info-fill)',
+        color: '#fff',
+        font: 'inherit',
+        fontSize: 12,
+        cursor: 'pointer',
+      },
+      firstSendBusy: {
+        opacity: 0.6,
+        cursor: 'default',
+      },
       title: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
     }
 
     return {
-      inject: ['sessions', 'slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'uiWorkspace'],
+      inject: ['sessions', 'slots', 'locale', 'sidebarRightTabs'],
       apply(ctx) {
         clientCtx = ctx
         ctx.effect(() => {
@@ -593,12 +447,6 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS)
         translator = t
 
-        // Block the close of a tab that already holds a branch, so the body can
-        // ask whether to keep the session. A thrown handler preserves the tab.
-        ctx.effect(() => ctx.sidebarRight.registerCloseHandler(KIND, handleCloseRequest), 'side-chat: close handler')
-
-        // Slot-scoped translator: slot registrations accept a `locale` and the
-        // framework hands components a bound `t` prop.
         ctx.inject(['sidebarRightTabs'], () => {
           ctx.effect(() => ctx.sidebarRightTabs.register({
             id: TAB_ID,
