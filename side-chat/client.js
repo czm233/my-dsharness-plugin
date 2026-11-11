@@ -5,8 +5,11 @@
  * session on screen (a real session, full inherited history, `increaseTitle`
  * suffixes the name) and opens the branch in a new `forkchat` tab that
  * renders the shared Conversation factory bound to the child session — the
- * same mechanism the shipped subagent Sidebar chat uses. Closing the tab
- * archives that session; the tab's own branch identity lives on instead.
+ * same mechanism the shipped subagent Sidebar chat uses. The branch is
+ * archived at birth, so it never appears in the left session list and cannot
+ * be archived from there by mistake; the tab stays fully usable on an
+ * archived session. Closing the tab is the only exit and asks whether to
+ * unarchive the session back into the list (keep) or leave it archived.
  *
  * A tab owns exactly one branch:
  *   - `keepMounted: true` keeps the body (and the official Session view that
@@ -45,12 +48,12 @@ window.__ModuleLoader__.load({
       'tab.title': '侧边对话',
       'forking.label': '正在创建分支…',
       'fork.error': '创建分支失败',
-      'close.title': '保留这个会话？',
+      'close.title': '保留这个侧边对话？',
       'close.keep': '保留',
-      'close.keepHint': '关闭标签页，会话留在左侧列表',
+      'close.keepHint': '取消归档，会话回到左侧列表',
       'close.discard': '不保留',
-      'close.discardHint': '关闭标签页并归档这个会话',
-      'close.failed': '归档失败',
+      'close.discardHint': '保持归档，仅关闭标签页',
+      'close.failed': '操作失败',
     }
     const en = {
       'guide.label': 'Side chat',
@@ -58,12 +61,12 @@ window.__ModuleLoader__.load({
       'tab.title': 'Side chat',
       'forking.label': 'Creating branch…',
       'fork.error': 'Failed to create branch',
-      'close.title': 'Keep this session?',
+      'close.title': 'Keep this side chat?',
       'close.keep': 'Keep',
-      'close.keepHint': 'Close the tab; the session stays in the sidebar list',
+      'close.keepHint': 'Unarchive; the session returns to the sidebar list',
       'close.discard': 'Discard',
-      'close.discardHint': 'Close the tab and archive the session',
-      'close.failed': 'Archive failed',
+      'close.discardHint': 'Leave it archived and just close the tab',
+      'close.failed': 'Operation failed',
     }
 
     // One branch per tab, remembered across body remounts and page reloads.
@@ -205,18 +208,17 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * How a close of a branch tab treats the session. `archive` (default)
-     * archives the branch and lets the tab close straight away; `ask` blocks
-     * the close and shows CloseConfirm, which still offers both outcomes.
-     * Flip this one constant to restore the dialog.
+     * How a close of a branch tab treats the session. `archive` archives the
+     * branch and lets the tab close straight away; `ask` (active) blocks the
+     * close and shows CloseConfirm, which offers unarchive-back-to-the-list
+     * (keep) or staying archived (discard).
      */
-    const CLOSE_MODE = 'archive'
+    const CLOSE_MODE = 'ask'
 
     /**
      * Sidebar close handler for this tab kind. A tab still forking closes
-     * straight away; a tab holding a branch archives the session first, then
-     * either lets the close through (`archive`) or blocks it for the dialog
-     * (`ask`), which re-issues the close through ctx.sidebarRight.close().
+     * straight away; a tab holding a branch blocks the close for the dialog,
+     * which re-issues the close through ctx.sidebarRight.close().
      */
     function handleCloseRequest(sessionId, tab) {
       const key = tabKey(sessionId, tab.id)
@@ -238,6 +240,11 @@ window.__ModuleLoader__.load({
       clientCtx.uiWorkspace.archiveSession(childId).catch(() => {
         archivedBranches.delete(key)
       })
+    }
+
+    /** Unarchive a branch session ("keep" = back to the left list). */
+    function unarchiveBranch(childId) {
+      return clientCtx.uiWorkspace.unarchiveSession(childId)
     }
 
     function sessionDisplayName(sessionId) {
@@ -310,6 +317,11 @@ window.__ModuleLoader__.load({
               childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
               if (cancelled) return
               rememberBranch(key, childId)
+              // Archived at birth: the branch never shows in the left session
+              // list (default view), so it cannot be archived there by
+              // mistake. The side tab stays fully usable on an archived
+              // session; failure just leaves the branch visible as before.
+              clientCtx.uiWorkspace.archiveSession(childId).catch(() => {})
             }
             reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
             if (cancelled) {
@@ -386,8 +398,9 @@ window.__ModuleLoader__.load({
 
     /**
      * The close confirmation. Mounted inside the tab body because the blocked
-     * close keeps the body alive; both outcomes re-issue the close through the
-     * controller after marking the tab as accepted.
+     * close keeps the body alive; keep = unarchive the branch back into the
+     * left list, discard = leave it archived; both clear the branch mapping
+     * and re-issue the close through the controller after marking it accepted.
      */
     function CloseConfirm(props) {
       const { gateKey, tabId, childId } = props
@@ -406,10 +419,20 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey, true)
       }, [cancel])
 
-      const keep = () => {
-        acceptedCloses.add(gateKey)
-        setCloseGate(gateKey, undefined)
-        clientCtx.sidebarRight.close(tabId)
+      const keep = async () => {
+        if (busy) return
+        setBusy(true)
+        setFailure(null)
+        try {
+          await unarchiveBranch(childId)
+          forgetBranch(gateKey)
+          acceptedCloses.add(gateKey)
+          setCloseGate(gateKey, undefined)
+          clientCtx.sidebarRight.close(tabId)
+        } catch (error) {
+          setFailure(`${t('close.failed')}: ${(error && (error.message || error)) || ''}`)
+          setBusy(false)
+        }
       }
 
       const discard = async () => {
