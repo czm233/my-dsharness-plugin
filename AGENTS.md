@@ -108,6 +108,7 @@
 | dsh-full-access-default | 1.0.1 | 新会话默认完全权限;宿主半在 session/created 时固定权限预设,客户端半在设置›通用替换权限行;1.0.1 修复 client.js `note` 先用后定义的 TDZ(新版 DSH 启动激活审计因此判未激活并崩溃),inject 砍掉未用的 settingsSchema/slots;客户端行为可用 ~/Library/Application Support/dsh-client-plugin-full-access-default/client-events.jsonl 离线观测 |
 | quote-selection | 0.5.7 | **已废弃(2026-11-05)**:DSH 官方已内置划词引用,插件不再维护、不再发版,目录仅留档;市场条目已标废弃 |
 | edit-restart | 0.20.0 | 修改重发;在任何一条用户消息旁点「修改」(官方操作行内、与复制按钮同样式),该条气泡原位展开成输入区,改完发送即按这条消息所在轮次的 turn/start 原生 fork 出一条新会话并发出修改后内容(原会话保留);渲染/交互改动装机前跑 `node edit-restart/test/layout-harness.cjs`(PITFALLS #27/#28) |
+| side-chat | 0.3.4 | 侧边对话;右栏指南入口 → 首条消息触发创建 **fork 型子代理**(`dsh-subagent-fork-in-process` 种子=父会话已完成轮次,完整继承上下文、同 preset 人格工具) → 右栏 tab 内用官方 conversation factory 继续聊。子代理会话不进左栏、无归档/只读问题;`delivery:'caller'` 去掉委托套话与回结算通知(详见 PITFALLS #31);映射持久化到 localStorage 按 (sessionId,tabId) 绑回同一 child;含 composer 脱节自愈(提示词不消失)。门禁:`node side-chat/test/branch-lifecycle.cjs` |
 
 ---
 *规则制定于 2026-10-26,由用户口述、AI 整理。修改本文件本身也要 commit + push。*
