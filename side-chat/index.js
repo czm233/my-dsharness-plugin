@@ -86,6 +86,10 @@ async function createBranch(ctx, body) {
       parent,
     },
     delivery: 'parent',
+    // startActivation reads signal.throwIfAborted during creation; a
+    // never-aborted signal lets the child persist as a background activation
+    // after the route resolves (the delegation tools pass their exec signal).
+    signal: new AbortController().signal,
   })
   if (typeof childId !== 'string' || childId === '') throw new Error('subagent service returned no childId')
   return { childId, label }
