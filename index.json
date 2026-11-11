@@ -1176,8 +1176,8 @@
         "zh": "侧边对话"
       },
       "description": {
-        "en": "Adds a right-sidebar guide entry that forks the current session into a real branch session and opens it in an official right-sidebar tab with the full conversation UI. Closing the tab asks whether to keep the session in the left list or archive it; archiving the branch from the left list closes its tab automatically.",
-        "zh": "在官方右栏加一个入口：把当前会话 fork 成真实分支会话（左侧列表同步出现、名字加后缀区分），用完整对话界面在右栏 tab 里继续聊；关闭 tab 时可选保留（留在列表）或不保留（归档）；在左栏归档分支会话时，对应侧边 tab 自动关闭。"
+        "en": "Adds a right-sidebar guide entry that starts a fork-backend subagent child of the current session — it inherits the parent's completed conversation turns, never appears in the left session list, and continues the conversation in an official right-sidebar tab. Closing the tab keeps the child reachable from the parent's subagent catalog.",
+        "zh": "在官方右栏加一个入口：为当前会话开一个 fork 型子代理分支——完整继承父会话已完成轮次，不出现在左侧列表，在右栏 tab 里继续聊；首条消息触发创建；关闭 tab 不影响子会话，可从父会话头部子代理目录找回。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -1194,6 +1194,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1794369900,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "9924b62",
+            "path": "side-chat"
+          }
+        },
         {
           "version": "0.2.5",
           "publishTimestamp": 1794366600,
