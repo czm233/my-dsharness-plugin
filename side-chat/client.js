@@ -171,6 +171,40 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Composer desync signature. The official composer renders its placeholder
+     * overlay only while the input store's draft is empty, so a visible
+     * placeholder beside non-empty editable text is impossible in a consistent
+     * composer: the visible editor and the store the composer subscribes to
+     * have split into two input shells (observed after the underlying session
+     * binding churns). Remounting the tab's conversation subtree rebuilds the
+     * scope and re-wires one shell for both.
+     */
+    function composerDesynced(body) {
+      for (const placeholder of body.querySelectorAll('[data-composer-placeholder]')) {
+        const editable = placeholder.previousElementSibling
+        if (editable === null) continue
+        const visible = typeof placeholder.checkVisibility === 'function'
+          ? placeholder.checkVisibility()
+          : placeholder.getClientRects().length > 0
+        if (!visible) continue
+        if ((editable.textContent || '').trim() !== '') return true
+      }
+      return false
+    }
+
+    /** Silent diagnostic trail for heals (read post-mortem from leveldb), capped. */
+    const HEAL_STORAGE = 'dsh.side-chat.heal.v1'
+    function recordHealTrace(key) {
+      try {
+        const list = JSON.parse(localStorage.getItem(HEAL_STORAGE) || '[]')
+        if (!Array.isArray(list)) return
+        list.push({ t: Date.now(), key })
+        while (list.length > 20) list.shift()
+        localStorage.setItem(HEAL_STORAGE, JSON.stringify(list))
+      } catch (_storageUnavailable) { /* diagnostics stay silent */ }
+    }
+
+    /**
      * How a close of a branch tab treats the session. `archive` (default)
      * archives the branch and lets the tab close straight away; `ask` blocks
      * the close and shows CloseConfirm, which still offers both outcomes.
@@ -256,6 +290,8 @@ window.__ModuleLoader__.load({
       const gate = useCloseGate(key)
       const [bound, setBound] = React.useState(null)
       const [failure, setFailure] = React.useState(null)
+      const [healSeq, setHealSeq] = React.useState(0)
+      const bodyRef = React.useRef(null)
       const t = translator
 
       React.useEffect(() => {
@@ -298,6 +334,41 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [key, parentId])
 
+      // Composer self-heal. Two audit stages 400ms/500ms apart, so the
+      // single-frame race between the editor's DOM update and React's
+      // re-render never triggers one, and IME composition (placeholder hidden
+      // by CSS while composing) is skipped. The persisted draft is restored on
+      // the rebuilt shell, so typed text survives the remount.
+      React.useEffect(() => {
+        const body = bodyRef.current
+        if (body === null || typeof MutationObserver === 'undefined') return undefined
+        let firstTimer = 0
+        let confirmTimer = 0
+        let heals = 0
+        const observe = () => {
+          if (firstTimer !== 0 || confirmTimer !== 0) return
+          firstTimer = setTimeout(() => {
+            firstTimer = 0
+            if (!composerDesynced(body)) return
+            confirmTimer = setTimeout(() => {
+              confirmTimer = 0
+              if (heals >= 3 || !composerDesynced(body)) return
+              heals += 1
+              recordHealTrace(key)
+              setHealSeq(seq => seq + 1)
+            }, 500)
+          }, 400)
+        }
+        const observer = new MutationObserver(observe)
+        observer.observe(body, { childList: true, characterData: true, subtree: true })
+        return () => {
+          observer.disconnect()
+          if (firstTimer !== 0) clearTimeout(firstTimer)
+          if (confirmTimer !== 0) clearTimeout(confirmTimer)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [key, bound])
+
       if (failure !== null && failure.key === key) {
         const error = failure.error
         return h('div', { style: styles.center }, `${t('fork.error')}: ${(error && (error.message || error)) || ''}`)
@@ -305,8 +376,11 @@ window.__ModuleLoader__.load({
       if (bound === null || bound.key !== key) {
         return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
       }
-      return h('div', { style: styles.body },
-        h(props.SessionProvider, { session: bound.reference }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId })),
+      return h('div', { style: styles.body, ref: bodyRef },
+        h(props.SessionProvider, {
+          key: `sidechat-conv-${healSeq}`,
+          session: bound.reference,
+        }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId })),
         gate === 'confirming' ? h(CloseConfirm, { gateKey: key, tabId: tab.id, childId: bound.childId }) : null)
     }
 
