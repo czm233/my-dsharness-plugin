@@ -5,11 +5,11 @@
  * session on screen (a real session, full inherited history, `increaseTitle`
  * suffixes the name) and opens the branch in a new `forkchat` tab that
  * renders the shared Conversation factory bound to the child session — the
- * same mechanism the shipped subagent Sidebar chat uses. The branch is
- * archived at birth, so it never appears in the left session list and cannot
- * be archived from there by mistake; the tab stays fully usable on an
- * archived session. Closing the tab is the only exit and asks whether to
- * unarchive the session back into the list (keep) or leave it archived.
+ * same mechanism the shipped subagent Sidebar chat uses. The branch therefore
+ * also shows in the left session list (archived sessions are read-only, so
+ * hiding it there is not an option). Closing the tab asks whether to keep it
+ * in the list or archive it; archiving the branch from the left list instead
+ * closes the tab automatically, so a dead read-only side chat never lingers.
  *
  * A tab owns exactly one branch:
  *   - `keepMounted: true` keeps the body (and the official Session view that
@@ -50,9 +50,9 @@ window.__ModuleLoader__.load({
       'fork.error': '创建分支失败',
       'close.title': '保留这个侧边对话？',
       'close.keep': '保留',
-      'close.keepHint': '取消归档，会话回到左侧列表',
+      'close.keepHint': '关闭标签页，会话留在左侧列表',
       'close.discard': '不保留',
-      'close.discardHint': '保持归档，仅关闭标签页',
+      'close.discardHint': '关闭标签页并归档这个会话',
       'close.failed': '操作失败',
     }
     const en = {
@@ -63,9 +63,9 @@ window.__ModuleLoader__.load({
       'fork.error': 'Failed to create branch',
       'close.title': 'Keep this side chat?',
       'close.keep': 'Keep',
-      'close.keepHint': 'Unarchive; the session returns to the sidebar list',
+      'close.keepHint': 'Close the tab; the session stays in the sidebar list',
       'close.discard': 'Discard',
-      'close.discardHint': 'Leave it archived and just close the tab',
+      'close.discardHint': 'Close the tab and archive the session',
       'close.failed': 'Operation failed',
     }
 
@@ -210,8 +210,8 @@ window.__ModuleLoader__.load({
     /**
      * How a close of a branch tab treats the session. `archive` archives the
      * branch and lets the tab close straight away; `ask` (active) blocks the
-     * close and shows CloseConfirm, which offers unarchive-back-to-the-list
-     * (keep) or staying archived (discard).
+     * close and shows CloseConfirm: keep leaves the session in the left list,
+     * discard archives it.
      */
     const CLOSE_MODE = 'ask'
 
@@ -240,11 +240,6 @@ window.__ModuleLoader__.load({
       clientCtx.uiWorkspace.archiveSession(childId).catch(() => {
         archivedBranches.delete(key)
       })
-    }
-
-    /** Unarchive a branch session ("keep" = back to the left list). */
-    function unarchiveBranch(childId) {
-      return clientCtx.uiWorkspace.unarchiveSession(childId)
     }
 
     function sessionDisplayName(sessionId) {
@@ -317,11 +312,6 @@ window.__ModuleLoader__.load({
               childId = await clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
               if (cancelled) return
               rememberBranch(key, childId)
-              // Archived at birth: the branch never shows in the left session
-              // list (default view), so it cannot be archived there by
-              // mistake. The side tab stays fully usable on an archived
-              // session; failure just leaves the branch visible as before.
-              clientCtx.uiWorkspace.archiveSession(childId).catch(() => {})
             }
             reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
             if (cancelled) {
@@ -345,6 +335,33 @@ window.__ModuleLoader__.load({
         // would re-run the fork path if it were a dependency.
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [key, parentId])
+
+      // Archive watchdog. Archived sessions are read-only (prompting gets
+      // blocked), so once the branch is archived from the left list the tab
+      // has no purpose: clear the mapping and close this tab automatically.
+      React.useEffect(() => {
+        if (bound === null || bound.key !== key) return undefined
+        let workspaces
+        try { workspaces = clientCtx.uiWorkspace.workspaces } catch (_serviceUnavailable) { return undefined }
+        const list = workspaces !== undefined ? workspaces.list : undefined
+        if (list === undefined || typeof list.subscribe !== 'function') return undefined
+        const sync = () => {
+          if (acceptedCloses.has(bound.key)) return
+          const snapshot = list.getSnapshot()
+          if (snapshot === undefined || !Array.isArray(snapshot.archivedSessionIds)) return
+          if (!snapshot.archivedSessionIds.includes(bound.childId)) return
+          forgetBranch(bound.key)
+          setCloseGate(bound.key, undefined)
+          acceptedCloses.add(bound.key)
+          clientCtx.sidebarRight.close(tab.id)
+        }
+        sync()
+        const unsubscribe = list.subscribe(sync)
+        return () => {
+          try { unsubscribe() } catch (_alreadyUnsubscribed) { /* noop */ }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [key, bound])
 
       // Composer self-heal. Two audit stages 400ms/500ms apart, so the
       // single-frame race between the editor's DOM update and React's
@@ -398,9 +415,9 @@ window.__ModuleLoader__.load({
 
     /**
      * The close confirmation. Mounted inside the tab body because the blocked
-     * close keeps the body alive; keep = unarchive the branch back into the
-     * left list, discard = leave it archived; both clear the branch mapping
-     * and re-issue the close through the controller after marking it accepted.
+     * close keeps the body alive; keep closes the tab and leaves the branch in
+     * the left list, discard archives it; both clear the branch mapping and
+     * re-issue the close through the controller after marking it accepted.
      */
     function CloseConfirm(props) {
       const { gateKey, tabId, childId } = props
@@ -419,20 +436,11 @@ window.__ModuleLoader__.load({
         return () => window.removeEventListener('keydown', onKey, true)
       }, [cancel])
 
-      const keep = async () => {
-        if (busy) return
-        setBusy(true)
-        setFailure(null)
-        try {
-          await unarchiveBranch(childId)
-          forgetBranch(gateKey)
-          acceptedCloses.add(gateKey)
-          setCloseGate(gateKey, undefined)
-          clientCtx.sidebarRight.close(tabId)
-        } catch (error) {
-          setFailure(`${t('close.failed')}: ${(error && (error.message || error)) || ''}`)
-          setBusy(false)
-        }
+      const keep = () => {
+        acceptedCloses.add(gateKey)
+        forgetBranch(gateKey)
+        setCloseGate(gateKey, undefined)
+        clientCtx.sidebarRight.close(tabId)
       }
 
       const discard = async () => {

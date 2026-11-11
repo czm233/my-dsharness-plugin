@@ -6,16 +6,17 @@
  * 用法：node side-chat/test/branch-lifecycle.cjs
  * 退出码：全绿 0；任何断言失败 1。
  *
- * 覆盖（对应 0.2.1 的真实缺陷 + 0.2.4 的隐藏与关闭语义）：
- *   1. 首次挂载：fork 一次，retain 该分支，映射落 localStorage，fork 即归档；
+ * 覆盖（对应 0.2.1 的真实缺陷 + 0.2.5 的归档语义）：
+ *   1. 首次挂载：fork 一次，retain 该分支，映射落 localStorage，fork 不归档；
  *   2. 切会话导致 body 卸载：只 release，映射必须保留；
  *   3. 切回重挂载：复用同一个 child，不再 fork；
  *   4. 页面重载（模块重新加载、内存映射清空）：仍从 localStorage 复用；
  *   5. 不同父会话同名 tab id（tab1）：互不串号，各自 fork；
  *   6. 映射指向已消失的会话：丢弃旧映射并重新 fork；
- *   7. 关闭 tab：弹框拦截（ask），保留 = unarchive，不保留 = 保持归档；
- *   8. 关闭后重建 tab：重新 fork，新分支同样即建即归档；
- *   9. tab 类型注册带 keepMounted（会话切走时 body 不卸载）。
+ *   7. 关闭 tab：弹框拦截（ask），保留 = 留在列表，不保留 = 归档；
+ *   8. 左栏归档分支：对应 tab 自动关闭并清映射；
+ *   9. 关闭后重建 tab：重新 fork，新分支正常留在列表；
+ *  10. tab 类型注册带 keepMounted（会话切走时 body 不卸载）。
  */
 const fs = require('fs')
 const os = require('os')
@@ -151,6 +152,15 @@ function createWorld() {
   const byId = { A: { id: 'A' }, B: { id: 'B' } }
   let serial = 0
   const calls = { fork: [], retain: [], release: [], archived: [], unarchived: [], closed: [] }
+  const archived = new Set()
+  const workspaceListeners = new Set()
+  const workspaceStore = {
+    getSnapshot: () => ({ items: [], pinnedSessionIds: [], archivedSessionIds: [...archived] }),
+    subscribe: (listener) => {
+      workspaceListeners.add(listener)
+      return () => workspaceListeners.delete(listener)
+    },
+  }
   const list = {
     phase: 'ready',
     byId,
@@ -175,7 +185,15 @@ function createWorld() {
       }
     },
   }
-  return { byId, calls, list, sessions }
+  return {
+    byId, calls, list, sessions, archived,
+    notifyWorkspaces: () => { for (const listener of [...workspaceListeners]) listener() },
+    uiWorkspace: {
+      workspaces: { list: workspaceStore },
+      archiveSession: async (sessionId) => { calls.archived.push(sessionId); archived.add(sessionId); for (const listener of [...workspaceListeners]) listener() },
+      unarchiveSession: async (sessionId) => { calls.unarchived.push(sessionId); archived.delete(sessionId); for (const listener of [...workspaceListeners]) listener() },
+    },
+  }
 }
 
 let loadSerial = 0
@@ -217,10 +235,7 @@ function activate(plugin, world) {
       registerCloseHandler: (kind, handler) => { registered.closeHandler = handler; return () => {} },
       close: (tabId) => world.calls.closed.push(tabId),
     },
-    uiWorkspace: {
-      archiveSession: async (sessionId) => { world.calls.archived.push(sessionId) },
-      unarchiveSession: async (sessionId) => { world.calls.unarchived.push(sessionId) },
-    },
+    uiWorkspace: world.uiWorkspace,
   }
   plugin.apply(ctx)
   const body = registered.slots.get('sidebar.right.pane.tab')
@@ -308,7 +323,7 @@ async function main() {
   check('fork 的父会话是 A', world.calls.fork[0]?.sessionId === 'A')
   check('渲染的是 fork 出来的 child-1', childOf(a1) === 'child-1', String(childOf(a1)))
   check('映射写入 localStorage', storage.get(branchStorageKey('A', 'tab1')) === 'child-1')
-  check('分支即建即归档（不出左栏）', world.calls.archived.includes('child-1'), JSON.stringify(world.calls.archived))
+  check('fork 时不归档（分支留在左栏才可聊）', !world.calls.archived.includes('child-1'), JSON.stringify(world.calls.archived))
 
   console.log('[3] 切到别的会话导致卸载：只释放引用，映射保留')
   a1.unmount()
@@ -357,14 +372,14 @@ async function main() {
   const discardButton = dialogTree !== undefined ? findButton(dialogTree, 'close.discard') : undefined
   check('弹框含保留/不保留两个动作', keepButton !== undefined && discardButton !== undefined)
 
-  console.log('[9] 保留：取消归档回左栏 + 清映射 + 关 tab')
+  console.log('[9] 保留：清映射 + 关 tab，会话留在列表（不归档）')
   keepButton.props.onClick()
   await settle()
-  check('保留 = unarchive child-1', world.calls.unarchived.includes('child-1'), JSON.stringify(world.calls.unarchived))
+  check('保留 = 不做归档/取消归档', world.calls.unarchived.length === 0 && !world.calls.archived.includes('child-1'), JSON.stringify({ a: world.calls.archived, u: world.calls.unarchived }))
   check('保留 = 清除 A/tab1 映射', storage.get(branchStorageKey('A', 'tab1')) === undefined)
   check('保留 = 关闭 tab1', world.calls.closed.includes('tab1'), JSON.stringify(world.calls.closed))
 
-  console.log('[10] 不保留：保持归档 + 清映射 + 关 tab')
+  console.log('[10] 不保留：归档 + 清映射 + 关 tab')
   try { first.closeHandler('B', { id: 'tab1', kind: 'forkchat' }) } catch (_blocked) {}
   await settle()
   const bDialogVNode = dialogOf(b1)
@@ -373,16 +388,27 @@ async function main() {
   check('B 的弹框已挂载', bDiscard !== undefined)
   bDiscard.props.onClick()
   await settle()
-  check('不保留 = 会话保持归档', world.calls.archived.includes('child-2'), JSON.stringify(world.calls.archived))
+  check('不保留 = 归档 child-2', world.calls.archived.includes('child-2'), JSON.stringify(world.calls.archived))
   check('不保留 = 清除 B/tab1 映射', storage.get(branchStorageKey('B', 'tab1')) === undefined)
-  check('不保留 = 关闭 tab1', world.calls.closed.filter((id) => id === 'tab1').length === 2, JSON.stringify(world.calls.closed))
+  check('不保留 = 关闭 tab1（discard 与看门狗可能各发一次）', world.calls.closed.filter((id) => id === 'tab1').length >= 2, JSON.stringify(world.calls.closed))
 
-  console.log('[11] 关闭后重建 tab：fork 新分支并即建即归档')
+  console.log('[10.5] 左栏归档分支：对应 tab 自动关闭')
+  const a6 = mount(first.ForkChatTab, tabProps('A', 'tab2'))
+  await settle()
+  check('A/tab2 fork 出 child-4', childOf(a6) === 'child-4', String(childOf(a6)))
+  world.archived.add('child-4')
+  world.notifyWorkspaces()
+  await settle()
+  check('外部归档后映射清除', storage.get(branchStorageKey('A', 'tab2')) === undefined)
+  check('外部归档后 tab 自动关闭', world.calls.closed.includes('tab2'), JSON.stringify(world.calls.closed))
+  a6.unmount()
+
+  console.log('[11] 关闭后重建 tab：fork 新分支，正常留在列表')
   const a5 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  check('关闭后重建 tab 会 fork 新分支', world.calls.fork.length === 4, JSON.stringify(world.calls.fork))
-  check('新渲染 child-4', childOf(a5) === 'child-4', String(childOf(a5)))
-  check('新分支同样即建即归档', world.calls.archived.includes('child-4'), JSON.stringify(world.calls.archived))
+  check('关闭后重建 tab 会 fork 新分支', world.calls.fork.length === 5, JSON.stringify(world.calls.fork))
+  check('新渲染 child-5', childOf(a5) === 'child-5', String(childOf(a5)))
+  check('新分支不被归档', !world.calls.archived.includes('child-5'), JSON.stringify(world.calls.archived))
 
   a2.unmount()
   a3.unmount()
