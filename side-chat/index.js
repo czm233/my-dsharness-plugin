@@ -85,7 +85,12 @@ async function createBranch(ctx, body) {
       prompt: [{ type: 'text', text }],
       parent,
     },
-    delivery: 'parent',
+    // `caller` keeps the child a plain conversation: the service appends the
+    // delegation return guidance ("your parent agent id is …, report with
+    // send_message") only for non-caller delivery, and it skips the settlement
+    // notice to the parent. The catalog entry is established either way, so
+    // the child stays reachable from the parent's subagent header.
+    delivery: 'caller',
     // startActivation reads signal.throwIfAborted during creation; a
     // never-aborted signal lets the child persist as a background activation
     // after the route resolves (the delegation tools pass their exec signal).
