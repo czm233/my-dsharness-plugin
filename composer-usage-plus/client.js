@@ -12,9 +12,13 @@ window.__ModuleLoader__.load({
     /**
      * Per-model list prices in currency units per 1M tokens.
      * Each bucket is [offPeak, peak]; models without time-of-day pricing repeat
-     * one price. Peak hours (DeepSeek only) are 09:00-12:00 and 14:00-18:00
-     * Beijing time, Monday to Friday.
-     * Sources: DeepSeek API Docs "Models & Pricing", z.ai "Pricing" (2026-10).
+     * one price. Two peak schedules exist:
+     * - hours: 'deepseek' (default) — 09:00-12:00 and 14:00-18:00 Beijing time,
+     *   Monday to Friday (DeepSeek official).
+     * - hours: 'bailian' — 08:00-22:00 Beijing time, every day (Alibaba Bailian).
+     * Sources: DeepSeek API Docs "Models & Pricing", z.ai "Pricing",
+     * Alibaba Model Studio model pricing, Google Gemini API pricing,
+     * Anthropic/OpenAI/Moonshot model pages (2026-11).
      */
     const PRICING = {
       'deepseek-flash': {
@@ -22,11 +26,35 @@ window.__ModuleLoader__.load({
         cny: { hit: [0.02, 0.04], miss: [1, 2], out: [4, 8] },
         usd: { hit: [0.003, 0.006], miss: [0.15, 0.3], out: [0.6, 1.2] },
       },
+      // Retired names served (and billed) by deepseek-flash on the official API.
+      'deepseek-v4-flash': {
+        peak: true,
+        usd: { hit: [0.003, 0.006], miss: [0.15, 0.3], out: [0.6, 1.2] },
+      },
       'deepseek-v4-pro': {
         peak: true,
         cny: { hit: [0.15, 0.3], miss: [4.5, 9], out: [13.5, 27] },
         usd: { hit: [0.022, 0.044], miss: [0.66, 1.32], out: [1.98, 3.96] },
       },
+      // Alibaba Bailian (China, USD); cache hits billed at 10% of input.
+      'deepseek-v4.1-flash': {
+        peak: true,
+        hours: 'bailian',
+        usd: { hit: [0.0141, 0.0283], miss: [0.141, 0.283], out: [0.565, 1.131] },
+      },
+      'qwen3.8-max': { peak: false, usd: { hit: [1.65, 1.65], miss: [1.65, 1.65], out: [4.951, 4.951] } },
+      'minimax-m2.5': { peak: false, usd: { hit: [0.061, 0.061], miss: [0.304, 0.304], out: [1.213, 1.213] } },
+      'kimi-k2.7-code': { peak: false, usd: { hit: [0.19, 0.19], miss: [0.95, 0.95], out: [4, 4] } },
+      'claude-opus-5-5': { peak: false, usd: { hit: [0.2, 0.2], miss: [4, 4], out: [20, 20] } },
+      'claude-sonnet-5-5': { peak: false, usd: { hit: [0.1, 0.1], miss: [2, 2], out: [10, 10] } },
+      'gpt-6.1-sol': { peak: false, usd: { hit: [0.1, 0.1], miss: [2, 2], out: [10, 10] } },
+      'gpt-6-astra': { peak: false, usd: { hit: [6, 6], miss: [60, 60], out: [300, 300] } },
+      'gemini-3.8-flash': { peak: false, usd: { hit: [0.075, 0.075], miss: [0.75, 0.75], out: [3.75, 3.75] } },
+      'gemini-4-argon': { peak: false, usd: { hit: [0.1, 0.1], miss: [2, 2], out: [10, 10] } },
+      'gemini-4-carbon': { peak: false, usd: { hit: [0.1, 0.1], miss: [2, 2], out: [10, 10] } },
+      'gemini-3.5-flash-lite': { peak: false, usd: { hit: [0.03, 0.03], miss: [0.3, 0.3], out: [2.5, 2.5] } },
+      'gemini-3.1-flash-lite': { peak: false, usd: { hit: [0.025, 0.025], miss: [0.25, 0.25], out: [1.5, 1.5] } },
+      'gemini-3-flash': { peak: false, usd: { hit: [0.05, 0.05], miss: [0.5, 0.5], out: [3, 3] } },
       'glm-5.3-flash': { peak: false, usd: { hit: [0.03, 0.03], miss: [0.15, 0.15], out: [0.5, 0.5] } },
       'glm-5.3-flashx': { peak: false, usd: { hit: [0.075, 0.075], miss: [0.37, 0.37], out: [1.25, 1.25] } },
       'glm-5.3': { peak: false, usd: { hit: [0.26, 0.26], miss: [1.4, 1.4], out: [4.4, 4.4] } },
@@ -38,7 +66,7 @@ window.__ModuleLoader__.load({
     };
 
     /** Subscription gateways whose plans cover token usage without per-token billing. */
-    const PLAN_PROVIDERS = ['zai-coding', 'coding-plan'];
+    const PLAN_PROVIDERS = ['zai-coding', 'coding-plan', 'token-plan'];
 
     /** Exact id first, then the longest id the model name starts with. */
     function matchPricing(modelId) {
@@ -166,9 +194,10 @@ window.__ModuleLoader__.load({
       return { weekday: shifted.getUTCDay(), hour: shifted.getUTCHours() };
     }
 
-    /** Index into the [off-peak, peak] rate pair. */
-    function periodIndex(date) {
+    /** Index into the [off-peak, peak] rate pair; hours selects the schedule. */
+    function periodIndex(date, hours) {
       const { weekday, hour } = beijingParts(date);
+      if (hours === 'bailian') return hour >= 8 && hour < 22 ? 1 : 0;
       if (weekday === 0 || weekday === 6) return 0;
       return (hour >= 9 && hour < 12) || (hour >= 14 && hour < 18) ? 1 : 0;
     }
@@ -394,7 +423,7 @@ window.__ModuleLoader__.load({
         const currencyKey = pricing.cny ? 'cny' : 'usd';
         symbol = CURRENCY_SYMBOLS[currencyKey];
         const rates = pricing[currencyKey];
-        const index = pricing.peak ? periodIndex(new Date()) : 0;
+        const index = pricing.peak ? periodIndex(new Date(), pricing.hours) : 0;
         const units = { input: rates.miss[index], read: rates.hit[index], write: rates.miss[index], output: rates.out[index] };
         rows.forEach(function (row) {
           row.unit = units[row.key];
