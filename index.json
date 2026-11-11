@@ -75,12 +75,12 @@
           }
         },
         {
-          "version": "1.3.1",
-          "publishTimestamp": 1761799500,
+          "version": "1.3.2",
+          "publishTimestamp": 1794411871,
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "75391adccb14",
+            "commit": "1d96e07",
             "path": "composer-usage-plus"
           }
         }
