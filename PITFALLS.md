@@ -538,3 +538,22 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - **根因**：`.awbc-dd-pop` 是 `display:flex;flex-direction:column;max-height:260px;overflow:auto`；子项 `.awbc-dd-item` 带 `overflow:hidden`（省略号需要）。按 flex 规范，子项 overflow 非 visible 时自动最小尺寸（min-height:auto）归 0，容器高度不够时子项被等比压缩（实测 28px→15px），文字溢出盒子与邻行重叠。角色下拉选项数从没超过限高，所以 2.14 以来从未暴露；模型目录十几条第一次踩中。
 - **解法**：`.awbc-dd-item` 加 `flex:0 0 auto`（禁止压缩，滚动交给容器）。
 - **教训/门禁**：任何 flex column 容器加滚动限高时，检查子项是否 overflow 非 visible，是则必须显式 `flex-shrink:0`。此类布局 bug 的复现办法：从 client.js 抽真实 CSS + 照组件结构拼 markup，headless Chrome 截图（`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot=...`），再用 `getBoundingClientRect` 探针拿数值证据（行高 15 vs 28 一眼定罪）——别肉眼读 CSS 规则猜。
+
+## 31. 插件直调 `subagents.startActivation()` 的两个必填语义（2026-11-11，side-chat 0.3.0→0.3.4）
+
+**现象**：侧边对话改造成「fork 型子代理」后连挂三版：先是创建路由 404，修好后又报 `Cannot read properties of undefined (reading 'throwIfAborted')`，再修好后子代理收到的是「你的父 agent id 是 … 完成前用 send_message 上报结果」的委托套话，答完即结束并把结果通知回主会话——界面只能看到「创建分支失败」或「不像正常聊天」。
+
+**根因（三个独立问题叠在一起，界面表现全是同一句错误提示）**：
+1. **服务注入名错**：把 `session-controller`/`subagents` 塞进运行时 `ctx.inject([...])` 名单 → 子上下文建不起来、fetch 路由从未注册 → 客户端拿到 webserver 的纯文本 404（`"not found" is not valid JSON`）。正解：运行时只 inject `['connection']`，核心服务请求时 `ctx.get('subagents')`。
+2. **resolveAgent 位置错**：`resolveAgent` 不在 `sessionController` 服务本体，而在其 `.agents` 子控制器（宿主自己 `fileUploads.registerAgentResolver` 就是 `this.agents.resolveAgent`）。服务直挂形状的守卫会永远判「unavailable」。
+3. **startActivation 必传 `signal`**：内部 `inputs.signal.throwIfAborted()`，不传就崩；官方两个调用方（`tool-subagent` 的 `exec.signal`、Team 的 `signal`）都在顶层传。给永不中止的 `new AbortController().signal` 即可，创建完子代理作为后台激活继续跑。
+
+**`delivery` 决定子代理是不是「在跟你聊天」**（源码 `subagent-svc` 1466/2062/1471 行）：
+- `delivery: 'parent'`：初始消息追加返回指引（父 agent id + `send_message` 上报），子代理结束还会把结算消息推回父会话。→ 委托语义，不是聊天。
+- `delivery: 'caller'`：跳过返回指引、跳过结算通知；本地 provider 的 `establishCatalogChild` 两种模式都执行，所以父会话头部目录照样能找到该子会话。→ 干净的对话语义。
+
+**规则**：
+- 从插件直调 subagent 创建时：运行时 inject 只留 `connection`，核心服务 `ctx.get`；`resolveAgent` 走 `controller.agents.resolveAgent`；`startActivation` 必传 `signal`。
+- 想要「继承上下文的侧聊/续聊」而不是「分派任务」，必须 `delivery: 'caller'`。
+- 桌面端没有控制台：host 半从第一天就要**落盘诊断**（本次 `~/Library/Application Support/dsh-side-chat/host.log` 一行一条），否则三轮都只能拿到同一句界面报错，看不出是 404、服务解析还是内部崩溃。
+- 同一句 UI 文案对应多个底层故障时，用户看到的就是「你没修」——每轮必须用可离线读取的证据（host 日志原文 + 官方源码行号）推进，而不是改完就问「好了吗」。
