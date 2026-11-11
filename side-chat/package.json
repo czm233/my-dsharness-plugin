@@ -1,6 +1,6 @@
 {
   "name": "@local/side-chat",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "description": "侧边对话：在官方右栏为当前会话开一个 fork 型子代理分支——完整继承父会话已完成轮次，不进左侧列表，右栏 tab 内继续聊；首条消息触发创建，后续走官方子代理投递；关闭 tab 不影响子会话，可从父会话头部子代理目录找回。",
