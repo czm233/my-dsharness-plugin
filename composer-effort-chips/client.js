@@ -18,7 +18,7 @@ window.__ModuleLoader__.load({
     }
 
     function providerOrder(id) {
-      return id === 'deepseek-account' ? 0 : id === 'deepseek-official' ? 1 : 2;
+      return id === 'qwen-token-plan-cn' ? 0 : id === 'zai-coding-cn' ? 1 : id === 'myself' ? 2 : id === 'rightcode' ? 3 : id === 'rightcode-gpt' ? 4 : 5;
     }
 
     // Last {model, reasoningEffort} seen per channel id, shared by every
