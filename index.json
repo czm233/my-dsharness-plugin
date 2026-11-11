@@ -1195,22 +1195,12 @@
       },
       "versions": [
         {
-          "version": "0.3.1",
-          "publishTimestamp": 1794372000,
+          "version": "0.3.4",
+          "publishTimestamp": 1794373200,
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "9a86eaf",
-            "path": "side-chat"
-          }
-        },
-        {
-          "version": "0.3.0",
-          "publishTimestamp": 1794369900,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "9924b62",
+            "commit": "a2e5047",
             "path": "side-chat"
           }
         },
@@ -1221,16 +1211,6 @@
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "77192a8",
-            "path": "side-chat"
-          }
-        },
-        {
-          "version": "0.2.4",
-          "publishTimestamp": 1794365400,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "6a2a50a",
             "path": "side-chat"
           }
         },
