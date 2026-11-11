@@ -419,7 +419,7 @@ window.__ModuleLoader__.load({
       let digits = 4;
       let shownTotal = null;
 
-      if (pricing && !plan) {
+      if (pricing) {
         const currencyKey = pricing.cny ? 'cny' : 'usd';
         symbol = CURRENCY_SYMBOLS[currencyKey];
         const rates = pricing[currencyKey];
@@ -443,6 +443,7 @@ window.__ModuleLoader__.load({
         const hitText =
           billedInput > 0 ? Math.min(100, (usage.cacheRead / billedInput) * 100).toFixed(1) + '%' : null;
         notes = [
+          plan ? t('usage.planNote') : null,
           pricing.peak ? (index === 1 ? t('usage.peakNote') : t('usage.offNote')) : null,
           hitText === null ? null : t('usage.hitNote', { hit: hitText }),
           modelId.indexOf('deepseek') === 0 ? t('usage.writeNote') : null,
@@ -452,18 +453,13 @@ window.__ModuleLoader__.load({
           return line !== null;
         });
       } else {
-        // Subscription plan or unlisted model: never invent prices.
+        // Unlisted model: never invent prices.
         inlineLabel = compactTokens(total) + ' tok';
         rows.forEach(function (row) {
           row.unit = null;
           row.cost = null;
         });
-        notes = [
-          plan ? t('usage.planNote', { model: modelId === '' ? t('usage.unknownModel') : modelId }) : null,
-          plan ? null : t('usage.unknownNote', { model: modelId === '' ? t('usage.unknownModel') : modelId }),
-        ].filter(function (line) {
-          return line !== null;
-        });
+        notes = [t('usage.unknownNote', { model: modelId === '' ? t('usage.unknownModel') : modelId })];
       }
 
       const quotaView = plan ? extractQuota(quota ? quota.envelope : null) : null;
@@ -738,7 +734,7 @@ window.__ModuleLoader__.load({
                 'usage.quotaError': '套餐额度暂时无法获取（{reason}）。',
                 'usage.writeNote': 'DeepSeek 自动缓存：「缓存写入」并入「输入」按未命中价计费，故恒为 0。',
                 'usage.storageNote': 'GLM 缓存写入（存储）当前限时免费，不计费。',
-                'usage.planNote': '当前渠道为订阅套餐（GLM Coding Plan），token 用量包含在套餐额度内，不另行计费。',
+                'usage.planNote': '当前渠道为订阅套餐，金额按官方牌价折算，仅供参考，套餐内不另行扣费。',
                 'usage.unknownNote': '未收录「{model}」的单价，暂无法估算费用，仅显示用量。',
                 'usage.estimateNote': '金额为按官方单价折算的估算值，非账单。',
               },
@@ -774,7 +770,7 @@ window.__ModuleLoader__.load({
                 'usage.quotaError': 'Plan quota is temporarily unavailable ({reason}).',
                 'usage.writeNote': 'DeepSeek caches automatically: writes fold into "Input" at miss price, so this stays 0.',
                 'usage.storageNote': 'GLM cache-write storage is free for a limited time and not billed.',
-                'usage.planNote': 'This channel is a subscription plan (GLM Coding Plan); token usage is covered by the plan quota.',
+                'usage.planNote': 'This channel is a subscription plan; amounts are reference estimates at list prices and are not billed on top of the plan.',
                 'usage.unknownNote': 'No unit price listed for "{model}"; showing usage only.',
                 'usage.estimateNote': 'Amounts are estimates from list prices, not a bill.',
               },
