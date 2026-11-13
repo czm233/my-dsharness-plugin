@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const useSyncExternalStore = React.useSyncExternalStore || null;
 
+
     function useDirectory(store) {
       const subscribe = React.useCallback((fn) => store.subscribe(fn), [store]);
       const getSnapshot = React.useCallback(() => store.getSnapshot(), [store]);
@@ -238,7 +239,6 @@ window.__ModuleLoader__.load({
     function PersonaPicker(props) {
       const { sessionId, t } = props;
       const [state, setState] = React.useState({ presets: [], selected: '', ready: false });
-
       React.useEffect(() => {
         let alive = true;
         personaCall({ action: 'list', sessionId })
@@ -250,7 +250,7 @@ window.__ModuleLoader__.load({
               ready: true,
             });
           })
-          .catch(() => {
+          .catch((error) => {
             if (alive) setState({ presets: [], selected: '', ready: true });
           });
         return () => { alive = false; };
@@ -281,7 +281,8 @@ window.__ModuleLoader__.load({
       ];
 
       return h(Dropdown, {
-        value: active ? active.name : t('personaNone'),
+        // 未选时显示控件名而不是「默认」——推理强度那边已经有一个「默认」。
+        value: active ? active.name : t('personaLabel'),
         ariaLabel: t('personaLabel'),
         options,
       });
