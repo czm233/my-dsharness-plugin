@@ -79,15 +79,11 @@ window.__ModuleLoader__.load({
     // 没有它 textOverflow:ellipsis 永远不会触发。
     const PICKER_MAX_WIDTH = 96;
 
+    // 选择器直接沿用档位胶囊的视觉（chipBase/chipActive），
+    // 保证同一行里文字颜色、字重、行高与基线完全一致。
     const pickerButtonBase = {
-      appearance: 'none',
-      border: 'none',
-      borderRadius: 999,
+      ...chipBase,
       padding: '2px 8px',
-      fontSize: 12,
-      lineHeight: '18px',
-      cursor: 'pointer',
-      whiteSpace: 'nowrap',
       flex: '0 1 auto',
       display: 'inline-flex',
       alignItems: 'center',
@@ -95,22 +91,20 @@ window.__ModuleLoader__.load({
       minWidth: 0,
       maxWidth: PICKER_MAX_WIDTH,
       overflow: 'hidden',
-      background: 'transparent',
-      color: 'var(--dsw-alias-label-tertiary, #999)',
     };
     const pickerButtonOpen = {
       ...pickerButtonBase,
-      background: 'var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.25))',
-      color: 'var(--dsw-alias-label-primary, inherit)',
-      fontWeight: 600,
+      background: chipActive.background,
+      color: chipActive.color,
+      fontWeight: chipActive.fontWeight,
     };
+    // 颜色与字重继承按钮本身：未展开时和胶囊同为 tertiary / 常规字重。
     const pickerValueStyle = {
       minWidth: 0,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
-      color: 'var(--dsw-alias-label-primary, inherit)',
-      fontWeight: 600,
+      lineHeight: '18px',
     };
     const menuStyle = {
       position: 'absolute',
