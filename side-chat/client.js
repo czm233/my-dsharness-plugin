@@ -236,21 +236,49 @@ window.__ModuleLoader__.load({
       return messages.slice(-PREVIEW_TURNS)
     }
 
-    /** Subscribe the preview to the parent's live event window. */
+    /** Borrow the parent's live event feed, or undefined while it is not materialized. */
+    function parentFeed(parentId) {
+      if (parentId === undefined || clientCtx === null || clientCtx === undefined) return undefined
+      try {
+        const binding = typeof clientCtx.sessions.binding === 'function'
+          ? clientCtx.sessions.binding(parentId)
+          : undefined
+        const feed = binding === undefined ? undefined : binding.eventSource
+        return feed !== undefined && feed !== null && typeof feed.subscribe === 'function' ? feed : undefined
+      } catch (_bindingUnavailable) {
+        return undefined
+      }
+    }
+
+    /**
+     * Subscribe the preview to the parent's live event window. The feed can
+     * appear after this mount (a session still opening, or one that was just
+     * switched to), so the catalog store retries the attachment.
+     */
     function usePreviewMessages(parentId) {
       const [messages, setMessages] = React.useState(() => previewMessages(parentId))
       React.useEffect(() => {
-        setMessages(previewMessages(parentId))
-        if (parentId === undefined) return undefined
-        let binding
-        try {
-          binding = typeof clientCtx.sessions.binding === 'function' ? clientCtx.sessions.binding(parentId) : undefined
-        } catch (_bindingUnavailable) {
-          return undefined
+        let attached = null
+        let stopFeed = null
+        const sync = () => {
+          const feed = parentFeed(parentId)
+          if (feed !== undefined && feed !== attached) {
+            if (stopFeed !== null) stopFeed()
+            attached = feed
+            stopFeed = feed.subscribe(() => setMessages(previewMessages(parentId)))
+          }
+          setMessages(previewMessages(parentId))
         }
-        if (binding === undefined || binding.eventSource === undefined) return undefined
-        if (typeof binding.eventSource.subscribe !== 'function') return undefined
-        return binding.eventSource.subscribe(() => setMessages(previewMessages(parentId)))
+        sync()
+        let stopList = null
+        try {
+          const list = clientCtx.sessions !== undefined ? clientCtx.sessions.list : undefined
+          if (list !== undefined && list !== null && typeof list.subscribe === 'function') stopList = list.subscribe(sync)
+        } catch (_listUnavailable) { /* the feed subscription still covers live turns */ }
+        return () => {
+          if (stopFeed !== null) stopFeed()
+          if (stopList !== null) stopList()
+        }
       }, [parentId])
       return messages
     }
@@ -262,13 +290,13 @@ window.__ModuleLoader__.load({
      */
     function MessageText(props) {
       if (MarkdownText === null) return h('div', { style: styles.plainText }, props.text)
-      return h(MarkdownBoundary, { fallback: props.text },
+      return h(PreviewBoundary, { fallback: props.text },
         h(MarkdownText, { text: props.text, labels: props.labels }))
     }
 
-    /** Contain one markdown failure inside the preview. */
-    const MarkdownBoundary = typeof React.Component === 'function'
-      ? class MarkdownBoundary extends React.Component {
+    /** Contain a rendering failure inside the preview instead of the tab. */
+    const PreviewBoundary = typeof React.Component === 'function'
+      ? class PreviewBoundary extends React.Component {
         constructor(props) {
           super(props)
           this.state = { failed: false }
@@ -283,7 +311,7 @@ window.__ModuleLoader__.load({
           return h('div', { style: styles.plainText }, this.props.fallback)
         }
       }
-      : function MarkdownPassthrough(props) {
+      : function PreviewPassthrough(props) {
         return props.children
       }
 
@@ -575,7 +603,8 @@ window.__ModuleLoader__.load({
           : h('div', { style: styles.firstPane, 'data-sidechat-pane': '' },
               previews.length === 0
                 ? null
-                : h(ParentPreview, { messages: previews, onQuote: insertQuote, t }),
+                : h(PreviewBoundary, { fallback: null },
+                  h(ParentPreview, { messages: previews, onQuote: insertQuote, t })),
               h(FirstMessage, {
                 onSend: send,
                 pending,

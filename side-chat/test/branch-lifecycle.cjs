@@ -268,11 +268,24 @@ const paneOf = (instance) => {
   return pane !== null && pane !== undefined && pane.props && pane.props['data-sidechat-pane'] === '' ? pane : undefined
 }
 const isPhaseA = (instance) => paneOf(instance) !== undefined
+// 预览外面套了一层安全边界（桩环境里 React.Component 缺失，边界退化成
+// 透传组件），所以取第一个带 messages 的函数组件 vnode。
 const previewOf = (instance) => {
   const pane = paneOf(instance)
   if (pane === undefined) return undefined
-  const first = pane.children && pane.children[0]
-  return first !== null && first !== undefined && typeof first.tag === 'function' ? first : undefined
+  const stack = Array.isArray(pane.children) ? [...pane.children] : []
+  while (stack.length > 0) {
+    const node = stack.shift()
+    if (node === null || node === undefined || typeof node !== 'object') continue
+    if (typeof node.tag === 'function' && node.props !== undefined) {
+      if (Array.isArray(node.props.messages)) return node
+      if (node.children !== undefined) stack.push(...(Array.isArray(node.children) ? node.children : [node.children]))
+      if (node.props.children !== undefined) stack.push(node.props.children)
+      continue
+    }
+    if (Array.isArray(node.children)) stack.push(...node.children)
+  }
+  return undefined
 }
 const composerVNodeOf = (instance) => {
   const pane = paneOf(instance)
@@ -291,7 +304,11 @@ function mountComponent(vnode) {
   instance.render = () => {
     currentInstance = instance
     instance.cursor = 0
-    instance.output = instance.vnode.tag(instance.vnode.props)
+    // 复刻 React 语义：children 也出现在 props.children 上
+    const kids = instance.vnode.children !== undefined && instance.vnode.children.length > 0
+      ? (instance.vnode.children.length === 1 ? instance.vnode.children[0] : instance.vnode.children)
+      : instance.vnode.props.children
+    instance.output = instance.vnode.tag({ ...instance.vnode.props, children: kids })
     currentInstance = null
   }
   instance.unmount = () => {
