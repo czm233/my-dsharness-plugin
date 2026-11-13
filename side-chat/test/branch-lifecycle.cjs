@@ -18,7 +18,7 @@
  *   8. 不同父会话同名 tab id（tab1）：互不串号，各自创建；
  *   9. 死映射（child 无法 resolve）：清掉映射，回到首条消息界面；
  *  10. 同一个 tab 永远只绑定一个 child；
- *  11. 预览阶段渲染官方 conversation.view（only chat），划词引用写成引用块进草稿。
+ *  11. 主对话预览：只渲染人类提问与每轮最后一段正文，划词引用写成引用块进草稿。
  */
 const fs = require('fs')
 const os = require('os')
@@ -525,15 +525,24 @@ async function main() {
   const providerA5 = a5.output.children[0]
   check('SessionProvider 只挂一份', providerA5 !== null && providerA5.props.session !== undefined)
 
-  console.log('[11] 预览阶段复用官方 chat View，划词引用写入侧栏草稿')
-  slotCalls.length = 0
+  console.log('[11] 主对话预览：渲染父会话最近几轮，划词引用写入侧栏草稿')
+  world.bind('C', [
+    { type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '主对话的问题' }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 2, data: { content: [{ type: 'text', text: '上下文提醒不该出现' }], source: { kind: 'agent-instructions' } } },
+    { type: 'assistant/message', seq: 3, data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '内部推理不该出现' }, { type: 'text', text: '先看一眼文件' }] } } },
+    { type: 'assistant/message', seq: 4, data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: '主对话的回答正文' }] } } },
+  ])
   const c1 = mount(first.ForkChatTab, tabProps('C', 'tab1'))
   await settle()
   const preview = previewOf(c1)
-  check('预览带划词引用入口', preview !== undefined)
+  check('渲染主对话预览', preview !== undefined)
   const previewInst = mountComponent(preview)
-  const viewCall = slotCalls.find((call) => call.name === 'conversation.view')
-  check('渲染官方 conversation.view（only chat）', viewCall !== undefined && viewCall.options !== undefined && viewCall.options.only === 'chat', JSON.stringify(viewCall === undefined ? null : viewCall.options))
+  const previewText = previewInst === undefined ? '' : collectText(previewInst.output)
+  check('预览含人类提问', previewText.includes('主对话的问题'), previewText.slice(0, 160))
+  check('预览含助手正文', previewText.includes('主对话的回答正文'), previewText.slice(0, 160))
+  check('预览不含上下文提醒', previewText.includes('上下文提醒不该出现') === false, previewText.slice(0, 160))
+  check('预览不含推理内容', previewText.includes('内部推理不该出现') === false, previewText.slice(0, 160))
+  check('同一轮只留最后一段正文', previewText.includes('先看一眼文件') === false, previewText.slice(0, 160))
   if (previewInst !== undefined) previewInst.unmount()
   preview.props.onQuote('这一段我不懂')
   flush()
