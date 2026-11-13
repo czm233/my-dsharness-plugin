@@ -79,33 +79,19 @@ window.__ModuleLoader__.load({
     // 没有它 textOverflow:ellipsis 永远不会触发。
     const PICKER_MAX_WIDTH = 96;
 
-    // 选择器直接沿用档位胶囊的视觉（chipBase/chipActive），
-    // 保证同一行里文字颜色、字重、行高与基线完全一致。
-    const pickerButtonBase = {
-      ...chipBase,
+    // 选择器直接沿用档位胶囊的视觉与盒模型（chipBase/chipActive）：
+    // 文字直接挂在 button 上，不再套 span —— span 带 overflow:hidden 会把
+    // 基线变成盒底边，导致整行比胶囊低半行。
+    const pickerLayout = {
       padding: '2px 8px',
       flex: '0 1 auto',
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 4,
       minWidth: 0,
       maxWidth: PICKER_MAX_WIDTH,
       overflow: 'hidden',
-    };
-    const pickerButtonOpen = {
-      ...pickerButtonBase,
-      background: chipActive.background,
-      color: chipActive.color,
-      fontWeight: chipActive.fontWeight,
-    };
-    // 颜色与字重继承按钮本身：未展开时和胶囊同为 tertiary / 常规字重。
-    const pickerValueStyle = {
-      minWidth: 0,
-      overflow: 'hidden',
       textOverflow: 'ellipsis',
-      whiteSpace: 'nowrap',
-      lineHeight: '18px',
     };
+    const pickerButtonBase = { ...chipBase, ...pickerLayout };
+    const pickerButtonOpen = { ...chipActive, ...pickerLayout };
     const menuStyle = {
       position: 'absolute',
       bottom: 'calc(100% + 6px)',
@@ -189,14 +175,16 @@ window.__ModuleLoader__.load({
             style: {
               ...(open ? pickerButtonOpen : pickerButtonBase),
               ...(fit ? fitButtonOverrides : {}),
+              ...(fit ? fitValueOverrides : {}),
             },
             disabled,
             'aria-label': ariaLabel,
+            title: ariaLabel,
             'aria-expanded': open,
             onClick: () => setOpen((v) => !v),
           },
           // 只显示当前值；分类名留在 aria-label / 悬停提示里，不占宽度。
-          h('span', { style: { ...pickerValueStyle, ...(fit ? fitValueOverrides : {}) }, title: ariaLabel }, value),
+          value,
         ),
         open &&
           h(
