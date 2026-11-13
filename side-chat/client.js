@@ -46,10 +46,16 @@ window.__ModuleLoader__.load({
     // The shell provides the shared primitives module to every client plugin
     // (the shipped quote plugin requires it the same way). A build that lacks
     // it degrades to plain text instead of failing the module load.
+    let primitivesError = ''
     const primitives = (() => {
-      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (_unavailable) { return null }
+      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (error) {
+        primitivesError = String((error && error.message) || error)
+        return null
+      }
     })()
-    const MarkdownText = primitives !== null && typeof primitives.MarkdownText === 'function'
+    // React.memo returns an object, not a function: accept any usable component
+    // reference instead of testing callability.
+    const MarkdownText = primitives !== null && primitives.MarkdownText !== undefined && primitives.MarkdownText !== null
       ? primitives.MarkdownText
       : null
 
@@ -139,6 +145,19 @@ window.__ModuleLoader__.load({
         return () => branchListeners.delete(sync)
       }, [key])
       return childId
+    }
+
+    // Silent diagnostic trail (the desktop client has no console): what the
+    // preview renderer decided, readable from the profile's localStorage.
+    function recordPreviewDiag(event, detail) {
+      try {
+        const body = JSON.stringify({ event, detail: String(detail === undefined ? '' : detail).slice(0, 800) })
+        fetch('/api/side-chat/log', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+        }).catch(() => {})
+      } catch (_unavailable) { /* diagnostics stay silent */ }
     }
 
     function sessionDisplayName(sessionId) {
@@ -288,8 +307,15 @@ window.__ModuleLoader__.load({
      * Markdown renderer is unavailable or throws, so the preview can never take
      * the tab down with it.
      */
+    let markdownMissingLogged = false
     function MessageText(props) {
-      if (MarkdownText === null) return h('div', { style: styles.plainText }, props.text)
+      if (MarkdownText === null) {
+        if (!markdownMissingLogged) {
+          markdownMissingLogged = true
+          recordPreviewDiag('markdown-missing', primitivesError || `primitives=${primitives === null ? 'null' : typeof primitives}`)
+        }
+        return h('div', { style: styles.plainText }, props.text)
+      }
       return h(PreviewBoundary, { fallback: props.text },
         h(MarkdownText, { text: props.text, labels: props.labels }))
     }
@@ -304,6 +330,10 @@ window.__ModuleLoader__.load({
 
         static getDerivedStateFromError() {
           return { failed: true }
+        }
+
+        componentDidCatch(error) {
+          recordPreviewDiag('markdown-failed', (error && error.stack) || error)
         }
 
         render() {
@@ -815,6 +845,9 @@ window.__ModuleLoader__.load({
       inject: ['sessions', 'slots', 'locale', 'sidebarRightTabs'],
       apply(ctx) {
         clientCtx = ctx
+        recordPreviewDiag('module', MarkdownText === null
+          ? `markdown-missing${primitivesError === '' ? '' : `: ${primitivesError}`}`
+          : 'markdown-ready')
         ctx.effect(() => {
           styles.spinnerKeyframes = document.head.appendChild(Object.assign(document.createElement('style'), {
             textContent: '@keyframes sidechat-spin{to{transform:rotate(360deg)}}',

@@ -213,6 +213,29 @@ export function apply(ctx) {
 
   if (typeof ctx.inject !== 'function') return
   ctx.inject(['connection'], (child) => {
+    // Diagnostics: the desktop client has no console, so the browser half POSTs
+    // what it observed (module table, render failures) to a Host route that
+    // appends one JSON line outside the workspace. Diagnostic-only.
+    child.effect(() => {
+      const disposeDiag = child.connection.fetch.register({
+        path: '/api/side-chat/log',
+        methods: ['POST'],
+        requestBody: 'buffered',
+        fetch: async (request) => {
+          try {
+            const body = await request.json()
+            const detail = typeof body?.detail === 'string' ? body.detail.slice(0, 800) : ''
+            appendFileSync(join(LOG_DIR, 'client-events.jsonl'),
+              `${JSON.stringify({ t: new Date().toISOString(), event: String(body?.event ?? ''), detail })}\n`)
+          } catch (error) {
+            log('diag write failed', { error: String(error) })
+          }
+          return new Response(null, { status: 204 })
+        },
+      })
+      return () => { disposeDiag() }
+    }, 'side-chat: diag route')
+
     log('connection injected', { hasFetch: typeof child.connection?.fetch?.register === 'function' })
     child.effect(() => {
       const dispose = child.connection.fetch.register({

@@ -177,8 +177,14 @@ function createWorld() {
       return reference
     },
   }
+  const diagnostics = []
   global.fetch = async (path, init) => {
     const body = JSON.parse(init.body)
+    // 诊断上报走独立路由，不能混进创建请求的断言
+    if (path === '/api/side-chat/log') {
+      diagnostics.push(body)
+      return { ok: true, status: 204, json: async () => undefined }
+    }
     calls.create.push(body)
     if (failNext) {
       failNext = false
@@ -190,7 +196,7 @@ function createWorld() {
     return { ok: true, status: 200, json: async () => ({ childId: id, label: body.text }) }
   }
   return {
-    byId, calls, list, sessions, deadChildren,
+    byId, calls, list, sessions, deadChildren, diagnostics,
     markDead(id) { deadChildren.add(id) },
     failNextCreate() { failNext = true },
     // 父会话的活事件窗：预览从 (type, event) 条目里读最近轮次
