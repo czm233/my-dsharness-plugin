@@ -25,6 +25,18 @@ window.__ModuleLoader__.load({
     // composer instance in the page.
     const lastSelectionByProvider = new Map();
 
+    /** Host half's single POST endpoint (same shape as the workflow board's). */
+    const PERSONA_API = '/api/composer-effort-chips/rpc';
+    async function personaCall(payload) {
+      const response = await fetch(PERSONA_API, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.json();
+    }
+
     // 档位胶囊：当前档高亮，点一下直接挂档。
     const chipBase = {
       appearance: 'none',
@@ -219,6 +231,60 @@ window.__ModuleLoader__.load({
             ),
           ),
       );
+    }
+
+    // 人格选择：只换系统提示词里的一段，不重建会话。
+    // 列表来自 host 侧的 personas.json；未选时显示「默认」，代表不注入。
+    function PersonaPicker(props) {
+      const { sessionId, t } = props;
+      const [state, setState] = React.useState({ presets: [], selected: '', ready: false });
+
+      React.useEffect(() => {
+        let alive = true;
+        personaCall({ action: 'list', sessionId })
+          .then((data) => {
+            if (!alive) return;
+            setState({
+              presets: Array.isArray(data.presets) ? data.presets : [],
+              selected: typeof data.selected === 'string' ? data.selected : '',
+              ready: true,
+            });
+          })
+          .catch(() => {
+            if (alive) setState({ presets: [], selected: '', ready: true });
+          });
+        return () => { alive = false; };
+      }, [sessionId]);
+
+      const pick = (presetId) => {
+        const previous = state;
+        setState((current) => ({ ...current, selected: presetId }));
+        personaCall({ action: 'select', sessionId, presetId }).catch(() => setState(previous));
+      };
+
+      if (!state.ready) return null;
+
+      const active = state.presets.find((preset) => preset.id === state.selected);
+      const options = [
+        {
+          key: '__none',
+          label: t('personaNone'),
+          active: active === undefined,
+          onPick: () => pick(''),
+        },
+        ...state.presets.map((preset) => ({
+          key: preset.id,
+          label: preset.name,
+          active: state.selected === preset.id,
+          onPick: () => pick(preset.id),
+        })),
+      ];
+
+      return h(Dropdown, {
+        value: active ? active.name : t('personaNone'),
+        ariaLabel: t('personaLabel'),
+        options,
+      });
     }
 
     function ChannelModelPickers(props) {
@@ -507,8 +573,8 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.effect(() =>
           ctx.locale.register('composerEffortChips', {
-            zh: { providerDefault: '默认', effortLabel: '推理强度', channelLabel: '渠道', modelLabel: '模型' },
-            en: { providerDefault: 'Default', effortLabel: 'Reasoning effort', channelLabel: 'Channel', modelLabel: 'Model' },
+            zh: { providerDefault: '默认', effortLabel: '推理强度', channelLabel: '渠道', modelLabel: '模型', personaLabel: '助手', personaNone: '默认' },
+            en: { providerDefault: 'Default', effortLabel: 'Reasoning effort', channelLabel: 'Channel', modelLabel: 'Model', personaLabel: 'Assistant', personaNone: 'Default' },
           }),
         );
         // Freeze the shipped model trigger's width so effort-name changes
@@ -645,6 +711,18 @@ window.__ModuleLoader__.load({
                 },
               },
               ChannelModelPickers,
+            ),
+          );
+          // 助手（人格）选择器：坐在渠道/模型与推理强度之间。
+          scope.slots.inject('conversation.input.right', () =>
+            scope.slots.register(
+              {
+                name: 'conversation.input.right',
+                id: 'composer-persona-picker',
+                order: 12,
+                inject: (sessionId) => ({ sessionId, t }),
+              },
+              PersonaPicker,
             ),
           );
           // 子智能体对话没有模型位，也没有可选的渠道/模型：只放一个当前模型的只读标签。
