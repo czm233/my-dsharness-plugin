@@ -186,6 +186,17 @@ window.__ModuleLoader__.load({
       const hostRef = React.useRef(null)
       const [pending, setPending] = React.useState(null)
 
+      // One-shot mount probe: tells a rendered View apart from an empty one.
+      React.useEffect(() => {
+        const host = hostRef.current
+        if (host === null || host === undefined) return undefined
+        const timer = setTimeout(() => {
+          const rendered = host.querySelector('[data-slot]')
+          recordPreviewDiag('preview-mounted', rendered === null ? 'empty' : `slot=${rendered.getAttribute('data-slot')}`)
+        }, 800)
+        return () => clearTimeout(timer)
+      }, [])
+
       React.useEffect(() => {
         const host = hostRef.current
         if (host === null || host === undefined) return undefined
@@ -459,12 +470,13 @@ window.__ModuleLoader__.load({
               session: bound.reference,
             }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId }))
           : h('div', { style: styles.firstPane, 'data-sidechat-pane': '' },
-              h(PreviewBoundary, { fallback: null },
-                h(ParentPreview, {
-                  renderSlot: props.renderSlot,
-                  onQuote: insertQuote,
-                  t,
-                })),
+              h('div', { style: styles.previewFrame },
+                h(PreviewBoundary, { fallback: null },
+                  h(ParentPreview, {
+                    renderSlot: props.renderSlot,
+                    onQuote: insertQuote,
+                    t,
+                  }))),
               h(FirstMessage, {
                 onSend: send,
                 pending,
@@ -552,6 +564,13 @@ window.__ModuleLoader__.load({
         animation: 'sidechat-spin 0.8s linear infinite',
       },
       firstPane: {
+        flex: 1,
+        minWidth: 0,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+      },
+      previewFrame: {
         flex: 1,
         minWidth: 0,
         minHeight: 0,
@@ -709,7 +728,12 @@ window.__ModuleLoader__.load({
           name: 'sidebar.right.pane.tab',
           key: TAB_ID,
           locale: NS,
-          children: { [CONV_SLOT]: { kind: 'single', scope: 'session' } },
+          children: {
+            [CONV_SLOT]: { kind: 'single', scope: 'session' },
+            // The pre-branch pane renders the parent's shipped Chat View, so the
+            // entry must own that child slot exactly as the conversation does.
+            'conversation.view': { kind: 'list', scope: 'session' },
+          },
         }, ForkChatTab), 'side-chat: tab body')
 
         ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
