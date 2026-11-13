@@ -44,23 +44,15 @@ window.__ModuleLoader__.load({
     const CREATE_PATH = '/api/side-chat/create'
 
     // The shell provides the shared primitives module to every client plugin
-    // (the shipped quote plugin requires it the same way). A build that lacks
-    // it degrades to plain text instead of failing the module load.
-    let primitivesError = ''
+    // (the shipped quote plugin requires it the same way). Only the send glyph
+    // is borrowed here; a build without it falls back to a text arrow.
     const primitives = (() => {
-      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (error) {
-        primitivesError = String((error && error.message) || error)
-        return null
-      }
+      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (_unavailable) { return null }
     })()
-    // React.memo returns an object, not a function: accept any usable component
-    // reference instead of testing callability.
-    const MarkdownText = primitives !== null && primitives.MarkdownText !== undefined && primitives.MarkdownText !== null
-      ? primitives.MarkdownText
+    const SendIcon = primitives !== null && primitives.IconSendOutlineRegular !== undefined && primitives.IconSendOutlineRegular !== null
+      ? primitives.IconSendOutlineRegular
       : null
 
-    /** Turns of the parent conversation the pre-branch preview shows. */
-    const PREVIEW_TURNS = 6
     /** Longest selection a single quote action carries. */
     const QUOTE_LIMIT = 4000
 
@@ -76,12 +68,6 @@ window.__ModuleLoader__.load({
       'first.send': '发送',
       'fork.error': '创建分支失败',
       'quote.add': '引用',
-      'markdown.copy': '复制',
-      'markdown.copied': '已复制',
-      'markdown.code': '代码',
-      'markdown.wrap': '换行',
-      'markdown.unwrap': '不换行',
-      'markdown.footnotes': '脚注',
     }
     const en = {
       'guide.label': 'Side chat',
@@ -91,12 +77,6 @@ window.__ModuleLoader__.load({
       'first.send': 'Send',
       'fork.error': 'Failed to create branch',
       'quote.add': 'Quote',
-      'markdown.copy': 'Copy',
-      'markdown.copied': 'Copied',
-      'markdown.code': 'Code',
-      'markdown.wrap': 'Wrap',
-      'markdown.unwrap': 'Unwrap',
-      'markdown.footnotes': 'Footnotes',
     }
 
     // One branch per tab, remembered across body remounts and page reloads.
@@ -169,158 +149,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /**
-     * Markdown labels for standalone text rendering. The chat View builds the
-     * same shape from its own dictionary; only code blocks and footnotes read
-     * these.
-     * @param t - translator bound to this plugin's namespace.
-     * @returns labels accepted by the primitives MarkdownText.
-     */
-    function markdownLabels(t) {
-      return {
-        code: {
-          copyLabel: t('markdown.copy'),
-          copiedLabel: t('markdown.copied'),
-          toolbarLabels: {
-            codeLabel: t('markdown.code'),
-            wrapLabel: t('markdown.wrap'),
-            unwrapLabel: t('markdown.unwrap'),
-          },
-        },
-        footnotes: t('markdown.footnotes'),
-      }
-    }
-
-    /** Concatenated text blocks of one message content array. */
-    function textOfContent(content) {
-      if (!Array.isArray(content)) return ''
-      const parts = []
-      for (const block of content) {
-        if (block === null || typeof block !== 'object') continue
-        if (block.type !== 'text' || typeof block.text !== 'string') continue
-        if (block.text.trim() === '') continue
-        parts.push(block.text)
-      }
-      return parts.join('\n\n').trim()
-    }
-
-    /**
-     * Read the parent's recent visible turns from the live Session event feed.
-     * Only the human's own prompts and the assistant's committed text qualify:
-     * context reminders (their source kinds differ) and tool traffic stay out,
-     * so the preview reads as the conversation the user remembers.
-     * @param parentId - owning session identity, when known.
-     * @returns the last {@link PREVIEW_TURNS} messages, oldest first.
-     */
-    function previewMessages(parentId) {
-      if (parentId === undefined || clientCtx === null || clientCtx === undefined) return []
-      let binding
-      try {
-        binding = typeof clientCtx.sessions.binding === 'function' ? clientCtx.sessions.binding(parentId) : undefined
-      } catch (_bindingUnavailable) {
-        return []
-      }
-      if (binding === undefined || binding.eventSource === undefined) return []
-      const payload = binding.eventSource.getSnapshot()
-      const entries = payload !== null && payload !== undefined && Array.isArray(payload.entries) ? payload.entries : []
-      const messages = []
-      // One reply per turn: a multi-step turn narrates between tool calls, and
-      // only its last text is the answer worth re-reading.
-      const replyAt = new Map()
-      for (const entry of entries) {
-        if (entry === null || typeof entry !== 'object' || entry.type === 'transient') continue
-        const event = entry.event
-        if (event === null || typeof event !== 'object') continue
-        if (event.type === 'user/message') {
-          const source = event.data !== undefined ? event.data.source : undefined
-          if (source !== undefined && source.kind !== 'user') continue
-          const text = textOfContent(event.data !== undefined ? event.data.content : undefined)
-          if (text !== '') messages.push({ key: `u${event.seq}`, role: 'user', text })
-          continue
-        }
-        if (event.type === 'assistant/message') {
-          const message = event.data !== undefined ? event.data.message : undefined
-          const text = textOfContent(message !== undefined ? message.content : undefined)
-          if (text === '') continue
-          const turn = event.data !== undefined && typeof event.data.turn === 'number' ? event.data.turn : undefined
-          const previous = turn === undefined ? undefined : replyAt.get(turn)
-          if (previous !== undefined) {
-            messages[previous] = { key: `a${event.seq}`, role: 'assistant', text }
-            continue
-          }
-          messages.push({ key: `a${event.seq}`, role: 'assistant', text })
-          if (turn !== undefined) replyAt.set(turn, messages.length - 1)
-        }
-      }
-      return messages.slice(-PREVIEW_TURNS)
-    }
-
-    /** Borrow the parent's live event feed, or undefined while it is not materialized. */
-    function parentFeed(parentId) {
-      if (parentId === undefined || clientCtx === null || clientCtx === undefined) return undefined
-      try {
-        const binding = typeof clientCtx.sessions.binding === 'function'
-          ? clientCtx.sessions.binding(parentId)
-          : undefined
-        const feed = binding === undefined ? undefined : binding.eventSource
-        return feed !== undefined && feed !== null && typeof feed.subscribe === 'function' ? feed : undefined
-      } catch (_bindingUnavailable) {
-        return undefined
-      }
-    }
-
-    /**
-     * Subscribe the preview to the parent's live event window. The feed can
-     * appear after this mount (a session still opening, or one that was just
-     * switched to), so the catalog store retries the attachment.
-     */
-    function usePreviewMessages(parentId) {
-      const [messages, setMessages] = React.useState(() => previewMessages(parentId))
-      React.useEffect(() => {
-        let attached = null
-        let stopFeed = null
-        const sync = () => {
-          const feed = parentFeed(parentId)
-          if (feed !== undefined && feed !== attached) {
-            if (stopFeed !== null) stopFeed()
-            attached = feed
-            stopFeed = feed.subscribe(() => setMessages(previewMessages(parentId)))
-          }
-          setMessages(previewMessages(parentId))
-        }
-        sync()
-        let stopList = null
-        try {
-          const list = clientCtx.sessions !== undefined ? clientCtx.sessions.list : undefined
-          if (list !== undefined && list !== null && typeof list.subscribe === 'function') stopList = list.subscribe(sync)
-        } catch (_listUnavailable) { /* the feed subscription still covers live turns */ }
-        return () => {
-          if (stopFeed !== null) stopFeed()
-          if (stopList !== null) stopList()
-        }
-      }, [parentId])
-      return messages
-    }
-
-    /**
-     * Render one message body. Falls back to the literal text when the shared
-     * Markdown renderer is unavailable or throws, so the preview can never take
-     * the tab down with it.
-     */
-    let markdownMissingLogged = false
-    function MessageText(props) {
-      if (MarkdownText === null) {
-        if (!markdownMissingLogged) {
-          markdownMissingLogged = true
-          recordPreviewDiag('markdown-missing', primitivesError || `primitives=${primitives === null ? 'null' : typeof primitives}`)
-        }
-        return h('div', { style: styles.plainText }, props.text)
-      }
-      return h(PreviewBoundary, { fallback: props.text },
-        h(MarkdownText, { text: props.text, labels: props.labels }))
-    }
-
-    /** Contain a rendering failure inside the preview instead of the tab. */
+    /** Contain a preview rendering failure instead of the whole tab. */
     const PreviewBoundary = typeof React.Component === 'function'
       ? class PreviewBoundary extends React.Component {
         constructor(props) {
@@ -333,12 +162,12 @@ window.__ModuleLoader__.load({
         }
 
         componentDidCatch(error) {
-          recordPreviewDiag('markdown-failed', (error && error.stack) || error)
+          recordPreviewDiag('preview-failed', (error && error.stack) || error)
         }
 
         render() {
           if (!this.state.failed) return this.props.children
-          return h('div', { style: styles.plainText }, this.props.fallback)
+          return this.props.fallback === undefined ? null : h('div', { style: styles.plainText }, this.props.fallback)
         }
       }
       : function PreviewPassthrough(props) {
@@ -346,24 +175,16 @@ window.__ModuleLoader__.load({
       }
 
     /**
-     * Read-only transcript of the parent's recent turns, shown while the tab
-     * has no branch yet. Selecting text inside it offers the quote action at
-     * the selection, so a passage can be carried into the side-chat draft
-     * without leaving the tab.
+     * Pre-branch pane: the parent's own Conversation View, rendered exactly as
+     * the main conversation renders it — same message components, widths,
+     * markdown, and live tail — only without a composer. A selection inside it
+     * offers the quote action, which carries the text into the side-chat draft
+     * instead of the parent's composer.
      */
     function ParentPreview(props) {
-      const { messages, onQuote, t } = props
+      const { renderSlot, onQuote, t } = props
       const hostRef = React.useRef(null)
       const [pending, setPending] = React.useState(null)
-      const tailKey = messages.length === 0 ? '' : messages[messages.length - 1].key
-      const labels = React.useMemo(() => markdownLabels(t), [t])
-
-      // Follow the live tail so a reply that lands while the tab is open stays
-      // in view without the user chasing it.
-      React.useEffect(() => {
-        const host = hostRef.current
-        if (host !== null && host !== undefined) host.scrollTop = host.scrollHeight
-      }, [tailKey])
 
       React.useEffect(() => {
         const host = hostRef.current
@@ -382,17 +203,21 @@ window.__ModuleLoader__.load({
           const base = host.getBoundingClientRect()
           setPending({
             text: text.length > QUOTE_LIMIT ? text.slice(0, QUOTE_LIMIT) : text,
-            top: Math.max(2, box.top - base.top + host.scrollTop - 32),
+            top: Math.max(2, box.top - base.top - 32),
             left: Math.max(2, box.left - base.left),
           })
         }
         // The selection settles after the pointer/key event itself.
         const defer = () => setTimeout(review, 0)
+        const hide = () => setPending(null)
         document.addEventListener('pointerup', defer)
         document.addEventListener('keyup', defer)
+        // The View scrolls internally; a moved selection no longer matches.
+        document.addEventListener('scroll', hide, true)
         return () => {
           document.removeEventListener('pointerup', defer)
           document.removeEventListener('keyup', defer)
+          document.removeEventListener('scroll', hide, true)
         }
       }, [])
 
@@ -400,12 +225,14 @@ window.__ModuleLoader__.load({
         ref: hostRef,
         style: styles.preview,
         'data-sidechat-preview': '',
-        onScroll: () => setPending(null),
       },
-        messages.map(message => message.role === 'user'
-          ? h('div', { key: message.key, style: styles.previewUser }, message.text)
-          : h('div', { key: message.key, style: styles.previewAssistant },
-            h(MessageText, { text: message.text, labels }))),
+        h('div', { style: styles.previewView },
+          renderSlot('conversation.view', {
+            viewRequest: null,
+            openView: () => {},
+            completeViewRequest: () => {},
+            inspectCall: () => {},
+          }, { only: 'chat' })),
         pending === null ? null : h('button', {
           type: 'button',
           style: { ...styles.quoteAction, top: pending.top, left: pending.left },
@@ -449,7 +276,7 @@ window.__ModuleLoader__.load({
      * parent's inherited context; the draft survives a failed attempt. The
      * draft is owned by the tab so the preview's quote action can append to it.
      */
-    function FirstMessage({ onSend, pending, failure, t, draft, onDraftChange, inputRef, centered }) {
+    function FirstMessage({ onSend, pending, failure, t, draft, onDraftChange, inputRef }) {
       const submit = async () => {
         const text = draft.trim()
         if (text === '' || pending) return
@@ -461,25 +288,30 @@ window.__ModuleLoader__.load({
         event.preventDefault()
         submit()
       }
-      return h('div', { style: centered ? styles.firstWrapCentered : styles.firstWrap },
-        h('textarea', {
-          ref: inputRef,
-          style: styles.firstInput,
-          value: draft,
-          placeholder: t('first.placeholder'),
-          'aria-label': t('guide.label'),
-          disabled: pending,
-          onChange: (event) => onDraftChange(event.target.value),
-          onKeyDown,
-        }),
-        h('div', { style: styles.firstRow },
-          failure !== null ? h('div', { style: styles.firstError }, `${t('fork.error')}: ${failure}`) : null,
-          h('button', {
-            type: 'button',
-            style: { ...styles.firstSend, ...(pending ? styles.firstSendBusy : null) },
-            disabled: pending || draft.trim() === '',
-            onClick: submit,
-          }, t('first.send'))))
+      const idle = pending || draft.trim() === ''
+      return h('div', { style: styles.composerWrap },
+        h('div', { style: styles.composerCard },
+          h('textarea', {
+            ref: inputRef,
+            style: styles.composerInput,
+            value: draft,
+            placeholder: t('first.placeholder'),
+            'aria-label': t('guide.label'),
+            disabled: pending,
+            rows: 1,
+            onChange: (event) => onDraftChange(event.target.value),
+            onKeyDown,
+          }),
+          h('div', { style: styles.composerRow },
+            failure !== null ? h('div', { style: styles.composerError }, `${t('fork.error')}: ${failure}`) : null,
+            h('button', {
+              type: 'button',
+              style: { ...styles.sendButton, ...(idle ? styles.sendButtonIdle : null) },
+              disabled: idle,
+              'aria-label': t('first.send'),
+              title: t('first.send'),
+              onClick: submit,
+            }, SendIcon === null ? h('span', { style: styles.sendGlyph }, '\u2191') : h(SendIcon, { width: 16, height: 16 })))))
     }
 
     /**
@@ -505,10 +337,6 @@ window.__ModuleLoader__.load({
       const bodyRef = React.useRef(null)
       const inputRef = React.useRef(null)
       const t = translator
-
-      // The parent transcript is previewed only until this tab owns a branch;
-      // once the child exists its own inherited history replaces it.
-      const previews = usePreviewMessages(childId === undefined ? parentId : undefined)
 
       // Carry a preview selection into the draft as a Markdown blockquote,
       // then hand the caret back to the composer.
@@ -631,10 +459,12 @@ window.__ModuleLoader__.load({
               session: bound.reference,
             }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId }))
           : h('div', { style: styles.firstPane, 'data-sidechat-pane': '' },
-              previews.length === 0
-                ? null
-                : h(PreviewBoundary, { fallback: null },
-                  h(ParentPreview, { messages: previews, onQuote: insertQuote, t })),
+              h(PreviewBoundary, { fallback: null },
+                h(ParentPreview, {
+                  renderSlot: props.renderSlot,
+                  onQuote: insertQuote,
+                  t,
+                })),
               h(FirstMessage, {
                 onSend: send,
                 pending,
@@ -643,7 +473,6 @@ window.__ModuleLoader__.load({
                 draft,
                 onDraftChange: setDraft,
                 inputRef,
-                centered: previews.length === 0,
               })))
     }
 
@@ -731,36 +560,19 @@ window.__ModuleLoader__.load({
       },
       preview: {
         flex: 1,
+        minWidth: 0,
         minHeight: 0,
         position: 'relative',
-        overflowY: 'auto',
-        overflowX: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        gap: 14,
-        padding: '14px 16px 6px',
-        fontSize: 13,
-        lineHeight: 1.55,
-        color: 'var(--dsw-alias-label-primary)',
-        userSelect: 'text',
+        overflow: 'hidden',
       },
-      previewUser: {
-        alignSelf: 'flex-end',
-        maxWidth: '90%',
-        padding: '8px 11px',
-        borderRadius: 12,
-        background: 'var(--dsw-specific-input-major)',
-        color: 'var(--dsw-alias-label-primary)',
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
-      },
-      previewAssistant: {
+      previewView: {
+        flex: 1,
         minWidth: 0,
-        overflowWrap: 'anywhere',
-      },
-      plainText: {
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
       },
       quoteAction: {
         position: 'absolute',
@@ -776,67 +588,84 @@ window.__ModuleLoader__.load({
         fontSize: 13,
         cursor: 'pointer',
       },
-      firstWrap: {
+      composerWrap: {
         flex: 'none',
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
-        padding: '8px 16px 14px',
+        padding: '4px 12px 12px',
       },
-      firstWrapCentered: {
-        flex: 1,
-        minWidth: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: 8,
-        padding: '16px 16px 40px',
-      },
-      firstInput: {
+      composerCard: {
         boxSizing: 'border-box',
         width: '100%',
-        minHeight: 64,
-        maxHeight: 200,
-        resize: 'none',
-        borderRadius: 12,
-        border: '0.5px solid var(--dsw-alias-border-l3)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: '10px 12px 8px',
+        borderRadius: 'var(--dsw-radius-panel)',
         background: 'var(--dsw-specific-input-major)',
-        color: 'var(--dsw-alias-label-primary)',
-        font: 'inherit',
+        '--dsw-elevation-stroke-color': 'var(--dsw-alias-border-l2)',
+        boxShadow: 'var(--dsw-elevation-soft)',
         fontSize: 13,
         lineHeight: 1.5,
-        padding: '10px 12px',
-        outline: 'none',
       },
-      firstRow: {
+      composerInput: {
+        boxSizing: 'border-box',
+        width: '100%',
+        minHeight: 44,
+        maxHeight: 180,
+        resize: 'none',
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit',
+        outline: 'none',
+        padding: 0,
+      },
+      composerRow: {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'flex-end',
         gap: 8,
-        minHeight: 24,
+        minHeight: 28,
       },
-      firstError: {
+      composerError: {
         marginRight: 'auto',
         fontSize: 11,
         lineHeight: 1.4,
         color: 'var(--dsw-alias-state-error-primary)',
         wordBreak: 'break-word',
       },
-      firstSend: {
+      sendButton: {
+        boxSizing: 'border-box',
+        width: 28,
         height: 28,
-        padding: '0 14px',
-        borderRadius: 999,
+        flex: 'none',
+        borderRadius: '50%',
         border: 'none',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         background: 'var(--dsw-alias-button-info-fill)',
         color: '#fff',
-        font: 'inherit',
-        fontSize: 12,
         cursor: 'pointer',
+        padding: 0,
       },
-      firstSendBusy: {
-        opacity: 0.6,
+      sendButtonIdle: {
+        opacity: 0.4,
         cursor: 'default',
+      },
+      sendGlyph: {
+        fontSize: 14,
+        lineHeight: '14px',
+      },
+      plainText: {
+        whiteSpace: 'pre-wrap',
+        overflowWrap: 'anywhere',
+        padding: 12,
+        fontSize: 13,
+        lineHeight: 1.5,
+        color: 'var(--dsw-alias-label-primary)',
       },
       title: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
     }
@@ -845,9 +674,7 @@ window.__ModuleLoader__.load({
       inject: ['sessions', 'slots', 'locale', 'sidebarRightTabs'],
       apply(ctx) {
         clientCtx = ctx
-        recordPreviewDiag('module', MarkdownText === null
-          ? `markdown-missing${primitivesError === '' ? '' : `: ${primitivesError}`}`
-          : 'markdown-ready')
+        recordPreviewDiag('module', `icon=${SendIcon === null ? 'missing' : 'ready'}`)
         ctx.effect(() => {
           styles.spinnerKeyframes = document.head.appendChild(Object.assign(document.createElement('style'), {
             textContent: '@keyframes sidechat-spin{to{transform:rotate(360deg)}}',
