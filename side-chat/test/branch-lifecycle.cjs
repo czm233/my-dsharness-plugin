@@ -17,7 +17,8 @@
  *   7. 页面重载（模块重新加载、内存映射清空）：仍从 localStorage 复用；
  *   8. 不同父会话同名 tab id（tab1）：互不串号，各自创建；
  *   9. 死映射（child 无法 resolve）：清掉映射，回到首条消息界面；
- *  10. 同一个 tab 永远只绑定一个 child。
+ *  10. 同一个 tab 永远只绑定一个 child；
+ *  11. 主对话预览：只渲染人类提问与助手正文，划词引用写成引用块进草稿。
  */
 const fs = require('fs')
 const os = require('os')
@@ -160,8 +161,10 @@ function createWorld() {
     byId,
     subscribe: () => () => {},
   }
+  const bindings = {}
   const sessions = {
     list: { getSnapshot: () => list, subscribe: () => () => {} },
+    binding(id) { return bindings[id] },
     retain(target) {
       calls.retain.push(target)
       const id = typeof target === 'string' ? target : target.childSessionId
@@ -190,6 +193,15 @@ function createWorld() {
     byId, calls, list, sessions, deadChildren,
     markDead(id) { deadChildren.add(id) },
     failNextCreate() { failNext = true },
+    // 父会话的活事件窗：预览从 (type, event) 条目里读最近轮次
+    bind(id, events) {
+      bindings[id] = {
+        eventSource: {
+          getSnapshot: () => ({ entries: events.map(event => ({ type: 'durable', event })) }),
+          subscribe: () => () => {},
+        },
+      }
+    },
   }
 }
 
@@ -249,20 +261,37 @@ const childOf = (instance) => {
   const provider = instance.output && instance.output.children[0]
   return provider && provider.props && provider.props.session && provider.props.session.sessionId
 }
-// 首条消息界面：children[0] 是函数组件（SessionProvider 是字符串 tag）
-const isPhaseA = (instance) => {
-  const first = instance.output && instance.output.children[0]
-  return typeof first === 'object' && first !== null && typeof first.tag === 'function'
+// 首条消息阶段：children[0] 是带 data-sidechat-pane 的容器，内含可选的
+// 主对话只读预览，以及固定在最下方的首条消息输入区。
+const paneOf = (instance) => {
+  const pane = instance.output && instance.output.children[0]
+  return pane !== null && pane !== undefined && pane.props && pane.props['data-sidechat-pane'] === '' ? pane : undefined
+}
+const isPhaseA = (instance) => paneOf(instance) !== undefined
+const previewOf = (instance) => {
+  const pane = paneOf(instance)
+  if (pane === undefined) return undefined
+  const first = pane.children && pane.children[0]
+  return first !== null && first !== undefined && typeof first.tag === 'function' ? first : undefined
+}
+const composerVNodeOf = (instance) => {
+  const pane = paneOf(instance)
+  if (pane === undefined) return undefined
+  const kids = Array.isArray(pane.children) ? pane.children : []
+  for (let index = kids.length - 1; index >= 0; index -= 1) {
+    if (kids[index] !== null && kids[index] !== undefined && typeof kids[index].tag === 'function') return kids[index]
+  }
+  return undefined
 }
 // 函数组件的 vnode 在桩环境里不会自动执行；把它挂成一个可持续重渲染的
 // 迷你实例，交互句柄触发的 setState 走正常 flush 重渲染。
 function mountComponent(vnode) {
   if (vnode === null || vnode === undefined || typeof vnode.tag !== 'function') return undefined
-  const instance = { hooks: [], cursor: 0, queued: false, unmounted: false }
+  const instance = { vnode, hooks: [], cursor: 0, queued: false, unmounted: false }
   instance.render = () => {
     currentInstance = instance
     instance.cursor = 0
-    instance.output = vnode.tag(vnode.props)
+    instance.output = instance.vnode.tag(instance.vnode.props)
     currentInstance = null
   }
   instance.unmount = () => {
@@ -279,6 +308,15 @@ function mountComponent(vnode) {
   flush()
   return instance
 }
+// 父组件状态变化后，把最新 vnode 的 props 灌回已挂载的子实例并重渲染：
+// 桩环境不传播 props，这一步等价于真实 React 的 prop 更新。
+function syncProps(instance, vnode) {
+  if (instance === undefined || vnode === undefined) return
+  instance.vnode = vnode
+  instance.render()
+  commitEffects(instance)
+  flush()
+}
 function flattenText(node) {
   if (node === null || node === undefined) return ''
   if (typeof node === 'string') return node
@@ -286,6 +324,23 @@ function flattenText(node) {
   if (typeof node === 'object' && node.props && node.props.children !== undefined) return flattenText(node.props.children)
   if (typeof node === 'object' && node.children !== undefined) return flattenText(node.children)
   return ''
+}
+// 收集可见文本：普通子节点 + 未挂载的函数组件的 props.text（预览正文
+// 由 MessageText 渲染，桩环境不会执行它）。
+function collectText(root) {
+  const out = []
+  const stack = [root]
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (node === null || node === undefined) continue
+    if (typeof node === 'string') { out.push(node); continue }
+    if (Array.isArray(node)) { stack.push(...node); continue }
+    if (typeof node !== 'object') continue
+    if (node.props && typeof node.props.text === 'string') out.push(node.props.text)
+    const kids = node.children !== undefined ? node.children : (node.props && node.props.children)
+    if (kids !== undefined) stack.push(kids)
+  }
+  return out.join('\n')
 }
 function findButton(root, label) {
   const stack = [root]
@@ -344,13 +399,14 @@ async function main() {
   check('映射不存在', storage.get(branchStorageKey('A', 'tab1')) === undefined)
 
   console.log('[3] 发送首条消息：POST 创建 + 地址 retain + 渲染 child')
-  const composerInst = mountComponent(a1.output.children[0])
+  const composerInst = mountComponent(composerVNodeOf(a1))
   const composer = composerInst.output
   const textarea = findTextarea(composer)
   const sendButton = findButton(composer, 'first.send')
   check('界面含输入框与发送按钮', textarea !== undefined && sendButton !== undefined)
   textarea.props.onChange({ target: { value: 'hello side chat' } })
   flush()
+  syncProps(composerInst, composerVNodeOf(a1))
   const sendButton2 = findButton(composerInst.output, 'first.send')
   await sendButton2.props.onClick()
   await settle()
@@ -364,15 +420,16 @@ async function main() {
   const b0 = mount(first.ForkChatTab, tabProps('B', 'tab9'))
   await settle()
   world.failNextCreate()
-  const composerBInst = mountComponent(b0.output.children[0])
+  const composerBInst = mountComponent(composerVNodeOf(b0))
   const textareaB = findTextarea(composerBInst.output)
   textareaB.props.onChange({ target: { value: 'will fail' } })
   flush()
+  syncProps(composerBInst, composerVNodeOf(b0))
   await findButton(composerBInst.output, 'first.send').props.onClick()
   await settle()
   check('失败后映射不存在', storage.get(branchStorageKey('B', 'tab9')) === undefined)
   check('失败后仍在首条消息界面', isPhaseA(b0) === true, String(b0.output && b0.output.children[0] && b0.output.children[0].tag))
-  const failureView = mountComponent(b0.output.children[0])
+  const failureView = mountComponent(composerVNodeOf(b0))
   check('失败文案已显示', flattenText(failureView.output).includes('fork.error'), flattenText(failureView.output).slice(0, 120))
   failureView.unmount()
   composerBInst.unmount()
@@ -402,10 +459,11 @@ async function main() {
   console.log('[8] 另一个会话的同名 tab1：不能串用 A 的分支')
   const b1 = mount(first.ForkChatTab, tabProps('B', 'tab1'))
   await settle()
-  const composerB1 = mountComponent(b1.output.children[0])
+  const composerB1 = mountComponent(composerVNodeOf(b1))
   const textareaB1 = findTextarea(composerB1.output)
   textareaB1.props.onChange({ target: { value: 'hello from B' } })
   flush()
+  syncProps(composerB1, composerVNodeOf(b1))
   await findButton(composerB1.output, 'first.send').props.onClick()
   await settle()
   check('B 的 tab1 自己创建一次', JSON.stringify(world.calls.create[world.calls.create.length - 1]) === JSON.stringify({ sessionId: 'B', text: 'hello from B' }), JSON.stringify(world.calls.create))
@@ -423,16 +481,42 @@ async function main() {
   console.log('[10] 同一个 tab 永远只绑定一个 child')
   const a5 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  const composerA5 = mountComponent(a5.output.children[0])
+  const composerA5 = mountComponent(composerVNodeOf(a5))
   const textareaA5 = findTextarea(composerA5.output)
   textareaA5.props.onChange({ target: { value: 'second branch' } })
   flush()
+  syncProps(composerA5, composerVNodeOf(a5))
   await findButton(composerA5.output, 'first.send').props.onClick()
   await settle()
   check('重建后渲染自己的 child-3', childOf(a5) === 'child-3', String(childOf(a5)))
   check('A/tab1 映射指向 child-3', storage.get(branchStorageKey('A', 'tab1')) === 'child-3')
   const providerA5 = a5.output.children[0]
   check('SessionProvider 只挂一份', providerA5 !== null && providerA5.props.session !== undefined)
+
+  console.log('[11] 主对话预览：最近轮次只读渲染，划词引用写入侧栏草稿')
+  world.bind('C', [
+    { type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '主对话的问题' }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 2, data: { content: [{ type: 'text', text: '上下文提醒不该出现' }], source: { kind: 'agent-instructions' } } },
+    { type: 'assistant/message', seq: 3, data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '内部推理不该出现' }, { type: 'text', text: '先看一眼文件' }] } } },
+    { type: 'assistant/message', seq: 4, data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: '主对话的回答正文' }] } } },
+  ])
+  const c1 = mount(first.ForkChatTab, tabProps('C', 'tab1'))
+  await settle()
+  const preview = previewOf(c1)
+  check('渲染主对话预览', preview !== undefined)
+  const previewInst = mountComponent(preview)
+  const previewText = previewInst === undefined ? '' : collectText(previewInst.output)
+  check('预览含人类提问', previewText.includes('主对话的问题'), previewText.slice(0, 160))
+  check('预览含助手正文', previewText.includes('主对话的回答正文'), previewText.slice(0, 160))
+  check('预览不含上下文提醒', previewText.includes('上下文提醒不该出现') === false, previewText.slice(0, 160))
+  check('预览不含推理内容', previewText.includes('内部推理不该出现') === false, previewText.slice(0, 160))
+  check('同一轮只留最后一段正文', previewText.includes('先看一眼文件') === false, previewText.slice(0, 160))
+  if (previewInst !== undefined) previewInst.unmount()
+  preview.props.onQuote('这一段我不懂')
+  flush()
+  const quotedDraft = composerVNodeOf(c1) !== undefined ? String(composerVNodeOf(c1).props.draft) : ''
+  check('引用以 Markdown 引用块写入草稿', quotedDraft.includes('> 这一段我不懂'), quotedDraft)
+  c1.unmount()
 
   a2.unmount()
   a3.unmount()
