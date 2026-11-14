@@ -162,6 +162,17 @@ window.__ModuleLoader__.load({
         for (const [id, row] of status) {
           const running = row !== undefined && row !== null && row.running === true
           nextRunning.set(id, running)
+          const waiting = row !== undefined && row !== null && row.pendingInteraction !== undefined && row.pendingInteraction !== null
+          if (waiting) {
+            // A session blocked on the user is the one thing worth surfacing
+            // immediately, even while its turn is still open.
+            pending.delete(id)
+            if (!isSubagent(id) && !entries.some((entry) => entry.id === id)) {
+              entries.push({ id, at: now })
+              changed = true
+            }
+            continue
+          }
           if (running || isSubagent(id)) {
             // A live turn, or a subagent, never settles into the queue.
             pending.delete(id)

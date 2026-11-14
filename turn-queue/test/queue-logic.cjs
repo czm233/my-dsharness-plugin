@@ -228,7 +228,25 @@ function check(name, condition) {
   check('subagent completion is filtered', env.storage.read().join(',') === 'A')
 }
 
-// 8. Deleted sessions are pruned
+// 8. A session waiting on the user is queued immediately
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'S', displayTitle: 'Child', subagent: { address: { mode: 'continuable' } } },
+  ])
+  env.status.set(new Map([
+    ['A', { running: true, pendingInteraction: { kind: 'question' } }],
+    ['S', { running: true, pendingInteraction: { kind: 'question' } }],
+  ]))
+  check('waiting session is queued while running', env.storage.read().join(',') === 'A')
+  env.status.set(new Map([
+    ['A', { running: true, pendingInteraction: null }],
+  ]))
+  check('answering keeps the entry', env.storage.read().join(',') === 'A')
+}
+
+// 9. Deleted sessions are pruned
 {
   const env = boot()
   env.list.set([
@@ -241,7 +259,7 @@ function check(name, condition) {
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
 
-// 9. Hard cap of 50 entries, oldest dropped first
+// 10. Hard cap of 50 entries, oldest dropped first
 {
   const env = boot()
   const rows = []
@@ -261,7 +279,7 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 10. Clicking an entry opens the session and removes it from the queue
+// 11. Clicking an entry opens the session and removes it from the queue
 {
   const env = boot()
   env.list.set([
@@ -287,7 +305,7 @@ function check(name, condition) {
     cellsAfter[0].props.title === 'Session B')
 }
 
-// 11. A single slot is rendered while the queue is empty
+// 12. A single slot is rendered while the queue is empty
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -296,7 +314,7 @@ function check(name, condition) {
   check('empty queue renders exactly one slot', cells.length === 1)
 }
 
-// 12. A reload restores the persisted queue and prunes dead sessions
+// 13. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([
