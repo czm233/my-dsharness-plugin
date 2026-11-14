@@ -459,9 +459,7 @@ window.__ModuleLoader__.load({
       const modelNames = Array.isArray(groups)
         ? groups.map(group => group.label ?? group.model).filter(name => name !== undefined && name !== '')
         : []
-      const modelText = modelNames.length > 2
-        ? `${modelNames[0]} +${modelNames.length - 1}`
-        : modelNames.join(' → ')
+      const modelText = modelNames.join(' → ')
       const fullRoutes = Array.isArray(groups)
         ? groups.map(group => `${group.provider}/${group.model}`).join(' → ')
         : ''
