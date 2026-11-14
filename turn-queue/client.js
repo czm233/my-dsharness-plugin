@@ -111,12 +111,16 @@ window.__ModuleLoader__.load({
         return row !== undefined && row.subagent !== null && row.subagent !== undefined
       }
       const exists = (id) => !listReady() || sessionRow(id) !== undefined
-      /** A session whose goal is still active is mid-task, not finished work. */
-      const hasActiveGoal = (id) => {
+      /**
+       * A goal that has not reached `complete` means the task is still owned by
+       * the session: active rounds continue by themselves, and paused or blocked
+       * rounds are waiting on the user rather than finishing work.
+       */
+      const hasUnfinishedGoal = (id) => {
         try {
           const binding = typeof ctx.sessions.binding === 'function' ? ctx.sessions.binding(id) : undefined
-          const snapshot = binding?.session?.projections?.faceOf?.('goal')?.getSnapshot?.()
-          return snapshot?.goal?.phase === 'active'
+          const phase = binding?.session?.projections?.faceOf?.('goal')?.getSnapshot?.()?.goal?.phase
+          return phase !== undefined && phase !== null && phase !== 'complete'
         } catch {
           return false
         }
@@ -172,7 +176,7 @@ window.__ModuleLoader__.load({
           }
           const since = pending.get(id)
           if (since === undefined || now - since < SETTLE_MS) continue
-          if (hasActiveGoal(id)) continue
+          if (hasUnfinishedGoal(id)) continue
           pending.delete(id)
           if (!entries.some((entry) => entry.id === id)) {
             entries.push({ id, at: now })
@@ -183,6 +187,10 @@ window.__ModuleLoader__.load({
           if (!nextRunning.has(id)) pending.delete(id)
         }
         runningState = nextRunning
+        // Drop entries whose task turned out to still belong to a live goal.
+        const beforeGoalFilter = entries.length
+        entries = entries.filter((entry) => !hasUnfinishedGoal(entry.id))
+        if (entries.length !== beforeGoalFilter) changed = true
         if (pruneMissing()) changed = true
         if (entries.length > MAX_ENTRIES) {
           entries = entries.slice(entries.length - MAX_ENTRIES)

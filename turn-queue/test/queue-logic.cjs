@@ -188,15 +188,32 @@ function check(name, condition) {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
   env.setGoal('active')
-  const map = finishTurn(env, 'A')
+  let map = finishTurn(env, 'A')
   check('active goal is not queued', env.storage.read().length === 0)
+  env.setGoal('paused')
+  env.clock.now += 9000
+  env.status.set(new Map(map))
+  check('paused goal is not queued', env.storage.read().length === 0)
   env.setGoal('complete')
   env.clock.now += 9000
   env.status.set(new Map(map))
   check('settled goal is queued', env.storage.read().join(',') === 'A')
 }
 
-// 6. Subagent sessions never enter the queue
+// 6. An entry is withdrawn when its goal stops being complete
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setGoal('complete')
+  const map = finishTurn(env, 'A')
+  check('completed goal is queued', env.storage.read().join(',') === 'A')
+  env.setGoal('paused')
+  env.clock.now += 2000
+  env.status.set(new Map(map))
+  check('unfinished goal withdraws the entry', env.storage.read().length === 0)
+}
+
+// 7. Subagent sessions never enter the queue
 {
   const env = boot()
   env.list.set([
@@ -208,7 +225,7 @@ function check(name, condition) {
   check('subagent completion is filtered', env.storage.read().join(',') === 'A')
 }
 
-// 7. Deleted sessions are pruned
+// 8. Deleted sessions are pruned
 {
   const env = boot()
   env.list.set([
@@ -221,7 +238,7 @@ function check(name, condition) {
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
 
-// 8. Hard cap of 50 entries, oldest dropped first
+// 9. Hard cap of 50 entries, oldest dropped first
 {
   const env = boot()
   const rows = []
@@ -241,7 +258,7 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 9. Clicking an entry opens the session and removes it from the queue
+// 10. Clicking an entry opens the session and removes it from the queue
 {
   const env = boot()
   env.list.set([
@@ -267,7 +284,7 @@ function check(name, condition) {
     cellsAfter[0].props.title === 'Session B')
 }
 
-// 10. A single slot is rendered while the queue is empty
+// 11. A single slot is rendered while the queue is empty
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -276,7 +293,7 @@ function check(name, condition) {
   check('empty queue renders exactly one slot', cells.length === 1)
 }
 
-// 11. A reload restores the persisted queue and prunes dead sessions
+// 12. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([
