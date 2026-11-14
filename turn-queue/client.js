@@ -21,6 +21,8 @@ window.__ModuleLoader__.load({
     const LOG = '[turn-queue]'
     const STORAGE_KEY = 'turn-queue.entries.v1'
     const MAX_ENTRIES = 50
+    // A session must stay idle this long before its turn counts as finished work.
+    const SETTLE_MS = 8000
     const VISIBLE = 3
 
     const CSS = `
@@ -85,7 +87,8 @@ window.__ModuleLoader__.load({
     function createQueueStore(ctx) {
       let entries = []
       let snapshot = []
-      let unread = new Map()
+      let runningState = new Map()
+      const pending = new Map()
       const listeners = new Set()
 
       const sessionRow = (id) => {
@@ -140,24 +143,35 @@ window.__ModuleLoader__.load({
         } catch {
           return
         }
-        const nextUnread = new Map()
+        const now = Date.now()
+        const nextRunning = new Map()
         for (const [id, row] of status) {
-          const now = row !== undefined && row !== null && row.completionUnread === true
-          nextUnread.set(id, now)
-          if (isSubagent(id)) continue
-          const was = unread.get(id) === true
-          if (now && !was) {
-            if (!entries.some((entry) => entry.id === id)) {
-              entries.push({ id, at: Date.now() })
-              changed = true
-            }
-          } else if (!now && was) {
-            const before = entries.length
-            entries = entries.filter((entry) => entry.id !== id)
-            if (entries.length !== before) changed = true
+          const running = row !== undefined && row !== null && row.running === true
+          nextRunning.set(id, running)
+          if (running || isSubagent(id)) {
+            // A live turn, or a subagent, never settles into the queue.
+            pending.delete(id)
+            continue
+          }
+          if (runningState.get(id) === true) {
+            // The turn just ended: hold the entry until the session stays idle.
+            // Goal rounds restart the session within seconds, so a settle delay
+            // keeps multi-round work from being announced as a finished task.
+            pending.set(id, now)
+            continue
+          }
+          const since = pending.get(id)
+          if (since === undefined || now - since < SETTLE_MS) continue
+          pending.delete(id)
+          if (!entries.some((entry) => entry.id === id)) {
+            entries.push({ id, at: now })
+            changed = true
           }
         }
-        unread = nextUnread
+        for (const id of [...pending.keys()]) {
+          if (!nextRunning.has(id)) pending.delete(id)
+        }
+        runningState = nextRunning
         if (pruneMissing()) changed = true
         if (entries.length > MAX_ENTRIES) {
           entries = entries.slice(entries.length - MAX_ENTRIES)
@@ -189,7 +203,12 @@ window.__ModuleLoader__.load({
           console.error(LOG, 'session list subscribe failed', error)
         }
         sync()
+        // Status pushes are the primary source; the poll only guarantees the
+        // queue still converges if a push is dropped or the subscription lands
+        // after the edge it was meant to observe.
+        const poll = setInterval(sync, 1500)
         return () => {
+          clearInterval(poll)
           for (const dispose of disposers) dispose()
         }
       }
@@ -249,7 +268,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'sessions'],
+      inject: ['slots', 'sessions', 'uiSession'],
       apply(ctx) {
         ctx.effect(() => {
           const style = document.createElement('style')
@@ -269,11 +288,7 @@ window.__ModuleLoader__.load({
             console.error(LOG, 'openSession failed', error)
           }
         }
-        // The header slot registers immediately; queue syncing waits for the
-        // session-status source so a missing service never hides the frame.
-        ctx.inject(['uiSession'], () => {
-          ctx.effect(() => store.start(), 'turn-queue: queue syncing')
-        })
+        ctx.effect(() => store.start(), 'turn-queue: queue syncing')
 
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',

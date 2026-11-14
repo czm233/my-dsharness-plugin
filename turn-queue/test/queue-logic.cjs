@@ -6,6 +6,10 @@
  * then drives the session-status source the platform exposes and inspects the
  * persisted queue in localStorage. Renders nothing, so no DOM or React runtime
  * is needed; the header slot is only captured, never mounted.
+ *
+ * The queue records a running-edge: a session enters when its `running` flag
+ * falls from true to false, which is what the platform publishes when a turn
+ * settles.
  */
 const fs = require('node:fs')
 const path = require('node:path')
@@ -37,8 +41,6 @@ function makeList() {
       state.byId = Object.fromEntries(rows.map((row) => [row.id, row]))
       for (const listener of [...subs]) listener()
     },
-    subs,
-    state,
   }
 }
 
@@ -77,6 +79,7 @@ function load(sandbox) {
 }
 
 function boot() {
+  const clock = { now: 100000 }
   const storage = makeStorage()
   const list = makeList()
   const status = makeStatus()
@@ -85,15 +88,15 @@ function boot() {
   const sandbox = {
     localStorage: storage,
     console: { log() {}, error() {}, warn() {} },
-    Date, Map, Set, JSON, Object, Array, Number, String, Promise, Error,
-    setTimeout, clearTimeout,
+    Date: { now: () => clock.now },
+    Map, Set, JSON, Object, Array, Number, String, Promise, Error,
+    setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
   }
   const mod = load(sandbox)
   const ctx = {
     sessions: { list },
     uiSession: { sessionStatus: status },
     effect(run) { const dispose = run(); return typeof dispose === 'function' ? dispose : () => {} },
-    inject(_names, run) { run() },
     get(name) {
       if (name === 'uiWorkspace') return { openSession: (id) => opened.push(id) }
       return undefined
@@ -104,7 +107,18 @@ function boot() {
     },
   }
   mod.apply(ctx)
-  return { storage, list, status, opened, registered, ctx }
+  return { storage, list, status, opened, registered, ctx, clock }
+}
+
+/** Drive one session through a full turn and past the settle window. */
+function finishTurn(env, id, map = new Map()) {
+  map.set(id, { running: true })
+  env.status.set(new Map(map))
+  map.set(id, { running: false })
+  env.status.set(new Map(map))
+  env.clock.now += 9000
+  env.status.set(new Map(map))
+  return map
 }
 
 let failures = 0
@@ -124,50 +138,38 @@ function check(name, condition) {
   check('registers one header slot', env.registered.length === 1)
 }
 
-// 2. Completion enters the queue in order
+// 2. A settled turn enters the queue, in order
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
-  env.status.set(new Map([['A', { running: false, completionUnread: true }]]))
-  check('first completion is queued', env.storage.read().join(',') === 'A')
+  const map = finishTurn(env, 'A')
+  check('first settled turn is queued', env.storage.read().join(',') === 'A')
 
   env.list.set([
     { id: 'A', displayTitle: 'Session A', subagent: null },
     { id: 'B', displayTitle: 'Session B', subagent: null },
   ])
-  env.status.set(new Map([
-    ['A', { running: false, completionUnread: true }],
-    ['B', { running: false, completionUnread: true }],
-  ]))
-  check('second completion appends', env.storage.read().join(',') === 'A,B')
+  finishTurn(env, 'B', map)
+  check('second settled turn appends', env.storage.read().join(',') === 'A,B')
 }
 
-// 3. Re-running the same session does not duplicate the entry
+// 3. Re-running the same session keeps a single entry
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
-  env.status.set(new Map([['A', { running: false, completionUnread: true }]]))
-  env.status.set(new Map([['A', { running: true, completionUnread: false }]]))
-  env.status.set(new Map([['A', { running: false, completionUnread: true }]]))
-  check('re-completion keeps one entry', env.storage.read().join(',') === 'A')
+  finishTurn(env, 'A')
+  finishTurn(env, 'A')
+  check('re-running keeps one entry', env.storage.read().join(',') === 'A')
 }
 
-// 4. Visiting the session (unread cleared) drops the entry
+// 4. A session already finished before the plugin loaded is not queued
 {
   const env = boot()
-  env.list.set([
-    { id: 'A', displayTitle: 'Session A', subagent: null },
-    { id: 'B', displayTitle: 'Session B', subagent: null },
-  ])
-  env.status.set(new Map([
-    ['A', { running: false, completionUnread: true }],
-    ['B', { running: false, completionUnread: true }],
-  ]))
-  env.status.set(new Map([
-    ['A', { running: false, completionUnread: false }],
-    ['B', { running: false, completionUnread: true }],
-  ]))
-  check('cleared unread drops only that entry', env.storage.read().join(',') === 'B')
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.status.set(new Map([['A', { running: false }]]))
+  env.clock.now += 9000
+  env.status.set(new Map([['A', { running: false }]]))
+  check('pre-existing finished session is not queued', env.storage.read().length === 0)
 }
 
 // 5. Subagent sessions never enter the queue
@@ -177,10 +179,8 @@ function check(name, condition) {
     { id: 'A', displayTitle: 'Session A', subagent: null },
     { id: 'S', displayTitle: 'Child', subagent: { address: { mode: 'continuable' } } },
   ])
-  env.status.set(new Map([
-    ['A', { running: false, completionUnread: true }],
-    ['S', { running: false, completionUnread: true }],
-  ]))
+  const map = finishTurn(env, 'A')
+  finishTurn(env, 'S', map)
   check('subagent completion is filtered', env.storage.read().join(',') === 'A')
 }
 
@@ -191,10 +191,8 @@ function check(name, condition) {
     { id: 'A', displayTitle: 'Session A', subagent: null },
     { id: 'B', displayTitle: 'Session B', subagent: null },
   ])
-  env.status.set(new Map([
-    ['A', { running: false, completionUnread: true }],
-    ['B', { running: false, completionUnread: true }],
-  ]))
+  const map = finishTurn(env, 'A')
+  finishTurn(env, 'B', map)
   env.list.set([{ id: 'B', displayTitle: 'Session B', subagent: null }])
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
@@ -208,8 +206,12 @@ function check(name, condition) {
   }
   env.list.set(rows)
   const map = new Map()
-  for (const row of rows) map.set(row.id, { running: false, completionUnread: true })
-  env.status.set(map)
+  for (const row of rows) map.set(row.id, { running: true })
+  env.status.set(new Map(map))
+  for (const row of rows) map.set(row.id, { running: false })
+  env.status.set(new Map(map))
+  env.clock.now += 9000
+  env.status.set(new Map(map))
   const queue = env.storage.read()
   check('caps the queue at 50 entries', queue.length === 50)
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
@@ -229,18 +231,19 @@ function check(name, condition) {
     { id: 'B', displayTitle: 'Session B', subagent: null },
   ])
   const status = makeStatus()
+  const clock = { now: 100000 }
   const sandbox = {
     localStorage: storage,
     console: { log() {}, error() {}, warn() {} },
-    Date, Map, Set, JSON, Object, Array, Number, String, Promise, Error,
-    setTimeout, clearTimeout,
+    Date: { now: () => clock.now },
+    Map, Set, JSON, Object, Array, Number, String, Promise, Error,
+    setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
   }
   const mod = load(sandbox)
   mod.apply({
     sessions: { list },
     uiSession: { sessionStatus: status },
     effect(run) { run() },
-    inject(_names, run) { run() },
     get() { return undefined },
     slots: { inject(_n, factory) { factory() }, register: (config) => ({ config }) },
   })
