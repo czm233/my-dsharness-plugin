@@ -93,8 +93,12 @@ function boot() {
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
   }
   const mod = load(sandbox)
+  let goalPhase = 'complete'
   const ctx = {
-    sessions: { list },
+    sessions: {
+      list,
+      binding: () => ({ session: { projections: { faceOf: () => ({ getSnapshot: () => ({ goal: { phase: goalPhase } }) }) } } }),
+    },
     uiSession: { sessionStatus: status },
     effect(run) { const dispose = run(); return typeof dispose === 'function' ? dispose : () => {} },
     get(name) {
@@ -107,7 +111,7 @@ function boot() {
     },
   }
   mod.apply(ctx)
-  return { storage, list, status, opened, registered, ctx, clock }
+  return { storage, list, status, opened, registered, ctx, clock, setGoal: (phase) => { goalPhase = phase } }
 }
 
 /** Drive one session through a full turn and past the settle window. */
@@ -172,7 +176,20 @@ function check(name, condition) {
   check('pre-existing finished session is not queued', env.storage.read().length === 0)
 }
 
-// 5. Subagent sessions never enter the queue
+// 5. A session with an active goal stays out until the goal settles
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setGoal('active')
+  const map = finishTurn(env, 'A')
+  check('active goal is not queued', env.storage.read().length === 0)
+  env.setGoal('complete')
+  env.clock.now += 9000
+  env.status.set(new Map(map))
+  check('settled goal is queued', env.storage.read().join(',') === 'A')
+}
+
+// 6. Subagent sessions never enter the queue
 {
   const env = boot()
   env.list.set([
@@ -184,7 +201,7 @@ function check(name, condition) {
   check('subagent completion is filtered', env.storage.read().join(',') === 'A')
 }
 
-// 6. Deleted sessions are pruned
+// 7. Deleted sessions are pruned
 {
   const env = boot()
   env.list.set([
@@ -197,7 +214,7 @@ function check(name, condition) {
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
 
-// 7. Hard cap of 50 entries, oldest dropped first
+// 8. Hard cap of 50 entries, oldest dropped first
 {
   const env = boot()
   const rows = []
@@ -217,7 +234,7 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 8. A reload restores the persisted queue and prunes dead sessions
+// 9. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([

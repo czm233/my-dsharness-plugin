@@ -111,6 +111,16 @@ window.__ModuleLoader__.load({
         return row !== undefined && row.subagent !== null && row.subagent !== undefined
       }
       const exists = (id) => !listReady() || sessionRow(id) !== undefined
+      /** A session whose goal is still active is mid-task, not finished work. */
+      const hasActiveGoal = (id) => {
+        try {
+          const binding = typeof ctx.sessions.binding === 'function' ? ctx.sessions.binding(id) : undefined
+          const snapshot = binding?.session?.projections?.faceOf?.('goal')?.getSnapshot?.()
+          return snapshot?.goal?.phase === 'active'
+        } catch {
+          return false
+        }
+      }
 
       const publish = () => {
         snapshot = entries.slice()
@@ -162,6 +172,7 @@ window.__ModuleLoader__.load({
           }
           const since = pending.get(id)
           if (since === undefined || now - since < SETTLE_MS) continue
+          if (hasActiveGoal(id)) continue
           pending.delete(id)
           if (!entries.some((entry) => entry.id === id)) {
             entries.push({ id, at: now })
