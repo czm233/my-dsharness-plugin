@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Turn Queue",
+    "description": "A queue of just-finished sessions in the conversation header; one click jumps back to that session."
+  }
+}
