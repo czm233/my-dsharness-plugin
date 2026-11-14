@@ -258,7 +258,10 @@ window.__ModuleLoader__.load({
         )
 
         const cells = []
-        for (let index = 0; index < VISIBLE; index += 1) {
+        // An empty queue still needs one slot to show where it lives; the row
+        // only grows to three when entries actually exist.
+        const count = Math.min(VISIBLE, Math.max(1, entries.length))
+        for (let index = 0; index < count; index += 1) {
           const entry = entries[index]
           if (entry === undefined) {
             cells.push(h('div', { key: `empty-${index}`, className: 'tqCard', 'data-empty': 'true' }))
