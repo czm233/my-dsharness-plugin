@@ -1,9 +1,9 @@
 {
   "name": "@local/turn-cost",
-  "version": "1.15.5",
+  "version": "1.16.0",
   "private": true,
   "type": "module",
-  "description": "Shows each completed turn's token usage as a list-price money estimate in the chat tail.",
+  "description": "Shows each completed turn's token usage as a model-aware list-price money estimate in the chat tail.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -12,6 +12,7 @@
   },
   "files": [
     "index.js",
+    "pricing.js",
     "client.js",
     "prices.json",
     "cordis.patch.yml",

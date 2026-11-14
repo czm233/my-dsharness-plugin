@@ -38,6 +38,11 @@ window.__ModuleLoader__.load({
       'total': '合计',
       'unitPrice': '{price}/M tok',
       'listNote': '按模型牌价折算的等效金额，非实际账单',
+      'cacheHitValue': '{percent}% · {tokens} tok',
+      'switchNote': '换模型后首轮：上一个模型的输入缓存不再复用',
+      'midTurnSwitch': '本轮内切换过模型，按各自单价分别计算',
+      'unpricedNote': '未收录「{model}」的单价，合计不含该模型',
+      'unpricedAll': '未收录本轮模型的单价，无法折算费用',
     }
     const en = {
       'title': 'Turn cost',
@@ -58,13 +63,15 @@ window.__ModuleLoader__.load({
       'total': 'Total',
       'unitPrice': '{price}/M tok',
       'listNote': 'Estimated at list prices, not an actual bill',
+      'cacheHitValue': '{percent}% · {tokens} tok',
+      'switchNote': 'First turn after a model switch: the previous model\'s input cache is not reused',
+      'midTurnSwitch': 'Model changed within this turn; each model is priced separately',
+      'unpricedNote': 'No list price for "{model}"; the total excludes it',
+      'unpricedAll': 'No list price for this turn\'s model; cost cannot be estimated',
     }
 
-    /** GLM-5.3-Flash CN list prices; replaced by the Host half's prices.json over the RPC route. */
-    const DEFAULT_PRICES = {
-      currency: '$',
-      perMillion: { input: 0.15, cacheRead: 0.03, cacheWrite: 0, output: 0.5 },
-    }
+    /** Prices arrive from the Host half; until then no rate is assumed. */
+    const INITIAL_PRICES = null
 
     /** Minimal observable snapshot store: stable snapshot between sets, stable subscribe identity. */
     function createSnapshotStore(initial) {
@@ -84,7 +91,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const pricesStore = createSnapshotStore(DEFAULT_PRICES)
+    const pricesStore = createSnapshotStore(INITIAL_PRICES)
 
     /** Sum attempts into the displayed usage; optional buckets survive only when every attempt reported them. */
     function aggregate(attempts) {
@@ -123,6 +130,85 @@ window.__ModuleLoader__.load({
         cacheWriteTokens: allCacheWrite ? cacheWrite : undefined,
         reasoningTokens: allReasoning ? reasoning : undefined,
         routes: allRoutes ? routes : undefined,
+      }
+    }
+
+    /** Route identity used to group attempts from the same model. */
+    function routeGroupKey(route) {
+      return `${String(route.provider).toLowerCase()}\u0000${String(route.model).toLowerCase()}`
+    }
+
+    /**
+     * Fold attempts into one group per exact route and sum the Host-computed
+     * per-attempt costs. A turn normally has one group; a mid-turn fallback or
+     * model switch produces several, each with its own rate.
+     */
+    function summarizeTurn(attempts) {
+      const groups = []
+      const byKey = new Map()
+      let priced = true
+      let currency
+      for (const attempt of attempts) {
+        const route = attempt.route
+        if (route === undefined || route === null) continue
+        const key = routeGroupKey(route)
+        let group = byKey.get(key)
+        if (group === undefined) {
+          group = {
+            key,
+            provider: route.provider,
+            model: route.model,
+            label: attempt.price?.label ?? route.model,
+            shortLabel: attempt.price?.shortLabel ?? attempt.price?.label ?? route.model,
+            matched: true,
+            attempts: 0,
+            tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 },
+            cost: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 },
+            rates: attempt.price?.rates,
+            period: attempt.price?.period,
+            currency: attempt.price?.currency,
+          }
+          byKey.set(key, group)
+          groups.push(group)
+        }
+        group.attempts += 1
+        group.tokens.input += attempt.input
+        group.tokens.output += attempt.output
+        group.tokens.total += attempt.total
+        if (attempt.cacheRead !== undefined) group.tokens.cacheRead += attempt.cacheRead
+        if (attempt.cacheWrite !== undefined) group.tokens.cacheWrite += attempt.cacheWrite
+        if (attempt.price?.matched === true && attempt.price.cost !== undefined) {
+          group.cost.input += attempt.price.cost.input ?? 0
+          group.cost.cacheRead += attempt.price.cost.cacheRead ?? 0
+          group.cost.cacheWrite += attempt.price.cost.cacheWrite ?? 0
+          group.cost.output += attempt.price.cost.output ?? 0
+          group.cost.total += attempt.price.total ?? 0
+          group.rates = attempt.price.rates
+          group.period = attempt.price.period
+        } else {
+          group.matched = false
+          priced = false
+        }
+        if (currency === undefined && attempt.price?.currency !== undefined) {
+          currency = attempt.price.currency
+        }
+      }
+      return {
+        groups,
+        priced: priced && groups.length > 0,
+        currency: currency ?? '$',
+        total: groups.reduce((sum, group) => sum + (group.matched ? group.cost.total : 0), 0),
+      }
+    }
+
+    /** Cache-read share of the prompt (uncached input + cache reads). */
+    function cacheStats(usage) {
+      if (usage === undefined || usage.cacheReadTokens === undefined) return undefined
+      const prompt = usage.uncachedInputTokens + usage.cacheReadTokens
+      if (prompt <= 0) return undefined
+      return {
+        tokens: usage.cacheReadTokens,
+        percent: usage.cacheReadTokens / prompt * 100,
       }
     }
 
@@ -165,6 +251,9 @@ window.__ModuleLoader__.load({
       '.dsh-turn-cost-details dt, .dsh-turn-cost-details dd { min-width: 0; margin: 0; }',
       '.dsh-turn-cost-details dd { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; text-align: right; }',
       '.dsh-turn-cost-route { overflow-wrap: anywhere; }',
+      '.dsh-turn-cost-meta { margin-bottom: 4px; }',
+      '.dsh-turn-cost-model { min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; color: var(--dsw-alias-label-tertiary); }',
+      '.dsh-turn-cost-notes { margin: 8px 0 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
       '.dsh-turn-cost-reasoning { color: var(--dsw-alias-label-tertiary); white-space: nowrap; }',
       '.dsh-turn-cost-breakdown { margin: 2px 0 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }',
       '.dsh-turn-cost-total-line { display: flex; justify-content: space-between; gap: 16px; margin: 0 0 8px; color: var(--dsw-alias-label-primary); font-weight: 600; font-variant-numeric: tabular-nums; }',
@@ -189,39 +278,92 @@ window.__ModuleLoader__.load({
       cursor: 'pointer',
     }
 
-    function detailRow(term, value, extraClass) {
+    function detailRow(term, value, extraClass, keyPrefix) {
       return [
-        h('dt', { key: 'dt' }, term),
-        h('dd', { key: 'dd', ...(extraClass === undefined ? {} : { className: extraClass }) }, value),
+        h('dt', { key: `${keyPrefix}-dt` }, term),
+        h('dd', { key: `${keyPrefix}-dd`, ...(extraClass === undefined ? {} : { className: extraClass }) }, value),
       ]
+    }
+
+    /** Bucket rows for a single-model turn, with that model's resolved rates. */
+    function singleModelCostRows(group, usage, currency, t) {
+      if (group.matched !== true || group.rates === undefined) {
+        return detailRow(t('inputCost'), '—', undefined, 'cost-unpriced')
+      }
+      const rates = group.rates
+      const rows = []
+      rows.push(...detailRow(
+        t('inputCost'),
+        `${formatMoney(group.cost.input, currency)} · ${t('unitPrice', { price: formatPrice(rates.input, currency) })}`,
+        undefined,
+        'cost-input',
+      ))
+      if (usage.cacheReadTokens !== undefined) {
+        rows.push(...detailRow(
+          t('cacheReadCost'),
+          `${formatMoney(group.cost.cacheRead, currency)} · ${t('unitPrice', { price: formatPrice(rates.cacheRead, currency) })}`,
+          undefined,
+          'cost-cache-read',
+        ))
+      }
+      if (usage.cacheWriteTokens !== undefined) {
+        rows.push(...detailRow(
+          t('cacheWriteCost'),
+          `${formatMoney(group.cost.cacheWrite, currency)} · ${t('unitPrice', { price: formatPrice(rates.cacheWrite, currency) })}`,
+          undefined,
+          'cost-cache-write',
+        ))
+      }
+      rows.push(...detailRow(
+        t('outputCost'),
+        `${formatMoney(group.cost.output, currency)} · ${t('unitPrice', { price: formatPrice(rates.output, currency) })}`,
+        undefined,
+        'cost-output',
+      ))
+      return rows
     }
 
     function CostPanel(props) {
       // Cost-only panel: token details live in the shipped usage dialog, so
-      // this panel skips them and shows just the priced breakdown.
-      const { usage, parts, total, prices, t, panelRef, pos } = props
-      const currency = prices.currency
-      const perMillion = prices.perMillion
-      const costRows = [
-        ...detailRow(
-          t('inputCost'),
-          `${formatMoney(parts.input, currency)} · ${t('unitPrice', { price: formatPrice(perMillion.input, currency) })}`,
-        ),
-        ...(usage.cacheReadTokens !== undefined
-          ? detailRow(
-            t('cacheReadCost'),
-            `${formatMoney(parts.cacheRead, currency)} · ${t('unitPrice', { price: formatPrice(perMillion.cacheRead, currency) })}`,
-          ) : []),
-        ...(usage.cacheWriteTokens !== undefined
-          ? detailRow(
-            t('cacheWriteCost'),
-            `${formatMoney(parts.cacheWrite, currency)} · ${t('unitPrice', { price: formatPrice(perMillion.cacheWrite, currency) })}`,
-          ) : []),
-        ...detailRow(
-          t('outputCost'),
-          `${formatMoney(parts.output, currency)} · ${t('unitPrice', { price: formatPrice(perMillion.output, currency) })}`,
-        ),
-      ]
+      // this panel shows the route-aware price breakdown and the switch note.
+      const { groups, priced, total, usage, currency, switched, routeChanged, t, panelRef, pos } = props
+      const cache = cacheStats(usage)
+      const metaRows = []
+      groups.forEach((group, index) => {
+        metaRows.push(...detailRow(
+          index === 0 ? t('model') : '',
+          `${group.label} · ${group.provider}`,
+          'dsh-turn-cost-route',
+          `model-${index}`,
+        ))
+      })
+      if (cache !== undefined) {
+        metaRows.push(...detailRow(
+          t('cacheHit'),
+          t('cacheHitValue', { percent: cache.percent.toFixed(1), tokens: formatExactTokens(cache.tokens) }),
+          undefined,
+          'cache',
+        ))
+      }
+      const costRows = groups.length === 1
+        ? singleModelCostRows(groups[0], usage, currency, t)
+        : groups.flatMap((group, index) => detailRow(
+          group.label,
+          group.matched ? formatMoney(group.cost.total, currency) : '—',
+          undefined,
+          `cost-group-${index}`,
+        ))
+      const notes = []
+      if (switched) notes.push(t('switchNote'))
+      if (routeChanged) notes.push(t('midTurnSwitch'))
+      if (!priced) {
+        const unpriced = groups.filter(group => group.matched !== true).map(group => group.label)
+        notes.push(unpriced.length > 0
+          ? t('unpricedNote', { model: unpriced.join(', ') })
+          : t('unpricedAll'))
+      }
+      const hasAnyPrice = groups.some(group => group.matched === true)
+      const totalValue = hasAnyPrice ? formatMoney(total, currency) : '—'
       return h('div', {
         ref: panelRef,
         className: 'dsh-turn-cost-panel',
@@ -232,20 +374,31 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsh-turn-cost-title' },
           h('span', { className: 'dsh-turn-cost-title-label' }, h(IconCoin), t('title')),
           h('span', { className: 'dsh-turn-cost-title-value' },
-            t('pillTotal', { cost: formatMoney(total, currency) })),
+            t('pillTotal', { cost: totalValue })),
         ),
         h('div', { className: 'dsh-turn-cost-rule', 'aria-hidden': true }),
+        metaRows.length > 0
+          ? h('div', { className: 'dsh-turn-cost-meta' },
+            h('dl', { className: 'dsh-turn-cost-details' }, metaRows))
+          : null,
+        notes.length > 0
+          ? h('div', { className: 'dsh-turn-cost-notes' },
+            notes.map((note, index) => h('div', { key: index }, note)))
+          : null,
         h('div', { className: 'dsh-turn-cost-breakdown' }, t('breakdown')),
         h('div', { className: 'dsh-turn-cost-total-line' },
           h('span', null, t('total')),
-          h('span', null, t('pillTotal', { cost: formatMoney(total, currency) })),
+          h('span', null, t('pillTotal', { cost: totalValue })),
         ),
         h('dl', { className: 'dsh-turn-cost-details' }, costRows),
       )
     }
 
     function CostPill(props) {
-      const { usage, prices, t, mode, errorText, probeLabel, probeTitle, probeLines } = props
+      const {
+        usage, prices, t, mode, errorText, probeLabel, probeTitle, probeLines,
+        groups, priced, total, currency, switched, routeChanged,
+      } = props
       const [open, setOpen] = useState(false)
       const rootRef = useRef(null)
       const panelRef = useRef(null)
@@ -293,31 +446,70 @@ window.__ModuleLoader__.load({
         }
       }, [open])
 
+      const hasAnyPrice = Array.isArray(groups) && groups.some(group => group.matched === true)
+      const priceText = hasAnyPrice ? formatMoney(total, currency ?? prices?.currency ?? '$') : '—'
       const label = mode === 'ok'
-        ? t('pillTotal', { cost: formatMoney(props.total, prices.currency) })
+        ? t('pillTotal', { cost: priceText })
         : mode === 'loading' ? '¥…' : mode === 'error' ? '¥?·失败' : (probeLabel ?? '¥?·诊断')
+      const modelNames = Array.isArray(groups)
+        ? groups.map(group => group.shortLabel ?? group.label ?? group.model).filter(name => name !== undefined && name !== '')
+        : []
+      const modelText = modelNames.length > 2
+        ? `${modelNames[0]} +${modelNames.length - 1}`
+        : modelNames.join(' → ')
+      const fullRoutes = Array.isArray(groups)
+        ? groups.map(group => `${group.provider}/${group.model}`).join(' → ')
+        : ''
+      const titleParts = []
+      if (fullRoutes !== '') titleParts.push(fullRoutes)
+      if (mode === 'probe') titleParts.push(probeTitle)
+      else if (mode === 'error') titleParts.push(`${LOG} ${errorText}`)
+      else {
+        const unpricedNames = Array.isArray(groups)
+          ? groups.filter(group => group.matched !== true).map(group => group.label ?? group.model)
+          : []
+        if (unpricedNames.length > 0) titleParts.push(t('unpricedNote', { model: unpricedNames.join(', ') }))
+        titleParts.push(t('listNote'))
+      }
       const clickable = mode === 'ok' || mode === 'probe'
 
       return h('span', { className: 'dsh-turn-cost', ref: rootRef },
         h('button', {
           type: 'button',
           className: 'dsh-turn-cost-trigger',
-          style: mode !== 'ok' ? { ...PILL_STYLE, opacity: 0.75, cursor: 'pointer' } : PILL_STYLE,
+          style: mode !== 'ok' || !priced ? { ...PILL_STYLE, opacity: 0.75, cursor: 'pointer' } : PILL_STYLE,
           'data-turn-cost-trigger': '',
           'aria-haspopup': mode === 'ok' ? 'dialog' : undefined,
           'aria-expanded': open,
-          title: mode === 'probe' ? probeTitle : mode === 'error' ? `${LOG} ${errorText}` : t('listNote'),
+          title: titleParts.join(' · '),
           onClick: () => { if (clickable) setOpen(!open) },
         },
           h(IconCoin),
           h('span', {
             style: mode === 'probe'
               ? { whiteSpace: 'nowrap' }
-              : { overflow: 'hidden', textOverflow: 'ellipsis' },
+              : { overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 },
           }, label),
+          mode === 'ok' && modelText !== ''
+            ? h('span', {
+              className: 'dsh-turn-cost-model',
+              title: fullRoutes,
+            }, modelText)
+            : null,
         ),
         open && mode === 'ok' && createPortal(
-          h(CostPanel, { usage, parts: props.parts, total: props.total, prices, t, panelRef, pos }),
+          h(CostPanel, {
+            usage,
+            groups: groups ?? [],
+            priced,
+            total,
+            currency: currency ?? prices?.currency ?? '$',
+            switched,
+            routeChanged,
+            t,
+            panelRef,
+            pos,
+          }),
           document.body,
         ),
         open && mode === 'probe' && createPortal(
@@ -382,6 +574,9 @@ window.__ModuleLoader__.load({
                 events: Number(value?.events ?? -1),
                 matched: Number(value?.matched ?? -1),
                 interrupted,
+                switched: value?.switched === true,
+                routeChanged: value?.routeChanged === true,
+                currency: typeof value?.currency === 'string' ? value.currency : undefined,
               })
             },
             (error) => {
@@ -403,26 +598,28 @@ window.__ModuleLoader__.load({
         () => state.kind === 'done' ? aggregate(state.attempts) : undefined,
         [state],
       )
+      const summary = useMemo(
+        () => state.kind === 'done' ? summarizeTurn(state.attempts) : undefined,
+        [state],
+      )
 
-      const parts = useMemo(() => {
-        if (usage === undefined) return undefined
-        const perMillion = prices.perMillion
-        return {
-          input: usage.uncachedInputTokens * perMillion.input / 1_000_000,
-          cacheRead: (usage.cacheReadTokens ?? 0) * perMillion.cacheRead / 1_000_000,
-          cacheWrite: (usage.cacheWriteTokens ?? 0) * perMillion.cacheWrite / 1_000_000,
-          output: usage.outputTokens * perMillion.output / 1_000_000,
-        }
-      }, [usage, prices])
-      const total = usage === undefined ? 0
-        : parts.input + parts.cacheRead + parts.cacheWrite + parts.output
-
-      // Money once usage exists; total silence while unknown (no loading
-      // flicker) and on interrupted turns with no usage; the failure probes
-      // only surface after quiet retries, so they are never transient.
+      // Money once usage and rates exist; total silence while unknown (no
+      // loading flicker) and on interrupted turns with no usage; the failure
+      // probes only surface after quiet retries, so they are never transient.
       let body
-      if (usage !== undefined) {
-        body = h(CostPill, { usage, prices, t, mode: 'ok', parts, total })
+      if (usage !== undefined && summary !== undefined) {
+        body = h(CostPill, {
+          usage,
+          prices,
+          t,
+          mode: 'ok',
+          groups: summary.groups,
+          priced: summary.priced,
+          total: summary.total,
+          currency: summary.currency ?? state.currency ?? prices?.currency ?? '$',
+          switched: state.switched,
+          routeChanged: state.routeChanged,
+        })
       } else if (state.kind !== 'done' && state.kind !== 'error') {
         body = null
       } else if (state.kind === 'done' && state.interrupted && state.attempts.length === 0) {
@@ -507,7 +704,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
-        console.log(LOG, 'apply (v9, silent until settled)')
+        console.log(LOG, 'apply (v10, route-aware pricing)')
 
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'turn-cost: dictionaries')
 
@@ -532,13 +729,23 @@ window.__ModuleLoader__.load({
           return result.value
         }
 
-        callRpc('prices', {}).then((next) => {
-          if (next !== null && typeof next === 'object'
-            && typeof next.currency === 'string' && next.currency.length > 0
-            && next.perMillion !== null && typeof next.perMillion === 'object') {
-            pricesStore.set(next)
-          }
-        }).catch((error) => { console.error(LOG, 'prices rpc failed; defaults stay', error) })
+        function loadPrices(triesLeft) {
+          callRpc('prices', {}).then((next) => {
+            if (next !== null && typeof next === 'object'
+              && typeof next.currency === 'string' && next.currency.length > 0) {
+              pricesStore.set({ currency: next.currency })
+              return
+            }
+            throw new Error('prices rpc returned no currency')
+          }).catch((error) => {
+            if (triesLeft > 0) {
+              setTimeout(() => loadPrices(triesLeft - 1), 1200)
+              return
+            }
+            console.error(LOG, 'prices rpc failed; no rate is assumed', error)
+          })
+        }
+        loadPrices(1)
 
         ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
           name: 'conversation.chat.turnTail',

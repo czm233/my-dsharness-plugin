@@ -2,33 +2,22 @@
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { matchPrice, normalizePriceTable, priceAttempt, routeKey } from './pricing.js'
 
-/** GLM-5.3-Flash international list prices (USD per million tokens) used when prices.json is missing or invalid. */
-const DEFAULT_PRICES = {
-  currency: '$',
-  perMillion: { input: 0.15, cacheRead: 0.03, cacheWrite: 0, output: 0.5 },
-}
+const PRICES_PATH = fileURLToPath(new URL('./prices.json', import.meta.url))
 
-function isPrice(value) {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
-
-/** Read and validate prices.json; any problem falls back to the built-in defaults. */
+/** Read and normalize prices.json; a broken table leaves routes unpriced instead of inventing a rate. */
 function loadPrices() {
   try {
-    const file = fileURLToPath(new URL('./prices.json', import.meta.url))
-    const raw = JSON.parse(readFileSync(file, 'utf8'))
-    const perMillion = raw?.perMillion
-    if (typeof raw?.currency !== 'string' || raw.currency.length === 0
-      || !isPrice(perMillion?.input) || !isPrice(perMillion?.cacheRead)
-      || !isPrice(perMillion?.cacheWrite) || !isPrice(perMillion?.output)) {
-      console.error('[turn-cost] prices.json is invalid; using GLM-5.3-Flash list prices')
-      return DEFAULT_PRICES
+    const raw = JSON.parse(readFileSync(PRICES_PATH, 'utf8'))
+    const table = normalizePriceTable(raw)
+    if (Object.keys(table.models).length === 0 && Object.keys(table.providers).length === 0) {
+      console.error('[turn-cost] prices.json has no usable model entries; turns stay unpriced')
     }
-    return raw
+    return table
   } catch (error) {
-    console.error('[turn-cost] failed to read prices.json; using GLM-5.3-Flash list prices', error)
-    return DEFAULT_PRICES
+    console.error('[turn-cost] failed to read prices.json; turns stay unpriced', error)
+    return normalizePriceTable({})
   }
 }
 
@@ -78,15 +67,46 @@ function normalizeUsage(usage, route) {
   }
 }
 
+/** Attach the exact route's list price and computed cost to one attempt. */
+function priceOf(table, route, attempt, at) {
+  if (route === undefined) return undefined
+  const match = matchPrice(table, route.provider, route.model)
+  if (match === undefined) {
+    return {
+      matched: false,
+      provider: route.provider,
+      model: route.model,
+      currency: table.currency,
+    }
+  }
+  const priced = priceAttempt(match.entry, attempt, at, table.currency)
+  return {
+    matched: true,
+    provider: route.provider,
+    model: route.model,
+    label: match.entry.label ?? route.model,
+    shortLabel: match.entry.shortLabel ?? match.entry.label ?? route.model,
+    currency: table.currency,
+    period: priced.period,
+    rates: priced.rates,
+    cost: priced.parts,
+    total: priced.total,
+  }
+}
+
 /** One settled attempt per assistant/message; the client aggregates. Returns fold counts for diagnosis.
  * ESC-interrupted turns carry no usage at all (the upstream request is cancelled before any usage
  * chunk arrives), so interrupted/aborted flags are folded alongside to let the client explain that
  * state instead of presenting it as a folding failure. */
-function foldTurnAttempts(events, turn) {
+function foldTurnAttempts(events, turn, table) {
   const attempts = []
   let matched = 0
   let interrupted = false
   let aborted = false
+  let previousRoute
+  let firstRoute
+  let lastRoute
+  let routeChanged = false
   for (const event of events) {
     if (event?.type === 'turn/end') {
       if (Number(event.data?.turn) === turn && event.data?.reason?.kind === 'aborted') aborted = true
@@ -94,14 +114,34 @@ function foldTurnAttempts(events, turn) {
     }
     if (event?.type !== 'assistant/message') continue
     const data = event.data
-    if (Number(data?.turn) !== turn) continue
+    const eventTurn = Number(data?.turn)
+    const route = routeOf(data.message)
+    if (eventTurn !== turn) {
+      if (eventTurn < turn && route !== undefined) previousRoute = route
+      continue
+    }
     matched += 1
     if (data.interrupted === true) interrupted = true
+    if (route !== undefined) {
+      if (firstRoute === undefined) firstRoute = route
+      else if (routeKey(route) !== routeKey(lastRoute)) routeChanged = true
+      lastRoute = route
+    }
     const usage = data.usage !== undefined ? data.usage : lastStreamUsage(data.stream)
-    const attempt = normalizeUsage(usage, routeOf(data.message))
-    if (attempt !== undefined) attempts.push(attempt)
+    const attempt = normalizeUsage(usage, route)
+    if (attempt !== undefined) {
+      const at = Number(event.time)
+      attempts.push({
+        ...attempt,
+        at: Number.isFinite(at) ? at : undefined,
+        price: priceOf(table, route, attempt, at),
+      })
+    }
   }
-  return { attempts, matched, interrupted, aborted }
+  const switched = routeKey(previousRoute) !== undefined
+    && routeKey(firstRoute) !== undefined
+    && routeKey(previousRoute) !== routeKey(firstRoute)
+  return { attempts, matched, interrupted, aborted, previousRoute, switched, routeChanged }
 }
 
 function asRecord(value) {
@@ -140,13 +180,17 @@ export function apply(ctx) {
     }
     const snapshot = await query.readSession(sessionId)
     const events = snapshot?.events ?? []
-    const folded = foldTurnAttempts(events, turn)
+    const folded = foldTurnAttempts(events, turn, prices)
     return {
       attempts: folded.attempts,
       matched: folded.matched,
       events: events.length,
       interrupted: folded.interrupted,
       aborted: folded.aborted,
+      previousRoute: folded.previousRoute,
+      switched: folded.switched,
+      routeChanged: folded.routeChanged,
+      currency: prices.currency,
     }
   }
 
@@ -163,7 +207,7 @@ export function apply(ctx) {
       const payload = asRecord(body?.payload ?? {})
       const action = String(payload.action ?? '')
       let value
-      if (action === 'prices') value = prices
+      if (action === 'prices') value = { currency: prices.currency }
       else if (action === 'usage') value = await usageFor(payload)
       else throw new Error(`unknown action ${JSON.stringify(action)}`)
       return respond({ ok: true, value })
@@ -175,3 +219,5 @@ export function apply(ctx) {
     }
   }
 }
+
+export { foldTurnAttempts }
