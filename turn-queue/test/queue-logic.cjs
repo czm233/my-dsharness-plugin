@@ -103,12 +103,16 @@ function boot() {
   }
   const mod = load(sandbox)
   let goalPhase = 'complete'
+  let currentKey
   const ctx = {
     sessions: {
       list,
       binding: () => ({ session: { projections: { faceOf: () => ({ getSnapshot: () => ({ goal: { phase: goalPhase } }) }) } } }),
     },
-    uiSession: { sessionStatus: status },
+    uiSession: {
+      sessionStatus: status,
+      current: { getSnapshot: () => ({ key: currentKey }) },
+    },
     effect(run) { const dispose = run(); return typeof dispose === 'function' ? dispose : () => {} },
     get(name) {
       if (name === 'uiWorkspace') return { openSession: (id) => opened.push(id) }
@@ -120,7 +124,11 @@ function boot() {
     },
   }
   mod.apply(ctx)
-  return { storage, list, status, opened, registered, ctx, clock, setGoal: (phase) => { goalPhase = phase } }
+  return {
+    storage, list, status, opened, registered, ctx, clock,
+    setGoal: (phase) => { goalPhase = phase },
+    setCurrent: (id) => { currentKey = id },
+  }
 }
 
 /** Drive one session through a full turn and past the settle window. */
@@ -254,7 +262,35 @@ function check(name, condition) {
   check('answering keeps the entry', env.storage.read().join(',') === 'A')
 }
 
-// 9. A read event never comes back, but a later event does
+// 9. The session on screen never notifies the user about itself
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setCurrent('A')
+  finishTurn(env, 'A')
+  check('the session on screen is not queued', env.storage.read().length === 0)
+
+  env.setCurrent('B')
+  const env2 = boot()
+  env2.list.set([{ id: 'C', displayTitle: 'Session C', subagent: null }])
+  env2.setCurrent('Z')
+  finishTurn(env2, 'C')
+  check('a background session is queued', env2.storage.read().join(',') === 'C')
+}
+
+// 10. Opening a session clears its queued events
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setCurrent('Z')
+  const map = finishTurn(env, 'A')
+  check('background session queued first', env.storage.read().join(',') === 'A')
+  env.setCurrent('A')
+  env.status.set(new Map(map))
+  check('switching to it clears the entry', env.storage.read().length === 0)
+}
+
+// 11. A read event never comes back, but a later event does
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -277,7 +313,7 @@ function check(name, condition) {
   check('the later completion event shows up', env.storage.read().join(',') === 'A')
 }
 
-// 10. Deleted sessions are pruned
+// 12. Deleted sessions are pruned
 {
   const env = boot()
   env.list.set([
@@ -290,7 +326,7 @@ function check(name, condition) {
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
 
-// 11. Hard cap of 50 entries, oldest dropped first
+// 13. Hard cap of 50 entries, oldest dropped first
 {
   const env = boot()
   const rows = []
@@ -310,7 +346,7 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 12. Clicking an entry opens the session and removes it from the queue
+// 14. Clicking an entry opens the session and removes it from the queue
 {
   const env = boot()
   env.list.set([
@@ -336,7 +372,7 @@ function check(name, condition) {
     cellsAfter[0].props.title === 'Session B')
 }
 
-// 13. A single slot is rendered while the queue is empty
+// 15. A single slot is rendered while the queue is empty
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -345,7 +381,7 @@ function check(name, condition) {
   check('empty queue renders exactly one slot', cells.length === 1)
 }
 
-// 14. A reload restores the persisted queue and prunes dead sessions
+// 16. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([

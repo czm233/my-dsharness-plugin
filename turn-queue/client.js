@@ -144,6 +144,14 @@ window.__ModuleLoader__.load({
         return row !== undefined && row.subagent !== null && row.subagent !== undefined
       }
       const exists = (id) => !listReady() || sessionRow(id) !== undefined
+      /** The session currently shown in the main view, if any. */
+      const currentId = () => {
+        try {
+          return ctx.uiSession.current?.getSnapshot?.()?.key
+        } catch {
+          return undefined
+        }
+      }
       /**
        * A goal that has not reached `complete` means the task is still owned by
        * the session: active rounds continue by themselves, and paused or blocked
@@ -227,16 +235,18 @@ window.__ModuleLoader__.load({
           return
         }
         const now = Date.now()
+        const onScreen = currentId()
         const nextRunning = new Map()
         for (const [id, row] of status) {
           const running = row !== undefined && row !== null && row.running === true
           nextRunning.set(id, running)
           const interaction = row?.pendingInteraction
           if (interaction !== undefined && interaction !== null) {
-            // A session blocked on the user is the one thing worth surfacing
-            // immediately, even while its turn is still open.
+            // A session blocked on the user is worth surfacing immediately, even
+            // while its turn is still open - unless the user is already looking
+            // at it, in which case the question is right there in front of them.
             pending.delete(id)
-            if (!isSubagent(id)) {
+            if (!isSubagent(id) && id !== onScreen) {
               const token = `w:${String(interaction.key ?? 'pending')}`
               if (enqueue(id, 'waiting', token)) changed = true
             }
@@ -248,6 +258,11 @@ window.__ModuleLoader__.load({
             continue
           }
           if (runningState.get(id) === true) {
+            if (id === onScreen) {
+              // The user watched this turn finish; it needs no notification.
+              pending.delete(id)
+              continue
+            }
             // The turn just ended: hold the entry until the session stays idle.
             pending.set(id, now)
             continue
@@ -266,6 +281,14 @@ window.__ModuleLoader__.load({
         const beforeGoalFilter = entries.length
         entries = entries.filter((entry) => entry.kind === 'waiting' || !hasUnfinishedGoal(entry.id))
         if (entries.length !== beforeGoalFilter) changed = true
+        if (onScreen !== undefined && entries.some((entry) => entry.id === onScreen)) {
+          // Opening a session counts as reading its events.
+          for (const entry of entries) {
+            if (entry.id === onScreen) read.set(entryKey(entry.id, entry.token), now)
+          }
+          entries = entries.filter((entry) => entry.id !== onScreen)
+          changed = true
+        }
         if (pruneMissing()) changed = true
         if (pruneRead()) changed = true
         if (entries.length > MAX_ENTRIES) {
