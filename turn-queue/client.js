@@ -87,7 +87,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
           id: '@local/turn-queue',
-          order: 10,
+          order: -1000,
         }, createQueueArea(ctx.sessions)))
 
         console.log(LOG, 'queue area registered in conversation.session.header.utilities')
