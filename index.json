@@ -1110,8 +1110,8 @@
         "zh": "单轮成本"
       },
       "description": {
-        "en": "Per-turn token cost estimation priced by the exact model route, with full model name and model-switch cache notes.",
-        "zh": "按本轮实际使用的模型分别定价，显示完整模型名，并提示换模型后的缓存继承情况。"
+        "en": "Per-turn token cost priced by the exact model route, in the model's native currency (CNY domestic, USD foreign), with full model name, switch cache notes, and no mixed-currency totals.",
+        "zh": "按本轮实际使用的模型分别定价，国内模型显示人民币、国外模型显示美元，不混算；显示完整模型名，并提示换模型后的缓存继承情况。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -1127,6 +1127,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "1.16.1",
+          "publishTimestamp": 1794640846,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "1692b0ebba47867a52a52e3bafcd393ff53830c6",
+            "path": "turn-cost"
+          }
+        },
         {
           "version": "1.16.0",
           "publishTimestamp": 1794640042,
