@@ -65,7 +65,13 @@ function load(sandbox) {
     },
   }
   sandbox.require = (name) => {
-    if (name === 'react') return { createElement: () => null, useCallback: (fn) => fn, useSyncExternalStore: () => null }
+    if (name === 'react') {
+      return {
+        createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }),
+        useCallback: (fn) => fn,
+        useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+      }
+    }
     throw new Error(`unexpected require ${name}`)
   }
   sandbox.document = {
@@ -107,7 +113,7 @@ function boot() {
     },
     slots: {
       inject(_name, factory) { registered.push(factory()) },
-      register(config) { return { config } },
+      register(config, Component) { return { config, Component } },
     },
   }
   mod.apply(ctx)
@@ -140,6 +146,7 @@ function check(name, condition) {
   const env = boot()
   check('starts with an empty queue', env.storage.read().length === 0)
   check('registers one header slot', env.registered.length === 1)
+  check('slot exposes a component', typeof env.registered[0].Component === 'function')
 }
 
 // 2. A settled turn enters the queue, in order
@@ -234,7 +241,42 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 9. A reload restores the persisted queue and prunes dead sessions
+// 9. Clicking an entry opens the session and removes it from the queue
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'B', displayTitle: 'Session B', subagent: null },
+  ])
+  const map = finishTurn(env, 'A')
+  finishTurn(env, 'B', map)
+  check('two entries queued before the click', env.storage.read().join(',') === 'A,B')
+
+  const tree = env.registered[0].Component()
+  const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
+  const button = cells.find((cell) => cell !== null && typeof cell === 'object' && cell.type === 'button')
+  check('first entry renders as a button', button !== undefined && button.props.title === 'Session A')
+  button.props.onClick()
+
+  check('click opens that session', env.opened.join(',') === 'A')
+  check('click removes the entry', env.storage.read().join(',') === 'B')
+
+  const treeAfter = env.registered[0].Component()
+  const cellsAfter = Array.isArray(treeAfter.children[0]) ? treeAfter.children[0] : treeAfter.children
+  check('the next entry slides into the first slot',
+    cellsAfter[0].props.title === 'Session B')
+}
+
+// 10. A single slot is rendered while the queue is empty
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  const tree = env.registered[0].Component()
+  const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
+  check('empty queue renders exactly one slot', cells.length === 1)
+}
+
+// 11. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([
