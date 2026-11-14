@@ -46,7 +46,18 @@ async function main() {
   assert.equal(pricing.matchPrice(table, 'qwen-token-plan-cn', 'deepseek-v4-pro').key, 'deepseek-v4-pro')
   assert.equal(pricing.matchPrice(table, 'zai-coding-cn', 'glm-5.3-flash').key, 'glm-5.3-flash')
   assert.equal(pricing.matchPrice(table, 'unknown', 'not-a-model'), undefined)
+  // Domestic models price in CNY; foreign models stay in USD.
+  assert.equal(pricing.matchPrice(table, 'qwen-token-plan-cn', 'deepseek-v4.1-flash').entry.currency, '¥')
+  assert.equal(pricing.matchPrice(table, 'zai-coding-cn', 'glm-5.3-flash').entry.currency, '¥')
+  assert.equal(pricing.matchPrice(table, 'rightcode', 'claude-opus-5-5').entry.currency, '$')
+  // Bailian's pay-as-you-go DeepSeek cache is 10% of input; the token-plan
+  // route uses the model vendor's official cache price above.
+  const bailian = pricing.matchPrice(table, 'aliyunbailian', 'deepseek-v4.1-flash-1017')
+  assert.equal(bailian.key, 'deepseek-v4.1-flash')
+  assert.equal(bailian.entry.currency, '¥')
+  assert.equal(pricing.ratesAt(bailian.entry, PEAK_FRIDAY).cacheRead, 0.2)
   console.log('ok price matching')
+
 
   // DeepSeek weekdays only; Bailian every day 08-22.
   const flash = pricing.matchPrice(table, 'qwen-token-plan-cn', 'deepseek-v4.1-flash').entry
@@ -63,8 +74,9 @@ async function main() {
   const flashCost = pricing.priceAttempt(flash, usage, PEAK_FRIDAY, table.currency).total
   const proCost = pricing.priceAttempt(pro, usage, PEAK_FRIDAY, table.currency).total
   assert.ok(proCost > flashCost * 2, `pro ${proCost} should dwarf flash ${flashCost}`)
-  assert.equal(flashCost.toFixed(4), '1.4140')
-  assert.equal(proCost.toFixed(4), '5.2800')
+  assert.equal(flashCost.toFixed(4), '10.0000')
+  assert.equal(proCost.toFixed(4), '36.0000')
+  assert.equal(pricing.priceAttempt(flash, usage, PEAK_FRIDAY, table.currency).currency, '¥')
   console.log('ok per-model cost')
 
   // A mid-session model switch is detected and the new turn is priced with the
@@ -78,8 +90,9 @@ async function main() {
   assert.equal(switched.previousRoute.model, 'deepseek-v4.1-flash')
   assert.equal(switched.attempts.length, 1)
   assert.equal(switched.attempts[0].price.label, 'DeepSeek V4 Pro')
-  assert.equal(switched.attempts[0].price.rates.input, 1.32)
-  assert.equal(switched.attempts[0].price.cost.input, 1.32)
+  assert.equal(switched.attempts[0].price.currency, '¥')
+  assert.equal(switched.attempts[0].price.rates.input, 9)
+  assert.equal(switched.attempts[0].price.cost.input, 9)
   assert.equal(switched.attempts[0].price.cost.cacheRead, 0)
   console.log('ok switch detection + new-model pricing')
 
@@ -109,8 +122,8 @@ async function main() {
   const cached = foldTurnAttempts([
     attemptEvent(1, 'qwen-token-plan-cn', 'deepseek-v4-pro', { input: 1_000_000, cacheRead: 1_000_000 }, PEAK_FRIDAY),
   ], 1, table)
-  assert.equal(cached.attempts[0].price.cost.cacheRead, 0.044)
-  assert.equal(cached.attempts[0].price.cost.input, 1.32)
+  assert.equal(cached.attempts[0].price.cost.cacheRead, 0.3)
+  assert.equal(cached.attempts[0].price.cost.input, 9)
   console.log('ok cache-read rate')
 
   console.log('\nturn-cost pricing-sim: all checks passed')

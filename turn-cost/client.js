@@ -44,6 +44,7 @@ window.__ModuleLoader__.load({
       'midTurnSwitch': '本轮内切换过模型，按各自单价分别计算',
       'unpricedNote': '未收录「{model}」的单价，合计不含该模型',
       'unpricedAll': '未收录本轮模型的单价，无法折算费用',
+      'mixedCurrency': '本轮包含不同币种的模型，不合并合计，按模型分别显示',
     }
     const en = {
       'title': 'Turn cost',
@@ -70,6 +71,7 @@ window.__ModuleLoader__.load({
       'midTurnSwitch': 'Model changed within this turn; each model is priced separately',
       'unpricedNote': 'No list price for "{model}"; the total excludes it',
       'unpricedAll': 'No list price for this turn\'s model; cost cannot be estimated',
+      'mixedCurrency': 'This turn mixes currencies; totals are shown per model instead of combined',
     }
 
     /** Prices arrive from the Host half; until then no rate is assumed. */
@@ -148,8 +150,8 @@ window.__ModuleLoader__.load({
     function summarizeTurn(attempts) {
       const groups = []
       const byKey = new Map()
+      const currencies = new Set()
       let priced = true
-      let currency
       for (const attempt of attempts) {
         const route = attempt.route
         if (route === undefined || route === null) continue
@@ -186,19 +188,25 @@ window.__ModuleLoader__.load({
           group.cost.total += attempt.price.total ?? 0
           group.rates = attempt.price.rates
           group.period = attempt.price.period
+          if (typeof attempt.price.currency === 'string') {
+            group.currency = attempt.price.currency
+            currencies.add(attempt.price.currency)
+          }
         } else {
           group.matched = false
           priced = false
         }
-        if (currency === undefined && attempt.price?.currency !== undefined) {
-          currency = attempt.price.currency
-        }
       }
+      const currencyList = [...currencies]
+      const mixedCurrency = currencyList.length > 1
       return {
         groups,
         priced: priced && groups.length > 0,
-        currency: currency ?? '$',
-        total: groups.reduce((sum, group) => sum + (group.matched ? group.cost.total : 0), 0),
+        currency: mixedCurrency ? undefined : (currencyList[0] ?? '$'),
+        mixedCurrency,
+        total: mixedCurrency
+          ? undefined
+          : groups.reduce((sum, group) => sum + (group.matched ? group.cost.total : 0), 0),
       }
     }
 
@@ -327,7 +335,7 @@ window.__ModuleLoader__.load({
     function CostPanel(props) {
       // Cost-only panel: token details live in the shipped usage dialog, so
       // this panel shows the route-aware price breakdown and the switch note.
-      const { groups, priced, total, usage, currency, switched, routeChanged, firstCacheHit, t, panelRef, pos } = props
+      const { groups, priced, total, usage, currency, switched, routeChanged, firstCacheHit, mixedCurrency, t, panelRef, pos } = props
       const cache = cacheStats(usage)
       const metaRows = []
       groups.forEach((group, index) => {
@@ -347,10 +355,10 @@ window.__ModuleLoader__.load({
         ))
       }
       const costRows = groups.length === 1
-        ? singleModelCostRows(groups[0], usage, currency, t)
+        ? singleModelCostRows(groups[0], usage, groups[0].currency ?? currency, t)
         : groups.flatMap((group, index) => detailRow(
           group.label,
-          group.matched ? formatMoney(group.cost.total, currency) : '—',
+          group.matched ? formatMoney(group.cost.total, group.currency ?? currency) : '—',
           undefined,
           `cost-group-${index}`,
         ))
@@ -361,6 +369,7 @@ window.__ModuleLoader__.load({
           : t('switchNoteHit', { percent: firstCacheHit.toFixed(1) }))
       }
       if (routeChanged) notes.push(t('midTurnSwitch'))
+      if (mixedCurrency) notes.push(t('mixedCurrency'))
       if (!priced) {
         const unpriced = groups.filter(group => group.matched !== true).map(group => group.label)
         notes.push(unpriced.length > 0
@@ -368,7 +377,8 @@ window.__ModuleLoader__.load({
           : t('unpricedAll'))
       }
       const hasAnyPrice = groups.some(group => group.matched === true)
-      const totalValue = hasAnyPrice ? formatMoney(total, currency) : '—'
+      const totalValue = hasAnyPrice && !mixedCurrency ? formatMoney(total, currency) : '—'
+      const totalLabel = totalValue === '—' ? '—' : t('pillTotal', { cost: totalValue })
       return h('div', {
         ref: panelRef,
         className: 'dsh-turn-cost-panel',
@@ -378,8 +388,7 @@ window.__ModuleLoader__.load({
       },
         h('div', { className: 'dsh-turn-cost-title' },
           h('span', { className: 'dsh-turn-cost-title-label' }, h(IconCoin), t('title')),
-          h('span', { className: 'dsh-turn-cost-title-value' },
-            t('pillTotal', { cost: totalValue })),
+          h('span', { className: 'dsh-turn-cost-title-value' }, totalLabel),
         ),
         h('div', { className: 'dsh-turn-cost-rule', 'aria-hidden': true }),
         metaRows.length > 0
@@ -393,7 +402,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsh-turn-cost-breakdown' }, t('breakdown')),
         h('div', { className: 'dsh-turn-cost-total-line' },
           h('span', null, t('total')),
-          h('span', null, t('pillTotal', { cost: totalValue })),
+          h('span', null, totalLabel),
         ),
         h('dl', { className: 'dsh-turn-cost-details' }, costRows),
       )
@@ -402,7 +411,7 @@ window.__ModuleLoader__.load({
     function CostPill(props) {
       const {
         usage, prices, t, mode, errorText, probeLabel, probeTitle, probeLines,
-        groups, priced, total, currency, switched, routeChanged, firstCacheHit,
+        groups, priced, total, currency, switched, routeChanged, firstCacheHit, mixedCurrency,
       } = props
       const [open, setOpen] = useState(false)
       const rootRef = useRef(null)
@@ -451,10 +460,15 @@ window.__ModuleLoader__.load({
         }
       }, [open])
 
-      const hasAnyPrice = Array.isArray(groups) && groups.some(group => group.matched === true)
-      const priceText = hasAnyPrice ? formatMoney(total, currency ?? prices?.currency ?? '$') : '—'
+      const matchedGroups = Array.isArray(groups) ? groups.filter(group => group.matched === true) : []
+      const hasAnyPrice = matchedGroups.length > 0
+      const priceText = !hasAnyPrice
+        ? '—'
+        : mixedCurrency
+          ? matchedGroups.map(group => formatMoney(group.cost.total, group.currency ?? '$')).join(' + ')
+          : formatMoney(total, currency ?? matchedGroups[0].currency ?? prices?.currency ?? '$')
       const label = mode === 'ok'
-        ? t('pillTotal', { cost: priceText })
+        ? (priceText === '—' ? '—' : mixedCurrency ? priceText : t('pillTotal', { cost: priceText }))
         : mode === 'loading' ? '¥…' : mode === 'error' ? '¥?·失败' : (probeLabel ?? '¥?·诊断')
       const modelNames = Array.isArray(groups)
         ? groups.map(group => group.label ?? group.model).filter(name => name !== undefined && name !== '')
@@ -472,6 +486,7 @@ window.__ModuleLoader__.load({
           ? groups.filter(group => group.matched !== true).map(group => group.label ?? group.model)
           : []
         if (unpricedNames.length > 0) titleParts.push(t('unpricedNote', { model: unpricedNames.join(', ') }))
+        if (mixedCurrency) titleParts.push(t('mixedCurrency'))
         titleParts.push(t('listNote'))
       }
       const clickable = mode === 'ok' || mode === 'probe'
@@ -510,6 +525,7 @@ window.__ModuleLoader__.load({
             switched,
             routeChanged,
             firstCacheHit,
+            mixedCurrency,
             t,
             panelRef,
             pos,
@@ -631,6 +647,7 @@ window.__ModuleLoader__.load({
           switched: state.switched,
           routeChanged: state.routeChanged,
           firstCacheHit,
+          mixedCurrency: summary.mixedCurrency,
         })
       } else if (state.kind !== 'done' && state.kind !== 'error') {
         body = null

@@ -85,7 +85,7 @@ function priceOf(table, route, attempt, at) {
     provider: route.provider,
     model: route.model,
     label: match.entry.label ?? route.model,
-    currency: table.currency,
+    currency: priced.currency,
     period: priced.period,
     rates: priced.rates,
     cost: priced.parts,

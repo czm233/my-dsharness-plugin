@@ -39,12 +39,13 @@ function normalizeRate(value) {
   return undefined
 }
 
-function normalizeEntry(raw) {
+function normalizeEntry(raw, defaultCurrency) {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
   const input = normalizeRate(raw.input)
   const output = normalizeRate(raw.output)
   if (input === undefined || output === undefined) return undefined
   return {
+    currency: typeof raw.currency === 'string' && raw.currency.length > 0 ? raw.currency : defaultCurrency,
     label: typeof raw.label === 'string' && raw.label.length > 0
       ? raw.label
       : typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : undefined,
@@ -69,7 +70,7 @@ export function normalizePriceTable(raw) {
   if (typeof raw === 'object' && raw !== null) {
     for (const [id, value] of Object.entries(raw.models ?? {})) {
       if (typeof id !== 'string' || id.length === 0) continue
-      const entry = normalizeEntry(value)
+      const entry = normalizeEntry(value, currency)
       if (entry !== undefined) models[id.toLowerCase()] = entry
     }
     for (const [providerId, providerValue] of Object.entries(raw.providers ?? {})) {
@@ -79,7 +80,7 @@ export function normalizePriceTable(raw) {
       const scoped = {}
       for (const [id, value] of Object.entries(source)) {
         if (typeof id !== 'string' || id.length === 0) continue
-        const entry = normalizeEntry(value)
+        const entry = normalizeEntry(value, currency)
         if (entry !== undefined) scoped[id.toLowerCase()] = entry
       }
       if (Object.keys(scoped).length > 0) providers[providerId.toLowerCase()] = scoped
@@ -163,6 +164,7 @@ export function ratesAt(entry, at) {
  */
 export function priceAttempt(entry, usage, at, currency) {
   const rates = ratesAt(entry, at)
+  const money = typeof entry.currency === 'string' && entry.currency.length > 0 ? entry.currency : currency
   const input = Number(usage?.input ?? 0)
   const output = Number(usage?.output ?? 0)
   const cacheRead = Number(usage?.cacheRead ?? 0)
@@ -174,7 +176,7 @@ export function priceAttempt(entry, usage, at, currency) {
     output: output * rates.output / 1_000_000,
   }
   return {
-    currency,
+    currency: money,
     rates,
     period: rates.period,
     parts,
