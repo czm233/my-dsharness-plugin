@@ -300,6 +300,21 @@ window.__ModuleLoader__.load({
           return () => { style.remove() }
         }, 'turn-queue: stylesheet')
 
+        /** Scroll the sidebar roster to the row of the session that just opened. */
+        const revealInSidebar = (id) => {
+          if (typeof document === 'undefined') return
+          const selector = `[data-row-key="session:${id}"]`
+          const attempt = (tries) => {
+            const row = document.querySelector(selector)
+            if (row !== null) {
+              row.scrollIntoView({ block: 'center' })
+              return
+            }
+            if (tries > 0) setTimeout(() => attempt(tries - 1), 150)
+          }
+          attempt(10)
+        }
+
         const store = createQueueStore(ctx)
         store.open = (id) => {
           store.dismiss(id)
@@ -309,6 +324,7 @@ window.__ModuleLoader__.load({
           } catch (error) {
             console.error(LOG, 'openSession failed', error)
           }
+          revealInSidebar(id)
         }
         ctx.effect(() => store.start(), 'turn-queue: queue syncing')
 

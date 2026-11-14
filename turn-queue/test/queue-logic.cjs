@@ -77,6 +77,8 @@ function load(sandbox) {
   sandbox.document = {
     createElement: () => ({ dataset: {}, style: {}, remove() {} }),
     head: { appendChild() {} },
+    querySelector: () => null,
+    querySelectorAll: () => [],
   }
   vm.createContext(sandbox)
   vm.runInContext(SOURCE, sandbox, { filename: 'client.js' })
@@ -95,6 +97,7 @@ function boot() {
     localStorage: storage,
     console: { log() {}, error() {}, warn() {} },
     Date: { now: () => clock.now },
+    CSS: { escape: (value) => value },
     Map, Set, JSON, Object, Array, Number, String, Promise, Error,
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
   }
@@ -312,6 +315,7 @@ function check(name, condition) {
     localStorage: storage,
     console: { log() {}, error() {}, warn() {} },
     Date: { now: () => clock.now },
+    CSS: { escape: (value) => value },
     Map, Set, JSON, Object, Array, Number, String, Promise, Error,
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval: () => {},
   }
