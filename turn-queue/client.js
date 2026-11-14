@@ -27,8 +27,6 @@ window.__ModuleLoader__.load({
     const MAX_ENTRIES = 50
     const MAX_READ = 300
     const VISIBLE = 3
-    // A session must stay idle this long before its turn counts as finished work.
-    const SETTLE_MS = 8000
 
     const CSS = `
       .tqFrame {
@@ -119,8 +117,10 @@ window.__ModuleLoader__.load({
     function createQueueStore(ctx) {
       let entries = []
       let snapshot = []
-      let runningState = new Map()
-      const pending = new Map()
+      let unreadState = new Map()
+      let tokenSeq = 0
+      const deferred = new Map()
+      let baseline = true
       let read = new Map()
       const listeners = new Set()
 
@@ -236,59 +236,54 @@ window.__ModuleLoader__.load({
         }
         const now = Date.now()
         const onScreen = currentId()
-        const nextRunning = new Map()
+        const nextUnread = new Map()
         for (const [id, row] of status) {
-          const running = row !== undefined && row !== null && row.running === true
-          nextRunning.set(id, running)
+          const unread = row !== undefined && row !== null && row.completionUnread === true
+          nextUnread.set(id, unread)
           const interaction = row?.pendingInteraction
           if (interaction !== undefined && interaction !== null) {
             // A session blocked on the user is worth surfacing immediately, even
             // while its turn is still open - unless the user is already looking
             // at it, in which case the question is right there in front of them.
-            pending.delete(id)
             if (!isSubagent(id) && id !== onScreen) {
               const token = `w:${String(interaction.key ?? 'pending')}`
               if (enqueue(id, 'waiting', token)) changed = true
             }
             continue
           }
-          if (running || isSubagent(id)) {
-            // A live turn, or a subagent, never settles into the queue.
-            pending.delete(id)
-            continue
+          if (isSubagent(id)) continue
+          // The platform raises this flag at the exact moment a background turn
+          // settles, so it is the notification edge we forward - no settling
+          // timer. The first pass only records the baseline so sessions that
+          // finished before the plugin loaded stay quiet.
+          if (unread && unreadState.get(id) !== true && !baseline && id !== onScreen) {
+            tokenSeq += 1
+            const token = `c:${now}:${tokenSeq}`
+            if (hasUnfinishedGoal(id)) deferred.set(id, token)
+            else if (enqueue(id, 'done', token)) changed = true
           }
-          if (runningState.get(id) === true) {
-            if (id === onScreen) {
-              // The user watched this turn finish; it needs no notification.
-              pending.delete(id)
-              continue
-            }
-            // The turn just ended: hold the entry until the session stays idle.
-            pending.set(id, now)
-            continue
-          }
-          const since = pending.get(id)
-          if (since === undefined || now - since < SETTLE_MS) continue
+        }
+        // A deferred completion belongs to a goal that later settles.
+        for (const [id, token] of [...deferred.entries()]) {
+          if (!nextUnread.has(id) && !isSubagent(id)) { deferred.delete(id); continue }
           if (hasUnfinishedGoal(id)) continue
-          pending.delete(id)
-          if (enqueue(id, 'done', `d:${since}`)) changed = true
+          deferred.delete(id)
+          if (enqueue(id, 'done', token)) changed = true
         }
-        for (const id of [...pending.keys()]) {
-          if (!nextRunning.has(id)) pending.delete(id)
-        }
-        runningState = nextRunning
-        // Drop entries whose task turned out to still belong to a live goal.
-        const beforeGoalFilter = entries.length
-        entries = entries.filter((entry) => entry.kind === 'waiting' || !hasUnfinishedGoal(entry.id))
-        if (entries.length !== beforeGoalFilter) changed = true
+        unreadState = nextUnread
+        baseline = false
+        // Opening a session counts as reading its events.
         if (onScreen !== undefined && entries.some((entry) => entry.id === onScreen)) {
-          // Opening a session counts as reading its events.
           for (const entry of entries) {
             if (entry.id === onScreen) read.set(entryKey(entry.id, entry.token), now)
           }
           entries = entries.filter((entry) => entry.id !== onScreen)
           changed = true
         }
+        // Drop entries whose task turned out to still belong to a live goal.
+        const beforeGoalFilter = entries.length
+        entries = entries.filter((entry) => entry.kind === 'waiting' || !hasUnfinishedGoal(entry.id))
+        if (entries.length !== beforeGoalFilter) changed = true
         if (pruneMissing()) changed = true
         if (pruneRead()) changed = true
         if (entries.length > MAX_ENTRIES) {

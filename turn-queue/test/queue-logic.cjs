@@ -131,13 +131,11 @@ function boot() {
   }
 }
 
-/** Drive one session through a full turn and past the settle window. */
+/** Drive one session through a full turn: running, then the unread completion edge. */
 function finishTurn(env, id, map = new Map()) {
-  map.set(id, { running: true })
+  map.set(id, { running: true, completionUnread: false })
   env.status.set(new Map(map))
-  map.set(id, { running: false })
-  env.status.set(new Map(map))
-  env.clock.now += 9000
+  map.set(id, { running: false, completionUnread: true })
   env.status.set(new Map(map))
   return map
 }
@@ -210,11 +208,9 @@ function check(name, condition) {
   let map = finishTurn(env, 'A')
   check('active goal is not queued', env.storage.read().length === 0)
   env.setGoal('paused')
-  env.clock.now += 9000
   env.status.set(new Map(map))
   check('paused goal is not queued', env.storage.read().length === 0)
   env.setGoal('complete')
-  env.clock.now += 9000
   env.status.set(new Map(map))
   check('settled goal is queued', env.storage.read().join(',') === 'A')
 }
@@ -227,7 +223,6 @@ function check(name, condition) {
   const map = finishTurn(env, 'A')
   check('completed goal is queued', env.storage.read().join(',') === 'A')
   env.setGoal('paused')
-  env.clock.now += 2000
   env.status.set(new Map(map))
   check('unfinished goal withdraws the entry', env.storage.read().length === 0)
 }
@@ -301,15 +296,12 @@ function check(name, condition) {
   check('clicking opens the session', env.opened.join(',') === 'A')
 
   // The same question is still pending: the read event must not return.
-  env.clock.now += 2000
   env.status.set(new Map([['A', { running: true, pendingInteraction: { key: 'q1' } }]]))
   check('read event stays gone while still pending', env.storage.read().length === 0)
 
   // User answers, the turn settles: that is a NEW event.
-  env.status.set(new Map([['A', { running: true }]]))
-  env.status.set(new Map([['A', { running: false }]]))
-  env.clock.now += 9000
-  env.status.set(new Map([['A', { running: false }]]))
+  env.status.set(new Map([['A', { running: true, completionUnread: false }]]))
+  env.status.set(new Map([['A', { running: false, completionUnread: true }]]))
   check('the later completion event shows up', env.storage.read().join(',') === 'A')
 }
 
@@ -335,11 +327,9 @@ function check(name, condition) {
   }
   env.list.set(rows)
   const map = new Map()
-  for (const row of rows) map.set(row.id, { running: true })
+  for (const row of rows) map.set(row.id, { running: true, completionUnread: false })
   env.status.set(new Map(map))
-  for (const row of rows) map.set(row.id, { running: false })
-  env.status.set(new Map(map))
-  env.clock.now += 9000
+  for (const row of rows) map.set(row.id, { running: false, completionUnread: true })
   env.status.set(new Map(map))
   const queue = env.storage.read()
   check('caps the queue at 50 entries', queue.length === 50)
