@@ -18,43 +18,6 @@ window.__ModuleLoader__.load({
       return state;
     }
 
-    // 临时诊断（定位对齐用，完事删除）：把控件实际盒模型写到插件日志。
-    function dbg() {
-      try {
-        const line = '[persona] ' + Array.prototype.map.call(arguments, (v) => {
-          if (typeof v === 'string') return v;
-          try { return JSON.stringify(v); } catch (_e) { return String(v); }
-        }).join(' ');
-        fetch('/api/edit-restart/rpc', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ action: 'log', lines: [line] }),
-        }).catch(() => {});
-      } catch (_e) { /* 静默 */ }
-    }
-
-    function probeLayout() {
-      try {
-        const anchor = document.querySelector('[data-composer-effort-chips]');
-        if (!anchor) { dbg('probe: anchor missing'); return; }
-        let row = anchor.parentElement;
-        for (let i = 0; i < 4 && row; i += 1) {
-          if (row.querySelectorAll('button').length >= 4) break;
-          row = row.parentElement;
-        }
-        if (!row) { dbg('probe: row missing'); return; }
-        const rc = getComputedStyle(row);
-        dbg('probe row cls=' + String(row.className).slice(0, 30) + ' align=' + rc.alignItems + ' h=' + row.getBoundingClientRect().height.toFixed(1));
-        Array.from(row.querySelectorAll('button')).slice(0, 12).forEach((b) => {
-          const r = b.getBoundingClientRect();
-          const cs = getComputedStyle(b);
-          dbg('probe btn "' + (b.textContent || '').trim().slice(0, 12) + '" top=' + r.top.toFixed(1)
-            + ' h=' + r.height.toFixed(1) + ' lh=' + cs.lineHeight + ' fs=' + cs.fontSize
-            + ' disp=' + cs.display + ' pad=' + cs.paddingTop + '/' + cs.paddingBottom);
-        });
-      } catch (e) { dbg('probe fail ' + String(e)); }
-    }
-
     function providerOrder(id) {
       return id === 'qwen-token-plan-cn' ? 0 : id === 'zai-coding-cn' ? 1 : id === 'myself' ? 2 : id === 'rightcode' ? 3 : id === 'rightcode-gpt' ? 4 : 5;
     }
@@ -772,7 +735,6 @@ window.__ModuleLoader__.load({
             ),
           );
         });
-        setTimeout(probeLayout, 1500);
       },
     };
   },
