@@ -150,6 +150,7 @@ const ZH = {
   unpricedNote: '未收录「{model}」的单价，合计不含该模型',
   unpricedAll: '未收录本轮模型的单价，无法折算费用',
   cacheHitValue: '{percent}% · {tokens} tok', breakdown: '费用明细（按牌价折算）',
+  period: '计费时段', peak: '高峰', offPeak: '空闲',
   mixedCurrency: '本轮包含不同币种的模型，不合并合计，按模型分别显示',
   inputCost: '未缓存输入', cacheReadCost: '缓存读取', cacheWriteCost: '缓存写入', outputCost: '输出',
   total: '合计', unitPrice: '{price}/M tok', listNote: '按模型牌价折算的等效金额，非实际账单',
@@ -297,6 +298,7 @@ async function main() {
   const panelText = textOf(portal).join(' | ').replace(/\s+/g, ' ').trim()
   assert.match(panelText, /DeepSeek V4 Pro · qwen-token-plan-cn/)
   assert.match(panelText, /首个请求缓存命中 10\.7%/)
+  assert.match(panelText, /计费时段 \| 高峰/)
   assert.match(panelText, /¥9\/M tok/)
   assert.match(panelText, /≈¥0\.931/)
   console.log('ok panel:', panelText)

@@ -39,6 +39,9 @@ window.__ModuleLoader__.load({
       'unitPrice': '{price}/M tok',
       'listNote': '按模型牌价折算的等效金额，非实际账单',
       'cacheHitValue': '{percent}% · {tokens} tok',
+      'period': '计费时段',
+      'peak': '高峰',
+      'offPeak': '空闲',
       'switchNote': '换模型后首轮：旧模型缓存不继承',
       'switchNoteHit': '换模型后首轮：旧模型缓存不继承，首个请求缓存命中 {percent}%',
       'midTurnSwitch': '本轮内切换过模型，按各自单价分别计算',
@@ -66,6 +69,9 @@ window.__ModuleLoader__.load({
       'unitPrice': '{price}/M tok',
       'listNote': 'Estimated at list prices, not an actual bill',
       'cacheHitValue': '{percent}% · {tokens} tok',
+      'period': '计费时段',
+      'peak': '高峰',
+      'offPeak': '空闲',
       'switchNote': 'First turn after a model switch: the previous model\'s cache is not inherited',
       'switchNoteHit': 'First turn after a model switch: the previous model\'s cache is not inherited; first request cache hit {percent}%',
       'midTurnSwitch': 'Model changed within this turn; each model is priced separately',
@@ -352,6 +358,14 @@ window.__ModuleLoader__.load({
           t('cacheHitValue', { percent: cache.percent.toFixed(1), tokens: formatExactTokens(cache.tokens) }),
           undefined,
           'cache',
+        ))
+      }
+      if (groups.length === 1 && groups[0].period !== undefined) {
+        metaRows.push(...detailRow(
+          t('period'),
+          t(groups[0].period === 'peak' ? 'peak' : 'offPeak'),
+          undefined,
+          'period',
         ))
       }
       const costRows = groups.length === 1
