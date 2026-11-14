@@ -1,11 +1,13 @@
 // Client half of the Turn Queue plugin — PLACEMENT PROBE.
 //
-// This build only proves where the queue can live and how much room it has in
-// the shipped conversation header. It renders a dashed frame holding three
-// slots in `conversation.session.header.utilities` (the shipped header layout
-// is `[title crumbs + actions][utilities][corner]`), filled with the titles of
-// the three most recent sessions as stand-ins. No completion tracking, no
-// click behaviour, no persistence yet.
+// Renders the probe frame inside `conversation.session.header.utilities`, the
+// shipped header row that sits between the title cluster and the corner
+// controls. On screen that is the row above the view tabs: the model picker,
+// fork, overflow and sidebar buttons live to its right, so the frame lands
+// immediately left of that button group.
+//
+// Three slots are filled with the three most recent session titles as
+// stand-ins. No completion tracking, no clicks, no persistence yet.
 
 window.__ModuleLoader__.load({
   id: '@local/turn-queue',
@@ -62,8 +64,7 @@ window.__ModuleLoader__.load({
           .map((id) => snapshot.byId[id])
           .filter((row) => row !== undefined)
         const cells = [0, 1, 2].map((index) => {
-          const row = rows[index]
-          const label = row?.displayTitle ?? row?.title
+          const label = rows[index]?.displayTitle ?? rows[index]?.title
           return label === undefined
             ? h('div', { key: index, className: 'tqCard', 'data-empty': 'true' })
             : h('div', { key: index, className: 'tqCard', title: label }, label)
