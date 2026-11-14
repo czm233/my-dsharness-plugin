@@ -826,6 +826,16 @@
       },
       "versions": [
         {
+          "version": "1.4.1",
+          "publishTimestamp": 1794636118,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "36f47da",
+            "path": "composer-effort-chips"
+          }
+        },
+        {
           "version": "1.4.0",
           "publishTimestamp": 1794541129,
           "source": {
