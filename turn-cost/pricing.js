@@ -48,7 +48,6 @@ function normalizeEntry(raw) {
     label: typeof raw.label === 'string' && raw.label.length > 0
       ? raw.label
       : typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : undefined,
-    shortLabel: typeof raw.shortLabel === 'string' && raw.shortLabel.length > 0 ? raw.shortLabel : undefined,
     peak: raw.peak === true,
     hours: raw.hours === PEAK_HOURS.bailian ? PEAK_HOURS.bailian : PEAK_HOURS.deepseek,
     input,

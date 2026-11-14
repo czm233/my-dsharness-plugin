@@ -39,7 +39,8 @@ window.__ModuleLoader__.load({
       'unitPrice': '{price}/M tok',
       'listNote': '按模型牌价折算的等效金额，非实际账单',
       'cacheHitValue': '{percent}% · {tokens} tok',
-      'switchNote': '换模型后首轮：上一个模型的输入缓存不再复用',
+      'switchNote': '换模型后首轮：旧模型缓存不继承',
+      'switchNoteHit': '换模型后首轮：旧模型缓存不继承，首个请求缓存命中 {percent}%',
       'midTurnSwitch': '本轮内切换过模型，按各自单价分别计算',
       'unpricedNote': '未收录「{model}」的单价，合计不含该模型',
       'unpricedAll': '未收录本轮模型的单价，无法折算费用',
@@ -64,7 +65,8 @@ window.__ModuleLoader__.load({
       'unitPrice': '{price}/M tok',
       'listNote': 'Estimated at list prices, not an actual bill',
       'cacheHitValue': '{percent}% · {tokens} tok',
-      'switchNote': 'First turn after a model switch: the previous model\'s input cache is not reused',
+      'switchNote': 'First turn after a model switch: the previous model\'s cache is not inherited',
+      'switchNoteHit': 'First turn after a model switch: the previous model\'s cache is not inherited; first request cache hit {percent}%',
       'midTurnSwitch': 'Model changed within this turn; each model is priced separately',
       'unpricedNote': 'No list price for "{model}"; the total excludes it',
       'unpricedAll': 'No list price for this turn\'s model; cost cannot be estimated',
@@ -159,7 +161,6 @@ window.__ModuleLoader__.load({
             provider: route.provider,
             model: route.model,
             label: attempt.price?.label ?? route.model,
-            shortLabel: attempt.price?.shortLabel ?? attempt.price?.label ?? route.model,
             matched: true,
             attempts: 0,
             tokens: { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 },
@@ -252,7 +253,7 @@ window.__ModuleLoader__.load({
       '.dsh-turn-cost-details dd { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; text-align: right; }',
       '.dsh-turn-cost-route { overflow-wrap: anywhere; }',
       '.dsh-turn-cost-meta { margin-bottom: 4px; }',
-      '.dsh-turn-cost-model { min-width: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; color: var(--dsw-alias-label-tertiary); }',
+      '.dsh-turn-cost-model { color: var(--dsw-alias-label-tertiary); }',
       '.dsh-turn-cost-notes { margin: 8px 0 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
       '.dsh-turn-cost-reasoning { color: var(--dsw-alias-label-tertiary); white-space: nowrap; }',
       '.dsh-turn-cost-breakdown { margin: 2px 0 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }',
@@ -326,7 +327,7 @@ window.__ModuleLoader__.load({
     function CostPanel(props) {
       // Cost-only panel: token details live in the shipped usage dialog, so
       // this panel shows the route-aware price breakdown and the switch note.
-      const { groups, priced, total, usage, currency, switched, routeChanged, t, panelRef, pos } = props
+      const { groups, priced, total, usage, currency, switched, routeChanged, firstCacheHit, t, panelRef, pos } = props
       const cache = cacheStats(usage)
       const metaRows = []
       groups.forEach((group, index) => {
@@ -354,7 +355,11 @@ window.__ModuleLoader__.load({
           `cost-group-${index}`,
         ))
       const notes = []
-      if (switched) notes.push(t('switchNote'))
+      if (switched) {
+        notes.push(firstCacheHit === undefined
+          ? t('switchNote')
+          : t('switchNoteHit', { percent: firstCacheHit.toFixed(1) }))
+      }
       if (routeChanged) notes.push(t('midTurnSwitch'))
       if (!priced) {
         const unpriced = groups.filter(group => group.matched !== true).map(group => group.label)
@@ -397,7 +402,7 @@ window.__ModuleLoader__.load({
     function CostPill(props) {
       const {
         usage, prices, t, mode, errorText, probeLabel, probeTitle, probeLines,
-        groups, priced, total, currency, switched, routeChanged,
+        groups, priced, total, currency, switched, routeChanged, firstCacheHit,
       } = props
       const [open, setOpen] = useState(false)
       const rootRef = useRef(null)
@@ -452,7 +457,7 @@ window.__ModuleLoader__.load({
         ? t('pillTotal', { cost: priceText })
         : mode === 'loading' ? '¥…' : mode === 'error' ? '¥?·失败' : (probeLabel ?? '¥?·诊断')
       const modelNames = Array.isArray(groups)
-        ? groups.map(group => group.shortLabel ?? group.label ?? group.model).filter(name => name !== undefined && name !== '')
+        ? groups.map(group => group.label ?? group.model).filter(name => name !== undefined && name !== '')
         : []
       const modelText = modelNames.length > 2
         ? `${modelNames[0]} +${modelNames.length - 1}`
@@ -506,6 +511,7 @@ window.__ModuleLoader__.load({
             currency: currency ?? prices?.currency ?? '$',
             switched,
             routeChanged,
+            firstCacheHit,
             t,
             panelRef,
             pos,
@@ -602,6 +608,13 @@ window.__ModuleLoader__.load({
         () => state.kind === 'done' ? summarizeTurn(state.attempts) : undefined,
         [state],
       )
+      const firstCacheHit = useMemo(() => {
+        if (state.kind !== 'done') return undefined
+        const first = state.attempts.find(attempt => attempt.route !== undefined)
+        if (first === undefined || first.cacheRead === undefined) return undefined
+        const prompt = first.input + first.cacheRead
+        return prompt > 0 ? first.cacheRead / prompt * 100 : undefined
+      }, [state])
 
       // Money once usage and rates exist; total silence while unknown (no
       // loading flicker) and on interrupted turns with no usage; the failure
@@ -619,6 +632,7 @@ window.__ModuleLoader__.load({
           currency: summary.currency ?? state.currency ?? prices?.currency ?? '$',
           switched: state.switched,
           routeChanged: state.routeChanged,
+          firstCacheHit,
         })
       } else if (state.kind !== 'done' && state.kind !== 'error') {
         body = null

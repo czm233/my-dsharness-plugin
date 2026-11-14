@@ -1,6 +1,6 @@
 # @local/turn-cost
 
-在每轮回答末尾的 turn-tail 操作栏里显示按模型牌价折算的金额（≈$x.xx）与模型名，点击可展开费用构成、缓存命中率和换模型提示。
+在每轮回答末尾的 turn-tail 操作栏里显示按模型牌价折算的金额（≈$x.xx）与完整模型名，点击可展开费用构成、缓存命中率和换模型提示。
 
 ## 原理
 
@@ -19,7 +19,6 @@
   "models": {
     "example-model": {
       "label": "Example Model",
-      "shortLabel": "Example",
       "peak": true,
       "input": [0.15, 0.3],
       "cacheRead": [0.003, 0.006],
@@ -40,6 +39,7 @@
 
 ```bash
 node turn-cost/test/pricing-sim.cjs
+node turn-cost/test/render-sim.cjs
 ```
 
-覆盖价格匹配、峰谷时段、同 token 下 flash/pro 的差价、跨轮换模型检测、同轮内换模型、未收录模型和缓存命中价。
+`pricing-sim` 覆盖价格匹配、峰谷时段、同 token 下 flash/pro 的差价、跨轮换模型检测、同轮内换模型、未收录模型和缓存命中价；`render-sim` 用真实 client.js 与一个极简 React 运行时验证药丸、完整模型名、面板与换模型缓存提示。
