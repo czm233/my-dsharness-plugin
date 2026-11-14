@@ -1,6 +1,6 @@
 {
   "name": "@local/turn-queue",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Completed-session queue pinned in the conversation header (prototype: placement probe only).",

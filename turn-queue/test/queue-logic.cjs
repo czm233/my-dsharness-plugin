@@ -134,6 +134,14 @@ function finishTurn(env, id, map = new Map()) {
   return map
 }
 
+/** Render the slot once and click the nth button cell. */
+function clickCell(env, index = 0) {
+  const tree = env.registered[0].Component()
+  const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
+  const buttons = cells.filter((cell) => cell !== null && typeof cell === 'object' && cell.type === 'button')
+  buttons[index].props.onClick()
+}
+
 let failures = 0
 function check(name, condition) {
   if (condition) {
@@ -236,8 +244,8 @@ function check(name, condition) {
     { id: 'S', displayTitle: 'Child', subagent: { address: { mode: 'continuable' } } },
   ])
   env.status.set(new Map([
-    ['A', { running: true, pendingInteraction: { kind: 'question' } }],
-    ['S', { running: true, pendingInteraction: { kind: 'question' } }],
+    ['A', { running: true, pendingInteraction: { key: 'q1' } }],
+    ['S', { running: true, pendingInteraction: { key: 'q1' } }],
   ]))
   check('waiting session is queued while running', env.storage.read().join(',') === 'A')
   env.status.set(new Map([
@@ -246,7 +254,30 @@ function check(name, condition) {
   check('answering keeps the entry', env.storage.read().join(',') === 'A')
 }
 
-// 9. Deleted sessions are pruned
+// 9. A read event never comes back, but a later event does
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.status.set(new Map([['A', { running: true, pendingInteraction: { key: 'q1' } }]]))
+  check('waiting event queued', env.storage.read().join(',') === 'A')
+  clickCell(env)
+  check('clicking removes it', env.storage.read().length === 0)
+  check('clicking opens the session', env.opened.join(',') === 'A')
+
+  // The same question is still pending: the read event must not return.
+  env.clock.now += 2000
+  env.status.set(new Map([['A', { running: true, pendingInteraction: { key: 'q1' } }]]))
+  check('read event stays gone while still pending', env.storage.read().length === 0)
+
+  // User answers, the turn settles: that is a NEW event.
+  env.status.set(new Map([['A', { running: true }]]))
+  env.status.set(new Map([['A', { running: false }]]))
+  env.clock.now += 9000
+  env.status.set(new Map([['A', { running: false }]]))
+  check('the later completion event shows up', env.storage.read().join(',') === 'A')
+}
+
+// 10. Deleted sessions are pruned
 {
   const env = boot()
   env.list.set([
@@ -259,7 +290,7 @@ function check(name, condition) {
   check('removed session is pruned', env.storage.read().join(',') === 'B')
 }
 
-// 10. Hard cap of 50 entries, oldest dropped first
+// 11. Hard cap of 50 entries, oldest dropped first
 {
   const env = boot()
   const rows = []
@@ -279,7 +310,7 @@ function check(name, condition) {
   check('keeps the newest entries', queue[0] === 'S10' && queue[49] === 'S59')
 }
 
-// 11. Clicking an entry opens the session and removes it from the queue
+// 12. Clicking an entry opens the session and removes it from the queue
 {
   const env = boot()
   env.list.set([
@@ -305,7 +336,7 @@ function check(name, condition) {
     cellsAfter[0].props.title === 'Session B')
 }
 
-// 12. A single slot is rendered while the queue is empty
+// 13. A single slot is rendered while the queue is empty
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -314,7 +345,7 @@ function check(name, condition) {
   check('empty queue renders exactly one slot', cells.length === 1)
 }
 
-// 13. A reload restores the persisted queue and prunes dead sessions
+// 14. A reload restores the persisted queue and prunes dead sessions
 {
   const storage = makeStorage()
   storage.setItem('turn-queue.entries.v1', JSON.stringify([

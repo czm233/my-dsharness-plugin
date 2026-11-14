@@ -1,16 +1,19 @@
 // Client half of the Turn Queue plugin.
 //
-// A FIFO queue of sessions that just finished work, pinned at the start of
+// A FIFO queue of sessions that need a look, pinned at the start of
 // `conversation.session.header.utilities` (immediately left of the shipped
-// Finder / fork / overflow buttons). Entries come from the shipped session
-// status source: a session enters the queue when `completionUnread` flips on,
-// which the platform raises when a background session's turn settles and the
-// session is not the one on screen. Opening the session clears that flag, so
-// the queue also drops the entry when the user visits it by any route.
+// Finder / fork / overflow buttons).
 //
-// Clicking an entry opens that session and removes it immediately; the next
-// entry slides into its place. The queue keeps up to 50 entries, shows the
-// three oldest, and survives reloads through localStorage.
+// The queue stores EVENTS, not sessions:
+//   - `waiting`: the session raised a pending interaction (a question, an
+//     approval) and is blocked on the user. Enqueued immediately.
+//   - `done`: the session stayed idle after a turn settled. Enqueued after a
+//     settle window so multi-round goal work is not announced mid-task.
+//
+// A click opens the session and marks THAT event read. The same event never
+// returns, even while the session is still waiting; a later event (the user
+// answers and the turn finishes, or a new question) is a new event and shows
+// up again. This keeps "state enqueues" and "action dequeues" from fighting.
 
 window.__ModuleLoader__.load({
   id: '@local/turn-queue',
@@ -20,10 +23,12 @@ window.__ModuleLoader__.load({
 
     const LOG = '[turn-queue]'
     const STORAGE_KEY = 'turn-queue.entries.v1'
+    const READ_KEY = 'turn-queue.read.v1'
     const MAX_ENTRIES = 50
+    const MAX_READ = 300
+    const VISIBLE = 3
     // A session must stay idle this long before its turn counts as finished work.
     const SETTLE_MS = 8000
-    const VISIBLE = 3
 
     const CSS = `
       .tqFrame {
@@ -68,9 +73,14 @@ window.__ModuleLoader__.load({
         cursor: default;
         pointer-events: none;
       }
+      .tqCard[data-waiting="true"] {
+        box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary, rgba(90, 140, 255, 0.9));
+      }
     `
 
-    function readStored() {
+    const entryKey = (id, token) => `${id}|${token}`
+
+    function readEntries() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY)
         if (raw === null) return []
@@ -78,8 +88,30 @@ window.__ModuleLoader__.load({
         if (!Array.isArray(parsed)) return []
         return parsed.filter((entry) => entry !== null && typeof entry === 'object'
           && typeof entry.id === 'string' && entry.id !== '')
+          .map((entry) => ({
+            id: entry.id,
+            kind: entry.kind === 'waiting' ? 'waiting' : 'done',
+            token: typeof entry.token === 'string' && entry.token !== '' ? entry.token : `legacy:${String(entry.at ?? 0)}`,
+            at: typeof entry.at === 'number' ? entry.at : 0,
+          }))
       } catch {
         return []
+      }
+    }
+
+    function readReads() {
+      try {
+        const raw = localStorage.getItem(READ_KEY)
+        if (raw === null) return new Map()
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) return new Map()
+        const map = new Map()
+        for (const item of parsed) {
+          if (Array.isArray(item) && typeof item[0] === 'string' && typeof item[1] === 'number') map.set(item[0], item[1])
+        }
+        return map
+      } catch {
+        return new Map()
       }
     }
 
@@ -89,6 +121,7 @@ window.__ModuleLoader__.load({
       let snapshot = []
       let runningState = new Map()
       const pending = new Map()
+      let read = new Map()
       const listeners = new Set()
 
       const sessionRow = (id) => {
@@ -133,6 +166,7 @@ window.__ModuleLoader__.load({
       const persist = () => {
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+          localStorage.setItem(READ_KEY, JSON.stringify([...read.entries()]))
         } catch {
           /* storage unavailable: keep the in-memory queue */
         }
@@ -149,6 +183,41 @@ window.__ModuleLoader__.load({
         return entries.length !== before
       }
 
+      /** Forget read marks of sessions that no longer exist, and cap the set. */
+      const pruneRead = () => {
+        let changed = false
+        if (listReady()) {
+          for (const key of [...read.keys()]) {
+            const id = key.slice(0, key.lastIndexOf('|'))
+            if (id !== '' && !exists(id)) {
+              read.delete(key)
+              changed = true
+            }
+          }
+        }
+        if (read.size > MAX_READ) {
+          const sorted = [...read.entries()].sort((a, b) => a[1] - b[1])
+          for (const [key] of sorted.slice(0, read.size - MAX_READ)) read.delete(key)
+          changed = true
+        }
+        return changed
+      }
+
+      /** Enqueue one event unless it was already read or is already queued. */
+      const enqueue = (id, kind, token) => {
+        const key = entryKey(id, token)
+        if (read.has(key)) return false
+        const existing = entries.find((entry) => entry.id === id)
+        if (existing !== undefined) {
+          if (existing.token === token) return false
+          // One row per session: a newer event replaces the older one and moves
+          // to the newest position.
+          entries = entries.filter((entry) => entry.id !== id)
+        }
+        entries.push({ id, kind, token, at: Date.now() })
+        return true
+      }
+
       const sync = () => {
         let changed = false
         let status
@@ -162,14 +231,14 @@ window.__ModuleLoader__.load({
         for (const [id, row] of status) {
           const running = row !== undefined && row !== null && row.running === true
           nextRunning.set(id, running)
-          const waiting = row !== undefined && row !== null && row.pendingInteraction !== undefined && row.pendingInteraction !== null
-          if (waiting) {
+          const interaction = row?.pendingInteraction
+          if (interaction !== undefined && interaction !== null) {
             // A session blocked on the user is the one thing worth surfacing
             // immediately, even while its turn is still open.
             pending.delete(id)
-            if (!isSubagent(id) && !entries.some((entry) => entry.id === id)) {
-              entries.push({ id, at: now })
-              changed = true
+            if (!isSubagent(id)) {
+              const token = `w:${String(interaction.key ?? 'pending')}`
+              if (enqueue(id, 'waiting', token)) changed = true
             }
             continue
           }
@@ -180,8 +249,6 @@ window.__ModuleLoader__.load({
           }
           if (runningState.get(id) === true) {
             // The turn just ended: hold the entry until the session stays idle.
-            // Goal rounds restart the session within seconds, so a settle delay
-            // keeps multi-round work from being announced as a finished task.
             pending.set(id, now)
             continue
           }
@@ -189,10 +256,7 @@ window.__ModuleLoader__.load({
           if (since === undefined || now - since < SETTLE_MS) continue
           if (hasUnfinishedGoal(id)) continue
           pending.delete(id)
-          if (!entries.some((entry) => entry.id === id)) {
-            entries.push({ id, at: now })
-            changed = true
-          }
+          if (enqueue(id, 'done', `d:${since}`)) changed = true
         }
         for (const id of [...pending.keys()]) {
           if (!nextRunning.has(id)) pending.delete(id)
@@ -200,9 +264,10 @@ window.__ModuleLoader__.load({
         runningState = nextRunning
         // Drop entries whose task turned out to still belong to a live goal.
         const beforeGoalFilter = entries.length
-        entries = entries.filter((entry) => !hasUnfinishedGoal(entry.id))
+        entries = entries.filter((entry) => entry.kind === 'waiting' || !hasUnfinishedGoal(entry.id))
         if (entries.length !== beforeGoalFilter) changed = true
         if (pruneMissing()) changed = true
+        if (pruneRead()) changed = true
         if (entries.length > MAX_ENTRIES) {
           entries = entries.slice(entries.length - MAX_ENTRIES)
           changed = true
@@ -210,14 +275,16 @@ window.__ModuleLoader__.load({
         if (changed) commit()
       }
 
-      const dismiss = (id) => {
-        const before = entries.length
-        entries = entries.filter((entry) => entry.id !== id)
-        if (entries.length !== before) commit()
+      /** Mark one event read so it can never come back, and drop it from the row. */
+      const dismiss = (entry) => {
+        read.set(entryKey(entry.id, entry.token), Date.now())
+        entries = entries.filter((item) => !(item.id === entry.id && item.token === entry.token))
+        commit()
       }
 
       const start = () => {
-        const stored = readStored().slice(-MAX_ENTRIES)
+        read = readReads()
+        const stored = readEntries().slice(-MAX_ENTRIES)
         entries = stored.filter((entry) => exists(entry.id))
         if (entries.length !== stored.length) persist()
         publish()
@@ -288,12 +355,13 @@ window.__ModuleLoader__.load({
           }
           const label = titleOf(snapshot, entry.id)
           cells.push(h('button', {
-            key: entry.id,
+            key: entryKey(entry.id, entry.token),
             type: 'button',
             className: 'tqCard',
             title: label,
             'data-session': entry.id,
-            onClick: () => { void store.open(entry.id) },
+            'data-waiting': entry.kind === 'waiting' ? 'true' : undefined,
+            onClick: () => { void store.open(entry) },
           }, label))
         }
         return h('div', { className: 'tqFrame', 'data-turn-queue': '' }, cells)
@@ -327,15 +395,15 @@ window.__ModuleLoader__.load({
         }
 
         const store = createQueueStore(ctx)
-        store.open = (id) => {
-          store.dismiss(id)
+        store.open = (entry) => {
+          store.dismiss(entry)
           try {
             const workspace = ctx.get('uiWorkspace')
-            workspace?.openSession?.(id)
+            workspace?.openSession?.(entry.id)
           } catch (error) {
             console.error(LOG, 'openSession failed', error)
           }
-          revealInSidebar(id)
+          revealInSidebar(entry.id)
         }
         ctx.effect(() => store.start(), 'turn-queue: queue syncing')
 
