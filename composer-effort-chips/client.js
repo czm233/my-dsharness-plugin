@@ -167,7 +167,9 @@ window.__ModuleLoader__.load({
       }, [open]);
       return h(
         'div',
-        { style: { position: 'relative', flex: 'none' }, ref: rootRef },
+        // 必须是 flex：普通块里行内块按钮会多出行框的下沉空间，
+        // 外层按 center 对齐时这段空隙把按钮整体压下去半条行高。
+        { style: { position: 'relative', display: 'flex', alignItems: 'center', flex: 'none' }, ref: rootRef },
         h(
           'button',
           {
