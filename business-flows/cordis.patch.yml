@@ -1,0 +1,8 @@
+# Host half of Business Flows: registers /api/business-flows/rpc over the
+# connection carrier — per-workspace note storage under
+# ~/.dsh/storages/business-flows/<workspace-key>/, turn text folded from the
+# session log through the sessionQuery service. The Client half adds the
+# conversation.view tab and the turnTail collect button.
+- insert:
+    - id: business-flows
+      name: '@local/business-flows'
