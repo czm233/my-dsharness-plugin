@@ -176,21 +176,64 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Swap the note-relative asset refs (`<flowId>.assets/<name>`) for the
-     * host asset route so the markdown renderer can load them as images.
+     * Prepare a note body for rendering: relative asset refs
+     * (`<flowId>.assets/<name>`) and Obsidian wiki-embeds (`![[name]]`)
+     * become host asset URLs; the result is still plain markdown.
      */
     function renderableBody(body, flowId) {
       if (typeof body !== 'string' || body === '' || flowId === '') return ''
-      return body.replace(/(!\[[^\]]*\]\()\s*([^\s)]*\.assets\/[^\s)]+)\s*(\))/g, (_all, head, ref, tail) => {
-        const name = ref.slice(ref.indexOf('.assets/') + '.assets/'.length)
-        return `${head}${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(name)}${tail}`
-      })
+      return body
+        .replace(/(!\[[^\]]*\]\()\s*([^\s)]*\.assets\/[^\s)]+)\s*(\))/g, (_all, head, ref, tail) => {
+          const name = ref.slice(ref.indexOf('.assets/') + '.assets/'.length)
+          return `${head}${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(name)}${tail}`
+        })
+        .replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, (_all, name) => {
+          return `![](${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(String(name).trim())})`
+        })
+    }
+
+    /**
+     * Split a renderable body into markdown / image segments at image-only
+     * lines, so images render as <img> directly instead of relying on the
+     * markdown renderer supporting them.
+     */
+    function bodySegments(body) {
+      const segments = []
+      let text = ''
+      for (const line of String(body ?? '').split('\n')) {
+        const image = /^\s*(?:>\s*)*!\[[^\]]*\]\(([^)\s]+)[^)]*\)\s*$/.exec(line)
+        if (image !== null) {
+          if (text.trim() !== '') segments.push({ type: 'md', text })
+          text = ''
+          segments.push({ type: 'img', src: image[1] })
+        } else {
+          text += `${line}\n`
+        }
+      }
+      if (text.trim() !== '') segments.push({ type: 'md', text })
+      return segments
     }
 
     function AnswerBody(props) {
       const { text, labels } = props
-      if (MarkdownText !== null) return h(MarkdownText, { text, labels })
-      return h('div', { className: 'bfc-a' }, h('div', { style: { whiteSpace: 'pre-wrap' } }, text))
+      const segments = bodySegments(text)
+      if (segments.length === 0) return null
+      if (segments.length === 1 && segments[0].type === 'md') {
+        if (MarkdownText !== null) return h(MarkdownText, { text: segments[0].text, labels })
+        return h('div', { className: 'bfc-a' }, h('div', { style: { whiteSpace: 'pre-wrap' } }, segments[0].text))
+      }
+      return h('div', { className: 'bfc-a' },
+        segments.map((segment, index) => segment.type === 'img'
+          ? h('img', {
+            key: `i${index}`,
+            src: segment.src,
+            alt: '',
+            style: { maxWidth: '100%', borderRadius: 8, margin: '8px 0' },
+          })
+          : (MarkdownText !== null
+            ? h(MarkdownText, { key: `m${index}`, text: segment.text, labels })
+            : h('div', { key: `m${index}`, style: { whiteSpace: 'pre-wrap' } }, segment.text))),
+      )
     }
 
     /** The turn-tail 「收藏」 button with its note picker menu. */
@@ -471,32 +514,48 @@ window.__ModuleLoader__.load({
           const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
           const value = await rpc('upload', { sessionId, id: detail.id, name: `截图-${stamp}.${ext}`, dataBase64: dataUrl })
           if (typeof value?.name !== 'string' || value.name === '') throw new Error('no asset name returned')
-          insertAtCursor(`\n![${value.name}](${detail.id}.assets/${value.name})\n`)
+          const ref = `![${value.name}](${detail.id}.assets/${value.name})`
+          if (editing) {
+            insertAtCursor(`\n${ref}\n`)
+          } else {
+            // reading view: append the image to the note and save right away
+            const body = `${typeof detail.body === 'string' ? detail.body : ''}${typeof detail.body === 'string' && detail.body !== '' && !detail.body.endsWith('\n') ? '\n' : ''}\n${ref}\n`
+            await rpc('save', { sessionId, id: detail.id, body })
+            setDetail(prev => prev === null ? prev : { ...prev, body })
+          }
         } catch (failure) {
           setNoteError(`${t('uploadFailed')}：${String(failure?.message ?? failure)}`)
         }
-      }, [detail, insertAtCursor, rpc, sessionId, t])
+      }, [detail, editing, insertAtCursor, rpc, sessionId, t])
 
-      const onEditorPaste = (event) => {
-        const items = event.clipboardData?.items
-        if (!items) return
-        let file = null
-        for (const item of items) {
-          if (item !== null && typeof item === 'object' && item.kind === 'file' && String(item.type ?? '').startsWith('image/')) {
-            file = item.getAsFile()
-            break
+      const imageFromEvent = (transfer) => {
+        if (!transfer) return null
+        const items = transfer.items
+        if (items) {
+          for (const item of items) {
+            if (item !== null && typeof item === 'object' && item.kind === 'file' && String(item.type ?? '').startsWith('image/')) {
+              const file = item.getAsFile()
+              if (file !== null) return file
+            }
           }
         }
+        const files = transfer.files
+        if (files && files.length > 0) {
+          return Array.from(files).find(candidate => String(candidate.type ?? '').startsWith('image/')) ?? null
+        }
+        return null
+      }
+
+      const onEditorPaste = (event) => {
+        const file = imageFromEvent(event.clipboardData)
         if (file === null) return
         event.preventDefault()
         uploadImage(file)
       }
 
       const onEditorDrop = (event) => {
-        const files = event.dataTransfer?.files
-        if (!files || files.length === 0) return
-        const file = Array.from(files).find(candidate => String(candidate.type ?? '').startsWith('image/'))
-        if (file === undefined) return
+        const file = imageFromEvent(event.dataTransfer)
+        if (file === null) return
         event.preventDefault()
         uploadImage(file)
       }
@@ -609,7 +668,11 @@ window.__ModuleLoader__.load({
                     onPaste: onEditorPaste,
                     onDrop: onEditorDrop,
                   }))
-                : h('div', { className: 'bfc-reader' },
+                : h('div', {
+                  className: 'bfc-reader',
+                  onPaste: onEditorPaste,
+                  onDrop: onEditorDrop,
+                },
                   h(AnswerBody, { text: renderableBody(detail.body, detail.id), labels })),
             ),
         ),
