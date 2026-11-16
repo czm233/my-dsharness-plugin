@@ -72,6 +72,9 @@ function load(sandbox) {
         useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
       }
     }
+    if (name === '@deepseek-ai/dsh-client-ui-primitives') {
+      return { IconQueueOutlineRegular: function IconQueueOutlineRegular() { return null } }
+    }
     throw new Error(`unexpected require ${name}`)
   }
   sandbox.document = {
@@ -93,6 +96,7 @@ function boot() {
   const status = makeStatus()
   const opened = []
   const registered = []
+  const icons = []
   const sandbox = {
     localStorage: storage,
     console: { log() {}, error() {}, warn() {} },
@@ -104,10 +108,18 @@ function boot() {
   const mod = load(sandbox)
   let goalPhase = 'complete'
   let currentKey
+  const archived = []
+  const menus = []
   const ctx = {
     sessions: {
       list,
       binding: () => ({ session: { projections: { faceOf: () => ({ getSnapshot: () => ({ goal: { phase: goalPhase } }) }) } } }),
+    },
+    workspaces: { list: { getSnapshot: () => ({ archivedSessionIds: archived }) } },
+    contextMenus: { register: (input) => { menus.push(input); return () => {} } },
+    locale: {
+      register() {},
+      bind: () => (key) => key,
     },
     uiSession: {
       sessionStatus: status,
@@ -119,13 +131,22 @@ function boot() {
       return undefined
     },
     slots: {
-      inject(_name, factory) { registered.push(factory()) },
+      // Only the header slot renders a component; icon slots contribute one
+      // icon component and no element of their own.
+      inject(name, factory) {
+        if (name === 'contextMenu.icon') {
+          for (const value of factory()) icons.push(value)
+          return
+        }
+        // The header slot registers a plain element (no generator).
+        registered.push(factory())
+      },
       register(config, Component) { return { config, Component } },
     },
   }
   mod.apply(ctx)
   return {
-    storage, list, status, opened, registered, ctx, clock,
+    storage, list, status, opened, registered, icons, ctx, clock, menus, archived,
     setGoal: (phase) => { goalPhase = phase },
     setCurrent: (id) => { currentKey = id },
   }
@@ -163,6 +184,8 @@ function check(name, condition) {
   const env = boot()
   check('starts with an empty queue', env.storage.read().length === 0)
   check('registers one header slot', env.registered.length === 1)
+  check('registers one sidebar menu action', env.menus.length === 1)
+  check('contributes one menu icon', env.icons.length === 1 && env.icons[0].config.key === 'workspace.queue')
   check('slot exposes a component', typeof env.registered[0].Component === 'function')
 }
 
@@ -403,6 +426,67 @@ function check(name, condition) {
     slots: { inject(_n, factory) { factory() }, register: (config) => ({ config }) },
   })
   check('restores the queue and drops dead sessions', storage.read().join(',') === 'A,B')
+}
+
+// 17. The sidebar menu queues a session by hand, on top of the auto rows
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'B', displayTitle: 'Session B', subagent: null },
+  ])
+  finishTurn(env, 'A')
+  const action = () => env.menus[0].resolve({ sessionId: 'B', displayTitle: 'Session B' })[0]
+  check('menu offers to queue', action().label === 'menu.queue')
+  action().run()
+  check('menu queues the session', env.storage.read().join(',') === 'B,A')
+  check('menu flips to unqueue', action().label === 'menu.unqueue')
+  action().run()
+  check('menu unqueues the session', env.storage.read().join(',') === 'A')
+}
+
+// 18. An auto event never replaces a hand-queued row
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setCurrent('Z')
+  env.menus[0].resolve({ sessionId: 'A' })[0].run()
+  finishTurn(env, 'A')
+  const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
+  check('hand-queued row survives a completion event', raw.length === 1 && raw[0].kind === 'manual')
+}
+
+// 19. Opening a hand-queued session keeps it; later auto rows go below
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'B', displayTitle: 'Session B', subagent: null },
+  ])
+  env.setCurrent('Z')
+  env.menus[0].resolve({ sessionId: 'A' })[0].run()
+  env.setCurrent('A')
+  env.status.set(new Map([['A', { running: false }]]))
+  check('opening keeps the hand-queued row', env.storage.read().join(',') === 'A')
+  env.setCurrent('Z')
+  finishTurn(env, 'B')
+  check('auto rows land below the bookmark', env.storage.read().join(',') === 'A,B')
+  const tree = env.registered[0].Component()
+  const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
+  cells[0].props.onClick()
+  check('clicking the bookmark opens it and keeps it', env.opened.join(',') === 'A'
+    && env.storage.read().join(',') === 'A,B')
+  check('opening spends the auto rows of that session', !env.storage.read().includes('A,A'))
+}
+
+// 20. Archiving a hand-queued session drops its row
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.menus[0].resolve({ sessionId: 'A' })[0].run()
+  env.archived.push('A')
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  check('archived bookmark is dropped', env.storage.read().length === 0)
 }
 
 if (failures > 0) {

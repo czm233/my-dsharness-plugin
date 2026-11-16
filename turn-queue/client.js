@@ -19,9 +19,21 @@ window.__ModuleLoader__.load({
   id: '@local/turn-queue',
   factory(require) {
     const React = require('react')
+    const { IconQueueOutlineRegular: IconQueue } = require('@deepseek-ai/dsh-client-ui-primitives')
     const h = React.createElement
 
     const LOG = '[turn-queue]'
+    const NS = 'turn-queue'
+    const DICTS = {
+      zh: {
+        'menu.queue': '加入队列',
+        'menu.unqueue': '移出队列',
+      },
+      en: {
+        'menu.queue': 'Add to queue',
+        'menu.unqueue': 'Remove from queue',
+      },
+    }
     const STORAGE_KEY = 'turn-queue.entries.v1'
     const READ_KEY = 'turn-queue.read.v1'
     const MAX_ENTRIES = 50
@@ -74,6 +86,9 @@ window.__ModuleLoader__.load({
       .tqCard[data-waiting="true"] {
         box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary, rgba(90, 140, 255, 0.9));
       }
+      .tqCard[data-manual="true"] {
+        box-shadow: inset 2px 0 0 var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.6));
+      }
     `
 
     const entryKey = (id, token) => `${id}|${token}`
@@ -88,7 +103,7 @@ window.__ModuleLoader__.load({
           && typeof entry.id === 'string' && entry.id !== '')
           .map((entry) => ({
             id: entry.id,
-            kind: entry.kind === 'waiting' ? 'waiting' : 'done',
+            kind: entry.kind === 'waiting' ? 'waiting' : entry.kind === 'manual' ? 'manual' : 'done',
             token: typeof entry.token === 'string' && entry.token !== '' ? entry.token : `legacy:${String(entry.at ?? 0)}`,
             at: typeof entry.at === 'number' ? entry.at : 0,
           }))
@@ -143,6 +158,16 @@ window.__ModuleLoader__.load({
         const row = sessionRow(id)
         return row !== undefined && row.subagent !== null && row.subagent !== undefined
       }
+      const isArchived = (id) => {
+        try {
+          const archived = ctx.workspaces?.list?.getSnapshot?.()?.archivedSessionIds
+          return Array.isArray(archived) && archived.includes(id)
+        } catch {
+          return false
+        }
+      }
+      /** Rows picked by the user in the sidebar: not pruned, not read-away by opening. */
+      const isPinned = (entry) => entry.kind === 'manual'
       const exists = (id) => !listReady() || sessionRow(id) !== undefined
       /** The session currently shown in the main view, if any. */
       const currentId = () => {
@@ -187,7 +212,7 @@ window.__ModuleLoader__.load({
       /** Drop entries whose session disappeared (deleted, archived out of the list). */
       const pruneMissing = () => {
         const before = entries.length
-        entries = entries.filter((entry) => exists(entry.id))
+        entries = entries.filter((entry) => exists(entry.id) && !(isPinned(entry) && isArchived(entry.id)))
         return entries.length !== before
       }
 
@@ -217,6 +242,8 @@ window.__ModuleLoader__.load({
         if (read.has(key)) return false
         const existing = entries.find((entry) => entry.id === id)
         if (existing !== undefined) {
+          // A row the user picked by hand outlives automatic events.
+          if (existing.kind === 'manual') return false
           if (existing.token === token) return false
           // One row per session: a newer event replaces the older one and moves
           // to the newest position.
@@ -272,17 +299,20 @@ window.__ModuleLoader__.load({
         }
         unreadState = nextUnread
         baseline = false
-        // Opening a session counts as reading its events.
-        if (onScreen !== undefined && entries.some((entry) => entry.id === onScreen)) {
+        // Opening a session counts as reading its events. A row the user queued
+        // is a bookmark, not an event: it survives opening until they remove it
+        // from the sidebar menu.
+        if (onScreen !== undefined && entries.some((entry) => entry.id === onScreen && !isPinned(entry))) {
+          const now = Date.now()
           for (const entry of entries) {
-            if (entry.id === onScreen) read.set(entryKey(entry.id, entry.token), now)
+            if (entry.id === onScreen && !isPinned(entry)) read.set(entryKey(entry.id, entry.token), now)
           }
-          entries = entries.filter((entry) => entry.id !== onScreen)
+          entries = entries.filter((entry) => entry.id !== onScreen || isPinned(entry))
           changed = true
         }
         // Drop entries whose task turned out to still belong to a live goal.
         const beforeGoalFilter = entries.length
-        entries = entries.filter((entry) => entry.kind === 'waiting' || !hasUnfinishedGoal(entry.id))
+        entries = entries.filter((entry) => entry.kind !== 'done' || !hasUnfinishedGoal(entry.id))
         if (entries.length !== beforeGoalFilter) changed = true
         if (pruneMissing()) changed = true
         if (pruneRead()) changed = true
@@ -300,10 +330,40 @@ window.__ModuleLoader__.load({
         commit()
       }
 
+      /**
+       * Put a session in the queue by hand. It joins as `manual` and takes a
+       * slot at the top of the auto rows; queuing it again does nothing.
+       */
+      const queue = (id) => {
+        if (typeof id !== 'string' || id === '') return false
+        if (entries.some((entry) => entry.id === id && entry.kind === 'manual')) return false
+        tokenSeq += 1
+        const rest = entries.filter((entry) => entry.id !== id)
+        rest.splice(Math.max(0, rest.findIndex((entry) => !isPinned(entry))), 0, {
+          id,
+          kind: 'manual',
+          token: `m:${Date.now()}:${tokenSeq}`,
+          at: Date.now(),
+        })
+        entries = rest
+        commit()
+        return true
+      }
+
+      const unqueue = (id) => {
+        const target = entries.find((entry) => entry.id === id && entry.kind === 'manual')
+        if (target === undefined) return false
+        entries = entries.filter((entry) => entry !== target)
+        commit()
+        return true
+      }
+
+      const isQueued = (id) => entries.some((entry) => entry.id === id && entry.kind === 'manual')
+
       const start = () => {
         read = readReads()
         const stored = readEntries().slice(-MAX_ENTRIES)
-        entries = stored.filter((entry) => exists(entry.id))
+        entries = stored.filter((entry) => exists(entry.id) && !(isPinned(entry) && isArchived(entry.id)))
         if (entries.length !== stored.length) persist()
         publish()
         const disposers = []
@@ -331,6 +391,9 @@ window.__ModuleLoader__.load({
       return {
         start,
         dismiss,
+        queue,
+        unqueue,
+        isQueued,
         subscribe: (listener) => {
           listeners.add(listener)
           return () => { listeners.delete(listener) }
@@ -379,6 +442,7 @@ window.__ModuleLoader__.load({
             title: label,
             'data-session': entry.id,
             'data-waiting': entry.kind === 'waiting' ? 'true' : undefined,
+            'data-manual': entry.kind === 'manual' ? 'true' : undefined,
             onClick: () => { void store.open(entry) },
           }, label))
         }
@@ -387,8 +451,12 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'sessions', 'uiSession'],
+      inject: ['slots', 'sessions', 'uiSession', 'contextMenus', 'locale'],
       apply(ctx) {
+        const t = typeof ctx.locale?.bind === 'function'
+          ? ctx.locale.bind(NS)
+          : (key) => DICTS.zh[key] ?? key
+        ctx.effect(() => ctx.locale?.register?.(NS, DICTS), 'turn-queue: dictionaries')
         ctx.effect(() => {
           const style = document.createElement('style')
           style.dataset.plugin = '@local/turn-queue'
@@ -414,7 +482,8 @@ window.__ModuleLoader__.load({
 
         const store = createQueueStore(ctx)
         store.open = (entry) => {
-          store.dismiss(entry)
+          // A bookmark stays in the queue; an event is spent once opened.
+          if (entry.kind !== 'manual') store.dismiss(entry)
           try {
             const workspace = ctx.get('uiWorkspace')
             workspace?.openSession?.(entry.id)
@@ -424,6 +493,38 @@ window.__ModuleLoader__.load({
           revealInSidebar(entry.id)
         }
         ctx.effect(() => store.start(), 'turn-queue: queue syncing')
+
+        ctx.slots.inject('contextMenu.icon', function* () {
+          yield ctx.slots.register({
+            name: 'contextMenu.icon',
+            key: 'workspace.queue',
+          }, IconQueue)
+        })
+
+        // Sidebar right-click: queue a session by hand, or take it back out.
+        // The action resolves live, so the label flips with the current state.
+        ctx.effect(() => {
+          const service = ctx.get?.('contextMenus') ?? ctx.contextMenus
+          if (service === undefined || service === null || typeof service.register !== 'function') {
+            console.error(LOG, 'context menu service unavailable; right-click action off')
+            return undefined
+          }
+          return service.register({
+            id: 'turn-queue.queue-session',
+            target: 'session',
+            order: 50,
+            observe: () => [{ subscribe: (listener) => store.subscribe(listener) }],
+            resolve: ({ sessionId }) => {
+              const queued = store.isQueued(sessionId)
+              return [{
+                id: queued ? 'unqueue' : 'queue',
+                label: t(queued ? 'menu.unqueue' : 'menu.queue'),
+                icon: { key: 'workspace.queue' },
+                run: () => { (queued ? store.unqueue : store.queue)(sessionId) },
+              }]
+            },
+          })
+        }, 'turn-queue: sidebar menu action')
 
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',

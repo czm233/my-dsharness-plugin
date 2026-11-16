@@ -1,9 +1,9 @@
 {
   "name": "@local/turn-queue",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
-  "description": "Completed-session queue pinned in the conversation header (prototype: placement probe only).",
+  "description": "Session queue pinned in the conversation header: sessions waiting on you or just finished join automatically, and the sidebar right-click menu adds one by hand.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Turn Queue",
-    "description": "A queue of just-finished sessions in the conversation header; one click jumps back to that session."
+    "description": "A session queue pinned in the conversation header: sessions waiting on you or just finished join automatically, and the sidebar right-click menu adds one by hand; one click jumps back to that session."
   }
 }
