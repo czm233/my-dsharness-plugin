@@ -44,7 +44,8 @@ window.__ModuleLoader__.load({
       'collectFailed': '收藏失败',
       'loadFailed': '读取失败',
       'newFlow': '新建业务流程',
-      'titlePh': '名称',
+      'titlePh': '留空自动命名',
+      'searchPh': '搜索标题与正文',
       'create': '创建',
       'cancel': '取消',
       'save': '保存',
@@ -71,7 +72,8 @@ window.__ModuleLoader__.load({
       'collectFailed': 'Save failed',
       'loadFailed': 'Load failed',
       'newFlow': 'New flow',
-      'titlePh': 'Name',
+      'titlePh': 'Leave empty to auto-name',
+      'searchPh': 'Search titles and bodies',
       'create': 'Create',
       'cancel': 'Cancel',
       'save': 'Save',
@@ -335,9 +337,8 @@ window.__ModuleLoader__.load({
       }, [callRpc, sessionId, t, turnNo])
 
       const submitNew = () => {
-        const trimmed = title.trim()
-        if (trimmed === '' || busy) return
-        collect({ title: trimmed })
+        if (busy) return
+        collect({ title: title.trim() })
       }
 
       const menu = open && pos !== null
@@ -379,7 +380,7 @@ window.__ModuleLoader__.load({
                     if (event.key === 'Escape') setPhase('list')
                   },
                 }),
-                h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: busy || title.trim() === '', onClick: submitNew }, t('create')),
+                h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: busy, onClick: submitNew }, t('create')),
                 h('button', { type: 'button', className: 'bfc-mini-btn', disabled: busy, onClick: () => { setPhase('list') } }, t('cancel'))),
             error !== '' ? h('div', { className: 'bfc-menu-error' }, error) : null,
           ),
@@ -419,8 +420,41 @@ window.__ModuleLoader__.load({
       const [draft, setDraft] = useState('')
       const [noteError, setNoteError] = useState('')
       const [images, setImages] = useState({})
+      const [query, setQuery] = useState('')
+      const [searching, setSearching] = useState(false)
+      const [results, setResults] = useState(null)
       const taRef = useRef(null)
       const labels = markdownLabels(t)
+
+      // 搜索：输入防抖后走后台，标题与正文一起查
+      useEffect(() => {
+        const trimmed = query.trim()
+        if (trimmed === '' || sessionId === '') {
+          setSearching(false)
+          setResults(null)
+          return undefined
+        }
+        setSearching(true)
+        let cancelled = false
+        const timer = setTimeout(() => {
+          rpc('search', { sessionId, query: trimmed }).then(
+            (value) => {
+              if (cancelled) return
+              setSearching(false)
+              setResults(Array.isArray(value?.flows) ? value.flows : [])
+            },
+            () => {
+              if (cancelled) return
+              setSearching(false)
+              setResults([])
+            },
+          )
+        }, 250)
+        return () => {
+          cancelled = true
+          clearTimeout(timer)
+        }
+      }, [query, rpc, sessionId])
 
       const segmentList = detail === null ? [] : bodySegments(detail.body)
 
@@ -475,10 +509,9 @@ window.__ModuleLoader__.load({
       }, [rpc, sessionId])
 
       const submitCreate = async () => {
-        const trimmed = newTitle.trim()
-        if (trimmed === '' || sessionId === '') return
+        if (sessionId === '') return
         try {
-          const value = await rpc('create', { sessionId, title: trimmed })
+          const value = await rpc('create', { sessionId, title: newTitle.trim() })
           setCreating(false)
           setNewTitle('')
           await reload()
@@ -652,7 +685,8 @@ window.__ModuleLoader__.load({
         document.addEventListener('mouseup', onUp)
       }
 
-      const rows = flows === null ? [] : flows
+      const searchingActive = query.trim() !== ''
+      const rows = searchingActive ? (results ?? []) : (flows === null ? [] : flows)
       return h('div', { className: 'bfc', 'data-business-flows-view': '' },
         h('div', { className: 'bfc-toolbar' },
           h('span', { className: 'bfc-brand' }, '流'),
@@ -671,6 +705,14 @@ window.__ModuleLoader__.load({
             h('div', { className: 'bfc-pal-head' },
               h('span', { className: 'bfc-pal-title' }, t('title')),
               flows !== null ? h('span', { className: 'bfc-pal-sub' }, String(rows.length)) : null,
+            ),
+            h('div', { style: { padding: '0 8px 6px' } },
+              h('input', {
+                className: 'bfc-input',
+                value: query,
+                placeholder: t('searchPh'),
+                onChange: (event) => setQuery(event.target.value),
+              }),
             ),
             h('div', { className: 'bfc-pal-scroll' },
               rows.map((flow) => {
@@ -736,7 +778,7 @@ window.__ModuleLoader__.load({
                       if (event.key === 'Escape') setCreating(false)
                     },
                   }),
-                  h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: newTitle.trim() === '', onClick: submitCreate }, t('create')),
+                  h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitCreate }, t('create')),
                   h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setCreating(false) }, t('cancel')),
                 )
                 : h('button', { type: 'button', className: 'bfc-new-btn', onClick: () => { setNewTitle(''); setCreating(true) } }, `＋ ${t('newFlow')}`),

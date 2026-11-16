@@ -169,6 +169,23 @@ async function main() {
   result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: 'relative/path.html' })
   assert(result.ok === false && /absolute paths/.test(result.error.message), 'relative path rejected')
 
+  // 14. create without title auto-names; same-second collision dedupes
+  result = await rpc({ action: 'create', sessionId: SESSION_ID })
+  assert(result.ok === true && /^笔记 \d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(result.value.flow.title), `default title, got ${result.value.flow?.title}`)
+  result = await rpc({ action: 'create', sessionId: SESSION_ID, title: '' })
+  assert(result.ok === true && result.value.flow.title !== '', 'empty title also auto-names')
+  result = await rpc({ action: 'list', sessionId: SESSION_ID })
+  const autoTitles = result.value.flows.filter(meta => /^笔记 \d{2}-\d{2}/.test(meta.title)).map(meta => meta.title)
+  assert(new Set(autoTitles).size === autoTitles.length, 'auto names unique')
+
+  // 15. search hits titles and bodies
+  result = await rpc({ action: 'search', sessionId: SESSION_ID, query: '语音识别' })
+  assert(result.ok === true && result.value.flows.some(flow => flow.title === '语音识别'), 'search by title')
+  result = await rpc({ action: 'search', sessionId: SESSION_ID, query: '答案二' })
+  assert(result.ok === true && result.value.flows.some(flow => flow.title === '语音识别'), 'search by body')
+  result = await rpc({ action: 'search', sessionId: SESSION_ID, query: 'ZZZ-不存在的词' })
+  assert(result.ok === true && result.value.flows.length === 0, 'no match → empty')
+
   if (failures === 0) console.log("host-sim: all assertions passed")
 }
 

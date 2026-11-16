@@ -75,6 +75,17 @@ function mintFlowId() {
   return sanitizeFlowId(`f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`) || `f-${Date.now().toString(36)}`
 }
 
+/** Default note title when the user does not name one: unique per second, deduped with a counter. */
+function defaultTitle(now = Date.now(), takenTitles = new Set()) {
+  const d = new Date(now)
+  const pad = (n) => String(n).padStart(2, '0')
+  const base = `笔记 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  if (!takenTitles.has(base)) return base
+  let n = 2
+  while (takenTitles.has(`${base} (${n})`)) n += 1
+  return `${base} (${n})`
+}
+
 /**
  * Resolve the workspace key of a session from the session-store layout:
  * ~/.dsh/sessions/<encoded-workspace>/session-<id>/… — the encoded directory
@@ -378,10 +389,12 @@ export function apply(ctx) {
     return ''
   }
 
-  async function createFlow(wsDir, title) {
+  async function createFlow(wsDir, rawTitle) {
     const existing = await listFlows(wsDir)
     if (existing.length >= LIMITS.flowsMax) throw new Error('flow limit reached')
     const now = Date.now()
+    const taken = new Set(existing.map(meta => meta.title))
+    const title = sanitizeTitle(rawTitle) !== '' ? sanitizeTitle(rawTitle) : defaultTitle(now, taken)
     const flow = { id: mintFlowId(), title, createdAt: now, updatedAt: now }
     await writeBody(wsDir, flow.id, '')
     await writeIndex(wsDir, [flow, ...existing])
@@ -413,9 +426,7 @@ export function apply(ctx) {
         title = meta.title
         flow = { id: flowId }
       } else {
-        const newTitle = sanitizeTitle(payload.title)
-        if (newTitle === '') throw new Error('title is required')
-        const created = await createFlow(wsDir, newTitle)
+        const created = await createFlow(wsDir, sanitizeTitle(payload.title))
         flow = { id: created.id }
         title = created.title
       }
@@ -472,6 +483,23 @@ export function apply(ctx) {
       let value
       if (action === 'list') {
         value = { flows: await listFlows(wsDir) }
+      } else if (action === 'search') {
+        const query = String(payload.query ?? '').trim().toLowerCase()
+        const metas = await listFlows(wsDir)
+        if (query === '') {
+          value = { flows: metas }
+        } else {
+          const hits = []
+          for (const meta of metas) {
+            if (meta.title.toLowerCase().includes(query)) {
+              hits.push(meta)
+              continue
+            }
+            const body = await readBody(wsDir, meta.id)
+            if (body !== null && body.toLowerCase().includes(query)) hits.push(meta)
+          }
+          value = { flows: hits }
+        }
       } else if (action === 'flow') {
         const metas = await listFlows(wsDir)
         const meta = metas.find(entry => entry.id === sanitizeFlowId(payload.id))
@@ -479,9 +507,7 @@ export function apply(ctx) {
         if (note === null) throw new Error('flow not found')
         value = { flow: { ...meta, body: note.body } }
       } else if (action === 'create') {
-        const title = sanitizeTitle(payload.title)
-        if (title === '') throw new Error('title is required')
-        value = { flow: await withLock(wsKey, () => createFlow(wsDir, title)) }
+        value = { flow: await withLock(wsKey, () => createFlow(wsDir, sanitizeTitle(payload.title))) }
       } else if (action === 'rename' || action === 'remove') {
         const id = sanitizeFlowId(payload.id)
         if (id === '') throw new Error('id is required')
