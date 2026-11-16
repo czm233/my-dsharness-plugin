@@ -551,24 +551,6 @@ window.__ModuleLoader__.load({
         return null
       }, [])
 
-      // Reading view has no focusable target, so a paste while just reading
-      // never reaches the reader div — listen on the document instead, but
-      // stay out of the way of real inputs (the editor handles its own).
-      useEffect(() => {
-        if (editing || detail === null || sessionId === '') return undefined
-        const onDocPaste = (event) => {
-          const target = event.target
-          const tag = target !== null && typeof target === 'object' && typeof target.tagName === 'string' ? target.tagName : ''
-          if (tag === 'INPUT' || tag === 'TEXTAREA' || (target !== null && typeof target === 'object' && target.isContentEditable === true)) return
-          const file = imageFromEvent(event.clipboardData)
-          if (file === null) return
-          event.preventDefault()
-          uploadImage(file)
-        }
-        document.addEventListener('paste', onDocPaste)
-        return () => document.removeEventListener('paste', onDocPaste)
-      }, [editing, detail, sessionId, uploadImage, imageFromEvent])
-
       const onEditorPaste = (event) => {
         const file = imageFromEvent(event.clipboardData)
         if (file === null) return
