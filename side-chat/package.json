@@ -1,18 +1,20 @@
 {
   "name": "@local/side-chat",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "侧边对话：在官方右栏为当前会话开一个 fork 型子代理分支——首条消息前只读预览父会话最近几轮（官方 markdown 渲染，可划词「引用」进侧栏），输入区用官方输入卡样式；发送后完整继承父会话轮次并继续聊。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "locale/*.json",
     "icon.svg"
   ],
   "dsh": {

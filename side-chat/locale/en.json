@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Side Chat",
+    "description": "Open a forked subagent branch of the current session in the official right sidebar: preview recent turns before the first message, then continue with the full parent context in a tab."
+  }
+}
