@@ -106,6 +106,16 @@
             "commit": "588e5850e2113db852561058bfecf45f6ffa1601",
             "path": "composer-usage-plus"
           }
+        },
+        {
+          "version": "1.5.1",
+          "publishTimestamp": 1763261400,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "3e88e50",
+            "path": "composer-usage-plus"
+          }
         }
       ]
     },
