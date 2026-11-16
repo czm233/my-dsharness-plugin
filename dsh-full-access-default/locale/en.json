@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Full Access by Default",
+    "description": "Every newly created session starts with the configured permission preset (danger-full-access by default) instead of the deployment default, including reused blank sessions; Settings › General shows that preset."
+  }
+}

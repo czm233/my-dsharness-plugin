@@ -1,17 +1,19 @@
 {
   "name": "@local/dsh-full-access-default",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Makes every newly created session start with the configured default permission preset (danger-full-access by default) instead of the composed deployment default.",
   "exports": {
     ".": "./index.js",
-    "./client": "./client.js"
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json"
   },
   "files": [
     "index.js",
     "client.js",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "locale/*.json"
   ],
   "dsh": {
     "bundle": {
