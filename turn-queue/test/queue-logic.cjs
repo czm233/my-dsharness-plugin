@@ -428,7 +428,7 @@ function check(name, condition) {
   check('restores the queue and drops dead sessions', storage.read().join(',') === 'A,B')
 }
 
-// 17. The sidebar menu queues a session by hand, on top of the auto rows
+// 17. The sidebar menu queues a session by hand, at the tail
 {
   const env = boot()
   env.list.set([
@@ -439,9 +439,9 @@ function check(name, condition) {
   const action = () => env.menus[0].resolve({ sessionId: 'B', displayTitle: 'Session B' })[0]
   check('menu offers to queue', action().label === 'menu.queue')
   action().run()
-  check('menu queues the session', env.storage.read().join(',') === 'B,A')
+  check('menu queues the session at the tail', env.storage.read().join(',') === 'A,B')
   action().run()
-  check('queuing twice keeps one row', env.storage.read().join(',') === 'B,A')
+  check('queuing twice keeps one row', env.storage.read().join(',') === 'A,B')
 }
 
 // 18. Clicking a hand-queued row opens it and takes it out of the queue
@@ -454,7 +454,7 @@ function check(name, condition) {
   env.setCurrent('Z')
   env.menus[0].resolve({ sessionId: 'B' })[0].run()
   finishTurn(env, 'A')
-  check('hand-queued row sits on top', env.storage.read().join(',') === 'B,A')
+  check('hand-queued row keeps its earlier slot', env.storage.read().join(',') === 'B,A')
   const tree = env.registered[0].Component()
   const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
   cells[0].props.onClick()
@@ -488,9 +488,9 @@ function check(name, condition) {
   finishTurn(env, 'B')
   check('auto rows first', env.storage.read().join(',') === 'A,B')
   env.menus[0].resolve({ sessionId: 'A' })[0].run()
-  check('still one row for the session', env.storage.read().join(',') === 'A,B')
+  check('still one row for the session', env.storage.read().join(',') === 'B,A')
   const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
-  check('the row became hand-queued', raw[0].kind === 'manual')
+  check('the row became hand-queued at the tail', raw[1].kind === 'manual')
 }
 
 // 21. Archiving a hand-queued session drops its row

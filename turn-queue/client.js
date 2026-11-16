@@ -338,9 +338,9 @@ window.__ModuleLoader__.load({
       }
 
       /**
-       * Put a session in the queue by hand. It joins as `manual` and takes a
-       * slot at the top of the auto rows; an automatic row of the same session
-       * becomes that same row, so a session only ever occupies one slot.
+       * Put a session in the queue by hand. It joins as `manual` at the tail
+       * of the queue; an automatic row of the same session becomes that same
+       * row moved to the tail, so a session only ever occupies one slot.
        */
       const queue = (id) => {
         if (typeof id !== 'string' || id === '') return false
@@ -348,7 +348,7 @@ window.__ModuleLoader__.load({
         tokenSeq += 1
         const existing = entries.find((entry) => entry.id === id)
         const rest = entries.filter((entry) => entry.id !== id)
-        rest.splice(Math.max(0, rest.findIndex((entry) => !isPinned(entry))), 0, {
+        rest.push({
           id,
           kind: 'manual',
           token: existing?.token ?? `m:${Date.now()}:${tokenSeq}`,
