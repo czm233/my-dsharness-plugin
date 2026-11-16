@@ -48,7 +48,7 @@ window.__ModuleLoader__.load({
       .tqCard {
         display: flex;
         align-items: center;
-        width: 181px;
+        max-width: 180px;
         height: 20px;
         padding: 0 8px;
         box-sizing: border-box;
