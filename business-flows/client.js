@@ -149,6 +149,11 @@ window.__ModuleLoader__.load({
       .bfc-input{flex:1 1 auto;min-width:0;font:inherit;font-size:12px;padding:2px 8px;border-radius:6px;
         border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);outline:none}
       .bfc-input:focus{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+      .bfc-search{position:relative;display:flex;align-items:center}
+      .bfc-search .bfc-input{padding-right:24px}
+      .bfc-clear{position:absolute;right:4px;border:0;background:none;color:var(--dsw-alias-label-secondary);
+        font-size:12px;line-height:1;padding:2px 4px;border-radius:4px;cursor:pointer}
+      .bfc-clear:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
       .bfc-pal-foot{padding:8px;border-top:1px solid var(--dsw-alias-border-l1)}
       .bfc-new-btn{width:100%;text-align:left;border:1px dashed var(--dsw-alias-border-l1);background:transparent;
         color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:5px 8px;border-radius:8px;cursor:pointer}
@@ -707,12 +712,20 @@ window.__ModuleLoader__.load({
               flows !== null ? h('span', { className: 'bfc-pal-sub' }, String(rows.length)) : null,
             ),
             h('div', { style: { padding: '0 8px 6px' } },
-              h('input', {
-                className: 'bfc-input',
-                value: query,
-                placeholder: t('searchPh'),
-                onChange: (event) => setQuery(event.target.value),
-              }),
+              h('div', { className: 'bfc-search' },
+                h('input', {
+                  className: 'bfc-input',
+                  value: query,
+                  placeholder: t('searchPh'),
+                  onChange: (event) => setQuery(event.target.value),
+                }),
+                query !== '' ? h('button', {
+                  type: 'button',
+                  className: 'bfc-clear',
+                  title: t('cancel'),
+                  onClick: () => setQuery(''),
+                }, '✕') : null,
+              ),
             ),
             h('div', { className: 'bfc-pal-scroll' },
               rows.map((flow) => {

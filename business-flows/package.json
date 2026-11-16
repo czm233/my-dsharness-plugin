@@ -1,6 +1,6 @@
 {
   "name": "@local/business-flows",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
   "description": "业务流程：按工程收藏的 Markdown 笔记——回复尾部一键收藏问答原文，tab 左列表右阅读，正文可编辑、追加、粘贴截图。",
