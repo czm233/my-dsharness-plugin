@@ -16,8 +16,8 @@
         "zh": "用量明细+"
       },
       "description": {
-        "en": "Composer usage pill with session cost, today's token total, and the active channel's plan quota — GLM Coding Plan (5h/7d) or Bailian Token Plan (monthly, with in-place re-authorization).",
-        "zh": "输入框用量胶囊:会话成本明细、今日 token 合计与当前渠道的套餐额度——GLM 套餐(5 小时/7 天)或百炼 Token Plan(月度,过期可就地重新授权)。"
+        "en": "Composer usage pill with session cost in ¥ or $ (your pick), today's token total, and the active channel's plan quota — GLM Coding Plan (5h/7d) or Bailian Token Plan (monthly, with in-place re-authorization).",
+        "zh": "输入框用量胶囊:会话成本可按 ￥/$ 自由切换显示,今日 token 合计与当前渠道的套餐额度——GLM 套餐(5 小时/7 天)或百炼 Token Plan(月度,过期可就地重新授权)。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -94,6 +94,16 @@
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "63af0dbc38508a7a63859737a81697abf16bc630",
+            "path": "composer-usage-plus"
+          }
+        },
+        {
+          "version": "1.5.0",
+          "publishTimestamp": 1763260500,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "588e5850e2113db852561058bfecf45f6ffa1601",
             "path": "composer-usage-plus"
           }
         }
