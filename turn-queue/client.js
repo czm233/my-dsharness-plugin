@@ -87,6 +87,16 @@ window.__ModuleLoader__.load({
           color: #3b2a00;
         }
       }
+      .tqCard[data-kind="done"] {
+        background: var(--dsw-alias-state-success-secondary, #4ed17e);
+        color: #062b17;
+      }
+      @media (hover: hover) {
+        .tqCard[data-kind="done"]:hover {
+          background: var(--dsw-alias-state-success-primary, #22c55e);
+          color: #062b17;
+        }
+      }
     `
 
     const entryKey = (id, token) => `${id}|${token}`
@@ -443,6 +453,7 @@ window.__ModuleLoader__.load({
             className: 'tqCard',
             title: label,
             'data-session': entry.id,
+            'data-kind': entry.kind,
             'data-waiting': entry.kind === 'waiting' ? 'true' : undefined,
             'data-manual': entry.kind === 'manual' ? 'true' : undefined,
             onClick: () => { void store.open(entry) },
