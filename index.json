@@ -1245,6 +1245,16 @@
       },
       "versions": [
         {
+          "version": "0.4.3",
+          "publishTimestamp": 1794797741,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "b4b3993ff41e779298f75b9f1aadc52ffdd05d72",
+            "path": "side-chat"
+          }
+        },
+        {
           "version": "0.4.0",
           "publishTimestamp": 1794540902,
           "source": {
@@ -1590,6 +1600,16 @@
       },
       "versions": [
         {
+          "version": "1.0.2",
+          "publishTimestamp": 1794797741,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "731af3e3afb33397d8629a3f14341187fac97619",
+            "path": "dsh-full-access-default"
+          }
+        },
+        {
           "version": "1.0.0",
           "publishTimestamp": 1793859710,
           "source": {
@@ -1635,6 +1655,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.1.1",
+          "publishTimestamp": 1794797741,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "209154c8997584cad62cc2947db897118cc40f1d",
+            "path": "business-flows"
+          }
+        },
         {
           "version": "0.1.0",
           "publishTimestamp": 1763178132,
