@@ -80,9 +80,6 @@ window.__ModuleLoader__.load({
       .tqCard[data-waiting="true"] {
         box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary, rgba(90, 140, 255, 0.9));
       }
-      .tqCard[data-manual="true"] {
-        box-shadow: inset 2px 0 0 var(--dsw-alias-label-tertiary, rgba(127, 127, 127, 0.6));
-      }
     `
 
     const entryKey = (id, token) => `${id}|${token}`
