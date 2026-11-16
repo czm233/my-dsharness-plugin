@@ -29,6 +29,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 
 const ROUTE = '/api/business-flows/rpc'
 const ASSET_ROUTE = '/api/business-flows/asset'
@@ -303,6 +304,35 @@ function contentTypeOf(name) {
   return ASSET_TYPES[ext] ?? null
 }
 
+/** Open a file/URL with the platform default handler (like Obsidian does). Test seam: overridable. */
+let openFn = (target) => {
+  const platform = process.platform
+  if (platform === 'darwin') spawn('open', [target], { detached: true, stdio: 'ignore' }).unref()
+  else if (platform === 'win32') spawn('cmd', ['/c', 'start', '', target], { detached: true, stdio: 'ignore' }).unref()
+  else spawn('xdg-open', [target], { detached: true, stdio: 'ignore' }).unref()
+}
+export function _setOpenForTests(fn) {
+  openFn = fn
+}
+
+async function openFor(payload) {
+  const raw = String(payload.path ?? '').trim()
+  if (/^https?:\/\//i.test(raw)) {
+    openFn(raw)
+    return { opened: true }
+  }
+  if (!raw.startsWith('/') || /[\0\r\n]/.test(raw)) throw new Error('only absolute paths or http(s) links can be opened')
+  let stat = null
+  try {
+    stat = await fsp.stat(raw)
+  } catch {
+    throw new Error('path not found')
+  }
+  if (!stat.isDirectory() && stat.size > 512 * 1024 * 1024) throw new Error('file too large to open')
+  openFn(raw)
+  return { opened: true }
+}
+
 export function apply(ctx) {
   ctx.inject(['sessionQuery', 'connection'], (child) => {
     child.effect(() => {
@@ -486,6 +516,8 @@ export function apply(ctx) {
         })
       } else if (action === 'upload') {
         value = await withLock(wsKey, () => uploadFor(payload, wsDir))
+      } else if (action === 'openPath') {
+        value = await openFor(payload)
       } else if (action === 'assets') {
         // Note images travel through the authorized RPC channel as data URLs:
         // a plain <img> GET cannot authenticate against connection routes.

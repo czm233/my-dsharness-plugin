@@ -51,6 +51,7 @@ window.__ModuleLoader__.load({
       'edit': '编辑',
       'saveFailed': '保存失败',
       'uploadFailed': '图片上传失败',
+      'openFailed': '打开失败',
       'rename': '改名',
       'del': '删除',
       'confirmDelete': '删除？',
@@ -77,6 +78,7 @@ window.__ModuleLoader__.load({
       'edit': 'Edit',
       'saveFailed': 'Save failed',
       'uploadFailed': 'Image upload failed',
+      'openFailed': 'Open failed',
       'rename': 'Rename',
       'del': 'Delete',
       'confirmDelete': 'Delete?',
@@ -225,12 +227,32 @@ window.__ModuleLoader__.load({
       return segments
     }
 
+    /**
+     * Wrap bare absolute local paths (`/Users/…`, `/Volumes/…`) in markdown
+     * links with a custom `bfc-path:` scheme so they become clickable; the
+     * reader intercepts clicks on that scheme and asks the host to open the
+     * file with the platform default handler. Skips fenced code blocks and
+     * never touches the stored body — this is a render-time transform only.
+     */
+    function linkifyPaths(text) {
+      if (typeof text !== 'string' || text === '') return text ?? ''
+      let inFence = false
+      return text.split('\n').map((line) => {
+        if (/^\s*(```|~~~)/.test(line)) {
+          inFence = !inFence
+          return line
+        }
+        if (inFence) return line
+        return line.replace(/(^|[\s(（【「"'<])(\/(?:Users|Volumes|private|home|opt|tmp)[^\s()<>）】」"',；。！？]+)/g, (all, lead, target) => `${lead}[${target}](bfc-path:${encodeURIComponent(target)})`)
+      }).join('\n')
+    }
+
     function AnswerBody(props) {
       const { segments, labels, images } = props
       if (segments.length === 0) return null
       const renderMd = (text, key) => (MarkdownText !== null
-        ? h(MarkdownText, { key, text, labels })
-        : h('div', { key, style: { whiteSpace: 'pre-wrap' } }, text))
+        ? h(MarkdownText, { key, text: linkifyPaths(text), labels })
+        : h('div', { key, style: { whiteSpace: 'pre-wrap' } }, linkifyPaths(text)))
       if (segments.length === 1 && segments[0].type === 'md') return renderMd(segments[0].text, 'm0')
       return h('div', { className: 'bfc-a' },
         segments.map((segment, index) => segment.type === 'img'
@@ -592,6 +614,30 @@ window.__ModuleLoader__.load({
         uploadImage(file)
       }
 
+      /** Reading view: local-path and http(s) links open through the host. */
+      const onReaderClick = (event) => {
+        const target = event.target
+        const anchor = target !== null && typeof target === 'object' && typeof target.closest === 'function'
+          ? target.closest('a')
+          : null
+        if (anchor === null) return
+        const href = typeof anchor.getAttribute === 'function' ? (anchor.getAttribute('href') ?? '') : ''
+        if (href === '') return
+        let path = null
+        if (href.startsWith('bfc-path:')) {
+          try { path = decodeURIComponent(href.slice('bfc-path:'.length)) } catch { path = null }
+        } else if (/^https?:\/\//i.test(href)) {
+          path = href
+        }
+        if (path === null) return
+        event.preventDefault()
+        event.stopPropagation()
+        rpc('openPath', { sessionId, path }).then(
+          () => setNoteError(''),
+          (failure) => setNoteError(`${t('openFailed')}：${String(failure?.message ?? failure)}`),
+        )
+      }
+
       const [paletteW, setPaletteW] = useState(240)
       const startResize = (event) => {
         event.preventDefault()
@@ -722,7 +768,7 @@ window.__ModuleLoader__.load({
                     onPaste: onEditorPaste,
                     onDrop: onEditorDrop,
                   }))
-                : h('div', { className: 'bfc-reader', onDrop: onEditorDrop },
+                : h('div', { className: 'bfc-reader', onDrop: onEditorDrop, onClickCapture: onReaderClick },
                   h(AnswerBody, { segments: segmentList, labels, images })),
           ),
         ),

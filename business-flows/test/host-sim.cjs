@@ -46,7 +46,9 @@ async function main() {
     },
   }
 
-  const { apply } = await import('../index.js')
+  const { apply, _setOpenForTests } = await import('../index.js')
+  const opened = []
+  _setOpenForTests((target) => { opened.push(target) })
   apply(ctx)
 
   const route = routes.get('POST /api/business-flows/rpc')
@@ -149,6 +151,23 @@ async function main() {
   assert(result.ok === false && /known workspace/.test(result.error.message), 'unknown workspace rejected')
   result = await rpc({ action: 'collect', sessionId: SESSION_ID, turn: 5, flowId })
   assert(result.ok === false && /no collectable answer/.test(result.error.message), 'empty turn rejected')
+
+  // 12. cwd fallback: id unknown to the store layout but sessionQuery reports cwd
+  result = await rpc({ action: 'create', sessionId: 'session-ghost-cwd-1', title: 'cwd 兜底' })
+  assert(result.ok === true, 'cwd fallback accepted')
+  assert(fs.existsSync(path.join(home, 'storages', 'business-flows', '--Users-czm-test-project--', 'index.json')), 'cwd fallback writes under derived key')
+
+  // 13. openPath: URL / existing file open, missing file and relative path rejected
+  result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: 'https://example.com/x.html' })
+  assert(result.ok === true && result.value.opened === true, 'http url opens')
+  const existFile = path.join(home, 'storages', 'business-flows', WS, 'f-legacy.md')
+  result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: existFile })
+  assert(result.ok === true && result.value.opened === true, 'existing file opens')
+  assert(opened.includes(existFile), 'opener received the file path')
+  result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: '/nonexistent/nope.html' })
+  assert(result.ok === false && /path not found/.test(result.error.message), 'missing path rejected')
+  result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: 'relative/path.html' })
+  assert(result.ok === false && /absolute paths/.test(result.error.message), 'relative path rejected')
 
   if (failures === 0) console.log("host-sim: all assertions passed")
 }
