@@ -1689,6 +1689,16 @@
       },
       "versions": [
         {
+          "version": "0.3.0",
+          "publishTimestamp": 1794815447,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d630f1e8356f430d6dd44bb46c7ebd22392e71ab",
+            "path": "business-flows"
+          }
+        },
+        {
           "version": "0.2.3",
           "publishTimestamp": 1794813237,
           "source": {
