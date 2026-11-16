@@ -25,14 +25,8 @@ window.__ModuleLoader__.load({
     const LOG = '[turn-queue]'
     const NS = 'turn-queue'
     const DICTS = {
-      zh: {
-        'menu.queue': '加入队列',
-        'menu.unqueue': '移出队列',
-      },
-      en: {
-        'menu.queue': 'Add to queue',
-        'menu.unqueue': 'Remove from queue',
-      },
+      zh: { 'menu.queue': '加入队列' },
+      en: { 'menu.queue': 'Add to queue' },
     }
     const STORAGE_KEY = 'turn-queue.entries.v1'
     const READ_KEY = 'turn-queue.read.v1'
@@ -166,7 +160,7 @@ window.__ModuleLoader__.load({
           return false
         }
       }
-      /** Rows picked by the user in the sidebar: not pruned, not read-away by opening. */
+      /** Rows the user picked in the sidebar by hand. */
       const isPinned = (entry) => entry.kind === 'manual'
       const exists = (id) => !listReady() || sessionRow(id) !== undefined
       /** The session currently shown in the main view, if any. */
@@ -240,17 +234,9 @@ window.__ModuleLoader__.load({
       const enqueue = (id, kind, token) => {
         const key = entryKey(id, token)
         if (read.has(key)) return false
-        const existing = entries.find((entry) => entry.id === id)
-        if (existing !== undefined) {
-          // A row the user picked by hand outlives automatic events.
-          if (existing.kind === 'manual') return false
-          if (existing.token === token) return false
-          // One row per session: a newer event replaces the older one and moves
-          // to the newest position.
-          entries = entries.filter((entry) => entry.id !== id)
-        }
-        entries.push({ id, kind, token, at: Date.now() })
-        return true
+        // One row per session: a newer event replaces the older one inside that
+        // row instead of moving it to the end.
+        return merge(id, kind, token)
       }
 
       const sync = () => {
@@ -299,9 +285,8 @@ window.__ModuleLoader__.load({
         }
         unreadState = nextUnread
         baseline = false
-        // Opening a session counts as reading its events. A row the user queued
-        // is a bookmark, not an event: it survives opening until they remove it
-        // from the sidebar menu.
+        // Opening a session counts as reading its events, hand-queued rows
+        // included: the user is looking at it, so its row leaves the queue.
         if (onScreen !== undefined && entries.some((entry) => entry.id === onScreen && !isPinned(entry))) {
           const now = Date.now()
           for (const entry of entries) {
@@ -331,34 +316,48 @@ window.__ModuleLoader__.load({
       }
 
       /**
+       * Fold a new event into its session's row while keeping the row's slot.
+       * A row the user queued by hand absorbs the event and stays `manual`: the
+       * bookmark keeps its place until the user opens or unqueues it.
+       */
+      const merge = (id, kind, token) => {
+        const index = entries.findIndex((entry) => entry.id === id)
+        if (index === -1) {
+          entries.push({ id, kind, token, at: Date.now() })
+          return true
+        }
+        const current = entries[index]
+        if (current.token === token) return false
+        const next = current.kind === 'manual'
+          ? { ...current, token, at: Date.now() }
+          : { id, kind, token, at: Date.now() }
+        const rest = entries.slice()
+        rest.splice(index, 1, next)
+        entries = rest
+        return true
+      }
+
+      /**
        * Put a session in the queue by hand. It joins as `manual` and takes a
-       * slot at the top of the auto rows; queuing it again does nothing.
+       * slot at the top of the auto rows; an automatic row of the same session
+       * becomes that same row, so a session only ever occupies one slot.
        */
       const queue = (id) => {
         if (typeof id !== 'string' || id === '') return false
         if (entries.some((entry) => entry.id === id && entry.kind === 'manual')) return false
         tokenSeq += 1
+        const existing = entries.find((entry) => entry.id === id)
         const rest = entries.filter((entry) => entry.id !== id)
         rest.splice(Math.max(0, rest.findIndex((entry) => !isPinned(entry))), 0, {
           id,
           kind: 'manual',
-          token: `m:${Date.now()}:${tokenSeq}`,
+          token: existing?.token ?? `m:${Date.now()}:${tokenSeq}`,
           at: Date.now(),
         })
         entries = rest
         commit()
         return true
       }
-
-      const unqueue = (id) => {
-        const target = entries.find((entry) => entry.id === id && entry.kind === 'manual')
-        if (target === undefined) return false
-        entries = entries.filter((entry) => entry !== target)
-        commit()
-        return true
-      }
-
-      const isQueued = (id) => entries.some((entry) => entry.id === id && entry.kind === 'manual')
 
       const start = () => {
         read = readReads()
@@ -392,8 +391,7 @@ window.__ModuleLoader__.load({
         start,
         dismiss,
         queue,
-        unqueue,
-        isQueued,
+        isQueued: (id) => entries.some((entry) => entry.id === id && entry.kind === 'manual'),
         subscribe: (listener) => {
           listeners.add(listener)
           return () => { listeners.delete(listener) }
@@ -482,8 +480,9 @@ window.__ModuleLoader__.load({
 
         const store = createQueueStore(ctx)
         store.open = (entry) => {
-          // A bookmark stays in the queue; an event is spent once opened.
-          if (entry.kind !== 'manual') store.dismiss(entry)
+          // Opening is the action that dequeues, whether the row came from an
+          // event or was queued by hand.
+          store.dismiss(entry)
           try {
             const workspace = ctx.get('uiWorkspace')
             workspace?.openSession?.(entry.id)
@@ -513,16 +512,12 @@ window.__ModuleLoader__.load({
             id: 'turn-queue.queue-session',
             target: 'session',
             order: 50,
-            observe: () => [{ subscribe: (listener) => store.subscribe(listener) }],
-            resolve: ({ sessionId }) => {
-              const queued = store.isQueued(sessionId)
-              return [{
-                id: queued ? 'unqueue' : 'queue',
-                label: t(queued ? 'menu.unqueue' : 'menu.queue'),
-                icon: { key: 'workspace.queue' },
-                run: () => { (queued ? store.unqueue : store.queue)(sessionId) },
-              }]
-            },
+            resolve: ({ sessionId }) => [{
+              id: 'queue',
+              label: t('menu.queue'),
+              icon: { key: 'workspace.queue' },
+              run: () => { store.queue(sessionId) },
+            }],
           })
         }, 'turn-queue: sidebar menu action')
 

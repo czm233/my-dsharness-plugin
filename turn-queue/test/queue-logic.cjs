@@ -440,23 +440,11 @@ function check(name, condition) {
   check('menu offers to queue', action().label === 'menu.queue')
   action().run()
   check('menu queues the session', env.storage.read().join(',') === 'B,A')
-  check('menu flips to unqueue', action().label === 'menu.unqueue')
   action().run()
-  check('menu unqueues the session', env.storage.read().join(',') === 'A')
+  check('queuing twice keeps one row', env.storage.read().join(',') === 'B,A')
 }
 
-// 18. An auto event never replaces a hand-queued row
-{
-  const env = boot()
-  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
-  env.setCurrent('Z')
-  env.menus[0].resolve({ sessionId: 'A' })[0].run()
-  finishTurn(env, 'A')
-  const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
-  check('hand-queued row survives a completion event', raw.length === 1 && raw[0].kind === 'manual')
-}
-
-// 19. Opening a hand-queued session keeps it; later auto rows go below
+// 18. Clicking a hand-queued row opens it and takes it out of the queue
 {
   const env = boot()
   env.list.set([
@@ -464,29 +452,55 @@ function check(name, condition) {
     { id: 'B', displayTitle: 'Session B', subagent: null },
   ])
   env.setCurrent('Z')
-  env.menus[0].resolve({ sessionId: 'A' })[0].run()
-  env.setCurrent('A')
-  env.status.set(new Map([['A', { running: false }]]))
-  check('opening keeps the hand-queued row', env.storage.read().join(',') === 'A')
-  env.setCurrent('Z')
-  finishTurn(env, 'B')
-  check('auto rows land below the bookmark', env.storage.read().join(',') === 'A,B')
+  env.menus[0].resolve({ sessionId: 'B' })[0].run()
+  finishTurn(env, 'A')
+  check('hand-queued row sits on top', env.storage.read().join(',') === 'B,A')
   const tree = env.registered[0].Component()
   const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
   cells[0].props.onClick()
-  check('clicking the bookmark opens it and keeps it', env.opened.join(',') === 'A'
-    && env.storage.read().join(',') === 'A,B')
-  check('opening spends the auto rows of that session', !env.storage.read().includes('A,A'))
+  check('click opens that session', env.opened.join(',') === 'B')
+  check('click removes the hand-queued row', env.storage.read().join(',') === 'A')
+  env.setCurrent('B')
+  env.status.set(new Map([['B', { running: false }]]))
+  check('the opened row stays gone', env.storage.read().join(',') === 'A')
 }
 
-// 20. Archiving a hand-queued session drops its row
+// 19. An automatic event of a hand-queued session keeps that one row in place
+{
+  const env = boot()
+  env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
+  env.setCurrent('Z')
+  env.menus[0].resolve({ sessionId: 'A' })[0].run()
+  finishTurn(env, 'A')
+  const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
+  check('one row per session', raw.length === 1 && raw[0].id === 'A')
+  check('the row stays hand-queued', raw[0].kind === 'manual')
+}
+
+// 20. Queuing a session that already has an automatic row reuses that slot
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'B', displayTitle: 'Session B', subagent: null },
+  ])
+  env.status.set(new Map([['A', { running: true, pendingInteraction: { key: 'q1' } }]]))
+  finishTurn(env, 'B')
+  check('auto rows first', env.storage.read().join(',') === 'A,B')
+  env.menus[0].resolve({ sessionId: 'A' })[0].run()
+  check('still one row for the session', env.storage.read().join(',') === 'A,B')
+  const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
+  check('the row became hand-queued', raw[0].kind === 'manual')
+}
+
+// 21. Archiving a hand-queued session drops its row
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
   env.menus[0].resolve({ sessionId: 'A' })[0].run()
   env.archived.push('A')
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
-  check('archived bookmark is dropped', env.storage.read().length === 0)
+  check('archived hand-queued row is dropped', env.storage.read().length === 0)
 }
 
 if (failures > 0) {
