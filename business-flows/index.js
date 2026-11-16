@@ -486,6 +486,24 @@ export function apply(ctx) {
         })
       } else if (action === 'upload') {
         value = await withLock(wsKey, () => uploadFor(payload, wsDir))
+      } else if (action === 'assets') {
+        // Note images travel through the authorized RPC channel as data URLs:
+        // a plain <img> GET cannot authenticate against connection routes.
+        const id = sanitizeFlowId(payload.id)
+        if (id === '') throw new Error('id is required')
+        const names = Array.isArray(payload.names) ? payload.names.slice(0, 50).map(name => path.basename(String(name ?? ''))) : []
+        const images = {}
+        for (const name of names) {
+          if (name === '' || contentTypeOf(name) === null) continue
+          try {
+            const buf = await fsp.readFile(path.join(assetsDir(wsDir, id), name))
+            if (buf.length === 0 || buf.length > 8 * 1024 * 1024) continue
+            images[name] = `data:${contentTypeOf(name)};base64,${buf.toString('base64')}`
+          } catch {
+            /* missing asset → omitted */
+          }
+        }
+        value = { images }
       } else {
         throw new Error(`unknown action ${JSON.stringify(action)}`)
       }

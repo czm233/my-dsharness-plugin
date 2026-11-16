@@ -111,6 +111,13 @@ async function main() {
   const bad = await assetRoute.fetch({ url: `http://host/api/business-flows/asset?flow=${flowId}&name=../etc/passwd` })
   assert(bad.status === 404, 'traversal rejected')
 
+  // 7b. assets action returns the uploaded image as a data URL (authorized channel)
+  result = await rpc({ action: 'assets', sessionId: SESSION_ID, id: flowId, names: [result.value.name, '不存在.png'] })
+  assert(result.ok === true, 'assets ok')
+  const keys = Object.keys(result.value.images)
+  assert(keys.length === 1, `one image returned, got ${keys.length}`)
+  assert(String(Object.values(result.value.images)[0]).startsWith('data:image/png;base64,'), 'data URL shape')
+
   // 8. flow returns the markdown body
   result = await rpc({ action: 'flow', sessionId: SESSION_ID, id: flowId })
   assert(result.ok === true && result.value.flow.body.startsWith('# 手写内容'), 'flow returns body')

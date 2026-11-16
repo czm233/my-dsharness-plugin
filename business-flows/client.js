@@ -29,7 +29,6 @@ window.__ModuleLoader__.load({
     const NS = 'businessFlows'
     const RPC_CHANNEL = '/api'
     const RPC_METHOD = 'business-flows/rpc'
-    const ASSET_ROUTE = '/api/business-flows/asset'
     const ASSET_REF = /\.assets\//
 
     const primitives = (() => {
@@ -176,36 +175,21 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Prepare a note body for rendering: relative asset refs
-     * (`<flowId>.assets/<name>`) and Obsidian wiki-embeds (`![[name]]`)
-     * become host asset URLs; the result is still plain markdown.
-     */
-    function renderableBody(body, flowId) {
-      if (typeof body !== 'string' || body === '' || flowId === '') return ''
-      return body
-        .replace(/(!\[[^\]]*\]\()\s*([^\s)]*\.assets\/[^\s)]+)\s*(\))/g, (_all, head, ref, tail) => {
-          const name = ref.slice(ref.indexOf('.assets/') + '.assets/'.length)
-          return `${head}${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(name)}${tail}`
-        })
-        .replace(/!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g, (_all, name) => {
-          return `![](${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(String(name).trim())})`
-        })
-    }
-
-    /**
-     * Split a renderable body into markdown / image segments at image-only
-     * lines, so images render as <img> directly instead of relying on the
-     * markdown renderer supporting them.
+     * Split a note body into markdown / image segments at image-only lines.
+     * Image segments carry the asset NAME (as stored on disk next to the
+     * note); the images prop maps names to data URLs fetched over the
+     * authorized RPC channel — plain <img> GETs cannot authenticate.
      */
     function bodySegments(body) {
       const segments = []
       let text = ''
       for (const line of String(body ?? '').split('\n')) {
-        const image = /^\s*(?:>\s*)*!\[[^\]]*\]\(([^)\s]+)[^)]*\)\s*$/.exec(line)
-        if (image !== null) {
+        const md = /^\s*(?:>\s*)*!\[[^\]]*\]\([^\s)]*\.assets\/([^\s)]+)[^)]*\)\s*$/.exec(line)
+        const wiki = md === null ? /^\s*(?:>\s*)*!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]\s*$/.exec(line) : null
+        if (md !== null || wiki !== null) {
           if (text.trim() !== '') segments.push({ type: 'md', text })
           text = ''
-          segments.push({ type: 'img', src: image[1] })
+          segments.push({ type: 'img', name: (md !== null ? md[1] : wiki[1]).trim() })
         } else {
           text += `${line}\n`
         }
@@ -215,24 +199,23 @@ window.__ModuleLoader__.load({
     }
 
     function AnswerBody(props) {
-      const { text, labels } = props
-      const segments = bodySegments(text)
+      const { segments, labels, images } = props
       if (segments.length === 0) return null
-      if (segments.length === 1 && segments[0].type === 'md') {
-        if (MarkdownText !== null) return h(MarkdownText, { text: segments[0].text, labels })
-        return h('div', { className: 'bfc-a' }, h('div', { style: { whiteSpace: 'pre-wrap' } }, segments[0].text))
-      }
+      const renderMd = (text, key) => (MarkdownText !== null
+        ? h(MarkdownText, { key, text, labels })
+        : h('div', { key, style: { whiteSpace: 'pre-wrap' } }, text))
+      if (segments.length === 1 && segments[0].type === 'md') return renderMd(segments[0].text, 'm0')
       return h('div', { className: 'bfc-a' },
         segments.map((segment, index) => segment.type === 'img'
-          ? h('img', {
-            key: `i${index}`,
-            src: segment.src,
-            alt: '',
-            style: { maxWidth: '100%', borderRadius: 8, margin: '8px 0' },
-          })
-          : (MarkdownText !== null
-            ? h(MarkdownText, { key: `m${index}`, text: segment.text, labels })
-            : h('div', { key: `m${index}`, style: { whiteSpace: 'pre-wrap' } }, segment.text))),
+          ? (typeof images?.[segment.name] === 'string'
+            ? h('img', {
+              key: `i${index}`,
+              src: images[segment.name],
+              alt: segment.name,
+              style: { maxWidth: '100%', borderRadius: 8, margin: '8px 0' },
+            })
+            : null)
+          : renderMd(segment.text, `m${index}`)),
       )
     }
 
@@ -386,8 +369,30 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = useState(false)
       const [draft, setDraft] = useState('')
       const [noteError, setNoteError] = useState('')
+      const [images, setImages] = useState({})
       const taRef = useRef(null)
       const labels = markdownLabels(t)
+
+      const segmentList = detail === null ? [] : bodySegments(detail.body)
+
+      // Fetch note images as data URLs over the authorized RPC channel.
+      useEffect(() => {
+        if (detail === null || sessionId === '') {
+          setImages({})
+          return undefined
+        }
+        const names = [...new Set(segmentList.filter(segment => segment.type === 'img').map(segment => segment.name))]
+        if (names.length === 0) {
+          setImages({})
+          return undefined
+        }
+        let cancelled = false
+        rpc('assets', { sessionId, id: detail.id, names }).then(
+          (value) => { if (!cancelled) setImages(value?.images ?? {}) },
+          () => { if (!cancelled) setImages({}) },
+        )
+        return () => { cancelled = true }
+      }, [detail?.id, detail?.body, rpc, sessionId])
 
       const reload = useCallback(async () => {
         if (sessionId === '') { setFlows([]); return }
@@ -528,7 +533,7 @@ window.__ModuleLoader__.load({
         }
       }, [detail, editing, insertAtCursor, rpc, sessionId, t])
 
-      const imageFromEvent = (transfer) => {
+      const imageFromEvent = useCallback((transfer) => {
         if (!transfer) return null
         const items = transfer.items
         if (items) {
@@ -544,7 +549,25 @@ window.__ModuleLoader__.load({
           return Array.from(files).find(candidate => String(candidate.type ?? '').startsWith('image/')) ?? null
         }
         return null
-      }
+      }, [])
+
+      // Reading view has no focusable target, so a paste while just reading
+      // never reaches the reader div — listen on the document instead, but
+      // stay out of the way of real inputs (the editor handles its own).
+      useEffect(() => {
+        if (editing || detail === null || sessionId === '') return undefined
+        const onDocPaste = (event) => {
+          const target = event.target
+          const tag = target !== null && typeof target === 'object' && typeof target.tagName === 'string' ? target.tagName : ''
+          if (tag === 'INPUT' || tag === 'TEXTAREA' || (target !== null && typeof target === 'object' && target.isContentEditable === true)) return
+          const file = imageFromEvent(event.clipboardData)
+          if (file === null) return
+          event.preventDefault()
+          uploadImage(file)
+        }
+        document.addEventListener('paste', onDocPaste)
+        return () => document.removeEventListener('paste', onDocPaste)
+      }, [editing, detail, sessionId, uploadImage, imageFromEvent])
 
       const onEditorPaste = (event) => {
         const file = imageFromEvent(event.clipboardData)
@@ -668,12 +691,8 @@ window.__ModuleLoader__.load({
                     onPaste: onEditorPaste,
                     onDrop: onEditorDrop,
                   }))
-                : h('div', {
-                  className: 'bfc-reader',
-                  onPaste: onEditorPaste,
-                  onDrop: onEditorDrop,
-                },
-                  h(AnswerBody, { text: renderableBody(detail.body, detail.id), labels })),
+                : h('div', { className: 'bfc-reader', onDrop: onEditorDrop },
+                  h(AnswerBody, { segments: segmentList, labels, images })),
             ),
         ),
       )
