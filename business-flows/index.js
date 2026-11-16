@@ -75,11 +75,15 @@ function mintFlowId() {
   return sanitizeFlowId(`f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`) || `f-${Date.now().toString(36)}`
 }
 
-/** Default note title when the user does not name one: unique per second, deduped with a counter. */
+/**
+ * Default note title: the creation timestamp itself (YYYY-MM-DD HH:mm:ss), so
+ * a new note never waits for the user to type a name; same-second collisions
+ * get a counter suffix.
+ */
 function defaultTitle(now = Date.now(), takenTitles = new Set()) {
   const d = new Date(now)
   const pad = (n) => String(n).padStart(2, '0')
-  const base = `笔记 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const base = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   if (!takenTitles.has(base)) return base
   let n = 2
   while (takenTitles.has(`${base} (${n})`)) n += 1

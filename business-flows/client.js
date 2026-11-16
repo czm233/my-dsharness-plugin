@@ -44,9 +44,7 @@ window.__ModuleLoader__.load({
       'collectFailed': '收藏失败',
       'loadFailed': '读取失败',
       'newFlow': '新建业务流程',
-      'titlePh': '留空自动命名',
       'searchPh': '搜索标题与正文',
-      'create': '创建',
       'cancel': '取消',
       'save': '保存',
       'edit': '编辑',
@@ -72,9 +70,7 @@ window.__ModuleLoader__.load({
       'collectFailed': 'Save failed',
       'loadFailed': 'Load failed',
       'newFlow': 'New flow',
-      'titlePh': 'Leave empty to auto-name',
       'searchPh': 'Search titles and bodies',
-      'create': 'Create',
       'cancel': 'Cancel',
       'save': 'Save',
       'edit': 'Edit',
@@ -157,7 +153,8 @@ window.__ModuleLoader__.load({
       .bfc-pal-foot{padding:8px;border-top:1px solid var(--dsw-alias-border-l1)}
       .bfc-new-btn{width:100%;text-align:left;border:1px dashed var(--dsw-alias-border-l1);background:transparent;
         color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:5px 8px;border-radius:8px;cursor:pointer}
-      .bfc-new-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
+      .bfc-new-btn:hover:not(:disabled){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
+      .bfc-new-btn:disabled{opacity:.5;cursor:default}
       /* --- 拖拽分隔条 --- */
       .bfc-resizer{flex:0 0 8px;cursor:col-resize;background:transparent;position:relative;z-index:5}
       .bfc-resizer:hover,.bfc-resizer.active{background:var(--dsw-alias-border-l1)}
@@ -186,7 +183,6 @@ window.__ModuleLoader__.load({
       .bfc-menu-sep{height:1px;background:var(--dsw-alias-border-l1,rgba(128,128,128,.25));margin:4px 2px}
       .bfc-menu-note{padding:6px 10px;opacity:.6;white-space:nowrap}
       .bfc-menu-error{padding:6px 10px;color:var(--dsw-alias-state-error-primary,#e5484d);white-space:normal;max-width:260px}
-      .bfc-new-row{display:flex;gap:4px;padding:4px 6px 2px}
       .bfc-mini-btn{border:none;background:none;color:inherit;opacity:.75;font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
       .bfc-mini-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
       .bfc-mini-btn:disabled{opacity:.4;cursor:default}
@@ -283,24 +279,19 @@ window.__ModuleLoader__.load({
       const turnNo = typeof turnLocation?.turn === 'number' ? turnLocation.turn : undefined
 
       const [open, setOpen] = useState(false)
-      const [phase, setPhase] = useState('list')
       const [flows, setFlows] = useState(null)
-      const [title, setTitle] = useState('')
       const [error, setError] = useState('')
       const [busy, setBusy] = useState(false)
       const [done, setDone] = useState(false)
       const [pos, setPos] = useState(null)
       const btnRef = useRef(null)
       const menuRef = useRef(null)
-      const inputRef = useRef(null)
 
       const openMenu = useCallback(() => {
         if (done || busy || sessionId === '' || turnNo === undefined) return
         const rect = btnRef.current?.getBoundingClientRect()
         if (rect) setPos({ top: rect.bottom + 6, left: Math.max(8, rect.right - 250) })
-        setPhase('list')
         setError('')
-        setTitle('')
         setFlows(null)
         setOpen(true)
         callRpc('list', { sessionId }).then(
@@ -323,10 +314,6 @@ window.__ModuleLoader__.load({
         return () => document.removeEventListener('mousedown', onDown)
       }, [open])
 
-      useEffect(() => {
-        if (open && phase === 'new') inputRef.current?.focus()
-      }, [open, phase])
-
       const collect = useCallback(async (args) => {
         setBusy(true)
         setError('')
@@ -343,7 +330,7 @@ window.__ModuleLoader__.load({
 
       const submitNew = () => {
         if (busy) return
-        collect({ title: title.trim() })
+        collect({})
       }
 
       const menu = open && pos !== null
@@ -365,28 +352,12 @@ window.__ModuleLoader__.load({
                 onClick: () => collect({ flowId: flow.id }),
               }, flow.title)),
             flows !== null ? h('div', { className: 'bfc-menu-sep' }) : null,
-            phase === 'list'
-              ? h('button', {
-                type: 'button',
-                className: 'bfc-menu-item',
-                disabled: busy,
-                onClick: () => { setPhase('new') },
-              }, `＋ ${t('newFlow')}`)
-              : h('div', { className: 'bfc-new-row' },
-                h('input', {
-                  ref: inputRef,
-                  className: 'bfc-input',
-                  value: title,
-                  placeholder: t('titlePh'),
-                  maxLength: 60,
-                  onChange: (event) => setTitle(event.target.value),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter') submitNew()
-                    if (event.key === 'Escape') setPhase('list')
-                  },
-                }),
-                h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: busy, onClick: submitNew }, t('create')),
-                h('button', { type: 'button', className: 'bfc-mini-btn', disabled: busy, onClick: () => { setPhase('list') } }, t('cancel'))),
+            h('button', {
+              type: 'button',
+              className: 'bfc-menu-item',
+              disabled: busy,
+              onClick: submitNew,
+            }, `＋ ${t('newFlow')}`),
             error !== '' ? h('div', { className: 'bfc-menu-error' }, error) : null,
           ),
           document.body,
@@ -417,7 +388,6 @@ window.__ModuleLoader__.load({
       const [selectedId, setSelectedId] = useState('')
       const [detail, setDetail] = useState(null)
       const [creating, setCreating] = useState(false)
-      const [newTitle, setNewTitle] = useState('')
       const [renameId, setRenameId] = useState('')
       const [renameTitle, setRenameTitle] = useState('')
       const [confirmId, setConfirmId] = useState('')
@@ -514,15 +484,16 @@ window.__ModuleLoader__.load({
       }, [rpc, sessionId])
 
       const submitCreate = async () => {
-        if (sessionId === '') return
+        if (sessionId === '' || creating) return
+        setCreating(true)
         try {
-          const value = await rpc('create', { sessionId, title: newTitle.trim() })
-          setCreating(false)
-          setNewTitle('')
+          const value = await rpc('create', { sessionId })
           await reload()
           if (value?.flow?.id) openFlow(value.flow.id)
         } catch (failure) {
           setError(String(failure?.message ?? failure))
+        } finally {
+          setCreating(false)
         }
       }
 
@@ -777,24 +748,7 @@ window.__ModuleLoader__.load({
               }),
             ),
             h('div', { className: 'bfc-pal-foot' },
-              creating
-                ? h('div', { className: 'bfc-row-form' },
-                  h('input', {
-                    className: 'bfc-input',
-                    value: newTitle,
-                    placeholder: t('titlePh'),
-                    maxLength: 60,
-                    autoFocus: true,
-                    onChange: (event) => setNewTitle(event.target.value),
-                    onKeyDown: (event) => {
-                      if (event.key === 'Enter') submitCreate()
-                      if (event.key === 'Escape') setCreating(false)
-                    },
-                  }),
-                  h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitCreate }, t('create')),
-                  h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setCreating(false) }, t('cancel')),
-                )
-                : h('button', { type: 'button', className: 'bfc-new-btn', onClick: () => { setNewTitle(''); setCreating(true) } }, `＋ ${t('newFlow')}`),
+              h('button', { type: 'button', className: 'bfc-new-btn', disabled: creating, onClick: submitCreate }, `＋ ${t('newFlow')}`),
             ),
           ),
           h('div', { className: 'bfc-resizer', onMouseDown: startResize }),

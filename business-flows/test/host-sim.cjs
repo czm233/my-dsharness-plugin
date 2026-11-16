@@ -169,14 +169,23 @@ async function main() {
   result = await rpc({ action: 'openPath', sessionId: SESSION_ID, path: 'relative/path.html' })
   assert(result.ok === false && /absolute paths/.test(result.error.message), 'relative path rejected')
 
-  // 14. create without title auto-names; same-second collision dedupes
+  // 14. create without title names the note after the current timestamp
+  const STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}( \(\d+\))?$/
   result = await rpc({ action: 'create', sessionId: SESSION_ID })
-  assert(result.ok === true && /^笔记 \d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(result.value.flow.title), `default title, got ${result.value.flow?.title}`)
+  assert(result.ok === true && STAMP.test(result.value.flow.title), `timestamp title, got ${result.value.flow?.title}`)
+  assert(result.value.flow.title.startsWith(String(new Date().getFullYear())), 'timestamp title is today')
+  const firstAuto = result.value.flow.title
   result = await rpc({ action: 'create', sessionId: SESSION_ID, title: '' })
-  assert(result.ok === true && result.value.flow.title !== '', 'empty title also auto-names')
+  assert(result.ok === true && STAMP.test(result.value.flow.title), 'empty title also uses timestamp')
+  assert(result.value.flow.title !== firstAuto, 'same-second auto title deduped')
   result = await rpc({ action: 'list', sessionId: SESSION_ID })
-  const autoTitles = result.value.flows.filter(meta => /^笔记 \d{2}-\d{2}/.test(meta.title)).map(meta => meta.title)
+  const autoTitles = result.value.flows.filter(meta => STAMP.test(meta.title)).map(meta => meta.title)
   assert(new Set(autoTitles).size === autoTitles.length, 'auto names unique')
+
+  // 14b. collect with neither flowId nor title creates a timestamp-named note
+  result = await rpc({ action: 'collect', sessionId: SESSION_ID, turn: 1 })
+  assert(result.ok === true && STAMP.test(result.value.flow.title), `collect auto-names, got ${result.value.flow?.title}`)
+  assert(fs.existsSync(path.join(home, 'storages', 'business-flows', WS, `${result.value.flow.id}.md`)), 'auto-named note is a real .md')
 
   // 15. search hits titles and bodies
   result = await rpc({ action: 'search', sessionId: SESSION_ID, query: '语音识别' })
