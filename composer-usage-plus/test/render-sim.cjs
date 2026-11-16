@@ -61,6 +61,12 @@ function loadModule(seedStates) {
       },
       addEventListener() {},
       removeEventListener() {},
+      localStorage: {
+        getItem() {
+          return null;
+        },
+        setItem() {},
+      },
       innerWidth: 1280,
       innerHeight: 800,
     },
@@ -99,14 +105,18 @@ function loadModule(seedStates) {
   return Component;
 }
 
-function render(provider, envelope) {
-  const Component = loadModule([true, null, { at: Date.now(), envelope: envelope }, null, false]);
+function render(opts) {
+  const provider = opts.provider;
+  const envelope = opts.envelope;
+  const currency = opts.currency === undefined ? null : opts.currency;
+  const model = opts.model === undefined ? 'deepseek-v4-pro' : opts.model;
+  const Component = loadModule([true, null, { at: Date.now(), envelope: envelope }, null, false, currency]);
   const t = function (key, params) {
     return params === undefined ? key : key + '(' + JSON.stringify(params) + ')';
   };
   const useProjection = function (name) {
     if (name === 'tokenUsage') return { uncachedInputTokens: 1200, outputTokens: 400, cacheReadTokens: 0, cacheWriteTokens: 0 };
-    if (name === 'modelSelection') return { next: { provider: provider, model: 'deepseek-v4-pro' } };
+    if (name === 'modelSelection') return { next: { provider: provider, model: model } };
     return undefined;
   };
   const tree = Component({ useProjection: useProjection, t: t });
@@ -134,7 +144,9 @@ function expect(text, needle, label) {
 }
 
 // Bailian (qwen channel): one monthly bar, credits in the tooltip, no 5h/7d badges.
-const bailian = render('qwen-token-plan-cn', {
+const bailian = render({
+  provider: 'qwen-token-plan-cn',
+  envelope: {
   ok: true,
   kind: 'bailian',
   plan: 'pro',
@@ -143,6 +155,7 @@ const bailian = render('qwen-token-plan-cn', {
   creditsTotal: 200000,
   creditsUsed: 50000,
   subscriptionEnds: '2026-12-01',
+  },
 });
 expect(bailian, 'usage.quotaMonth', 'bailian bar label');
 expect(bailian, 'usage.quotaLeft({"left":"75.0"})', 'bailian remaining percent');
@@ -151,24 +164,27 @@ expect(bailian, '2026-11-30 00:00', 'bailian reset time');
 assert.ok(bailian.indexOf('usage.quota5h') < 0, 'bailian has no 5-hour bar');
 
 // Bailian without a local token: keep the error text and offer the login button.
-const needsAuth = render('qwen-token-plan-cn', { ok: false, reason: 'no-token' });
+const needsAuth = render({ provider: 'qwen-token-plan-cn', envelope: { ok: false, reason: 'no-token' } });
 expect(needsAuth, 'usage.quotaNoToken', 'auth reason text');
 expect(needsAuth, 'usage.auth', 'authorize button');
 
 // Expired token behaves the same.
-const expired = render('qwen-token-plan-cn', { ok: false, reason: 'expired' });
+const expired = render({ provider: 'qwen-token-plan-cn', envelope: { ok: false, reason: 'expired' } });
 expect(expired, 'usage.quotaExpired', 'expired reason text');
 expect(expired, 'usage.auth', 'authorize button after expiry');
 
 // GLM channel keeps its own three bars and must never show the login button.
-const zai = render('zai-coding-cn', {
-  ok: true,
-  body: {
-    data: {
-      limits: [
-        { type: 'TOKENS_LIMIT', percentage: 40, nextResetTime: Date.now() + 3600000 },
-        { type: 'TOKENS_LIMIT', percentage: 10, nextResetTime: Date.now() + 86400000 },
-      ],
+const zai = render({
+  provider: 'zai-coding-cn',
+  envelope: {
+    ok: true,
+    body: {
+      data: {
+        limits: [
+          { type: 'TOKENS_LIMIT', percentage: 40, nextResetTime: Date.now() + 3600000 },
+          { type: 'TOKENS_LIMIT', percentage: 10, nextResetTime: Date.now() + 86400000 },
+        ],
+      },
     },
   },
 });
@@ -177,4 +193,26 @@ expect(zai, 'usage.quotaWeek', 'zai weekly bar');
 assert.ok(zai.indexOf('usage.auth') < 0, 'zai never offers the bailian login');
 assert.ok(zai.indexOf('usage.quotaMonth') < 0, 'zai has no monthly bar');
 
-console.log('render sim OK: bailian bar + auth button + zai bars');
+// Display currency: USD-only models convert at the fixed rate, and the note says so.
+const usdView = render({ provider: 'qwen-token-plan-cn', envelope: null, model: 'deepseek-v4.1-flash' });
+const cnyView = render({ provider: 'qwen-token-plan-cn', envelope: null, model: 'deepseek-v4.1-flash', currency: 'cny' });
+const moneyOf = function (text, symbol) {
+  const match = new RegExp(symbol === '$' ? '\\$([0-9.]+)' : '¥([0-9.]+)').exec(text);
+  return match === null ? null : Number(match[1]);
+};
+const usdPrice = moneyOf(usdView, '$');
+const cnyPrice = moneyOf(cnyView, '¥');
+assert.ok(usdPrice > 0 && cnyPrice > 0, 'both currencies render an amount');
+assert.ok(
+  Math.abs(cnyPrice / usdPrice - 7.1) / 7.1 < 0.02,
+  'converted amount is ~7.1x, got ' + cnyPrice + ' vs ' + usdPrice,
+);
+expect(cnyView, 'usage.fxNote', 'conversion note when the list price is USD only');
+assert.ok(usdView.indexOf('usage.fxNote') < 0, 'no conversion note on the native currency');
+
+// Models priced in both currencies use the official pair, never the FX rate.
+const twinUsd = render({ provider: 'qwen-token-plan-cn', envelope: null, model: 'deepseek-v4-pro', currency: 'usd' });
+expect(twinUsd, '$', 'dual-priced model shows usd on request');
+assert.ok(twinUsd.indexOf('usage.fxNote') < 0, 'official usd price needs no conversion note');
+
+console.log('render sim OK: bailian bar + auth button + zai bars + currency toggle');

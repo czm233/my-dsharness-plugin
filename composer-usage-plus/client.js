@@ -8,6 +8,18 @@ window.__ModuleLoader__.load({
     const SLOT = 'conversation.composer.dock';
     const STYLE_ID = '@local/composer-usage-plus/usage.css';
     const CURRENCY_SYMBOLS = { cny: '¥', usd: '$' };
+    /** Fixed conversion for models whose list price is only published in one currency. */
+    const USD_CNY_RATE = 7.1;
+    const CURRENCY_PREF_KEY = 'composer-usage-plus.currency';
+
+    function readCurrencyPref() {
+      try {
+        const stored = window.localStorage.getItem(CURRENCY_PREF_KEY);
+        return stored === 'cny' || stored === 'usd' ? stored : null;
+      } catch {
+        return null;
+      }
+    }
 
     /**
      * Per-model list prices in currency units per 1M tokens.
@@ -119,6 +131,12 @@ window.__ModuleLoader__.load({
       '.cudP_title{display:flex;justify-content:space-between;gap:16px;margin-bottom:8px;',
       'font-weight:500;color:var(--dsw-alias-label-primary)}',
       '.cudP_titleLabel{display:inline-flex;align-items:center;gap:6px;min-width:0}',
+      '.cudP_cur{display:inline-flex;margin-left:4px;border-radius:var(--dsw-radius-sm,6px);overflow:hidden;',
+      'border:.5px solid var(--dsw-alias-border-l2)}',
+      '.cudP_curBtn{padding:0 6px;font:inherit;font-size:11px;line-height:16px;background:0 0;border:0;',
+      'cursor:pointer;color:var(--dsw-alias-label-tertiary)}',
+      '.cudP_curBtn[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2));',
+      'color:var(--dsw-alias-label-primary)}',
       '.cudP_titleValue{font-variant-numeric:tabular-nums}',
       '.cudP_rule{border-top:.5px solid var(--dsw-alias-border-l2);margin-bottom:10px}',
       // Breakdown table.
@@ -344,6 +362,7 @@ window.__ModuleLoader__.load({
       const [quota, setQuota] = React.useState(null);
       const [daily, setDaily] = React.useState(null);
       const [authPending, setAuthPending] = React.useState(false);
+      const [currency, setCurrency] = React.useState(readCurrencyPref);
       const anchorRef = React.useRef(null);
       const panelRef = React.useRef(null);
 
@@ -468,6 +487,19 @@ window.__ModuleLoader__.load({
         [authPending],
       );
 
+      // Remember the chosen display currency across sessions and channels.
+      React.useEffect(
+        function () {
+          if (currency === null) return;
+          try {
+            window.localStorage.setItem(CURRENCY_PREF_KEY, currency);
+          } catch {
+            /* storage unavailable */
+          }
+        },
+        [currency],
+      );
+
       const startLogin = React.useCallback(function () {
         setAuthPending(true);
         fetch('/api/composer-usage.login', { method: 'POST' })
@@ -511,12 +543,25 @@ window.__ModuleLoader__.load({
       let digits = 4;
       let shownTotal = null;
 
+      const nativeCurrency = pricing ? (pricing.cny ? 'cny' : 'usd') : 'usd';
+      const displayCurrency = currency === null ? nativeCurrency : currency;
+      let converted = false;
       if (pricing) {
-        const currencyKey = pricing.cny ? 'cny' : 'usd';
-        symbol = CURRENCY_SYMBOLS[currencyKey];
-        const rates = pricing[currencyKey];
+        // Show the model's own list currency unless the user picked one; models
+        // published in a single currency are converted at the fixed rate.
+        const displayKey = displayCurrency;
+        const official = pricing[displayKey];
+        const fxScale = official === undefined ? (displayKey === 'cny' ? USD_CNY_RATE : 1 / USD_CNY_RATE) : 1;
+        const rates = official === undefined ? pricing[nativeCurrency] : official;
+        converted = fxScale !== 1;
+        symbol = CURRENCY_SYMBOLS[displayKey];
         const index = pricing.peak ? periodIndex(new Date(), pricing.hours) : 0;
-        const units = { input: rates.miss[index], read: rates.hit[index], write: rates.miss[index], output: rates.out[index] };
+        const units = {
+          input: rates.miss[index] * fxScale,
+          read: rates.hit[index] * fxScale,
+          write: rates.miss[index] * fxScale,
+          output: rates.out[index] * fxScale,
+        };
         rows.forEach(function (row) {
           row.unit = units[row.key];
           row.cost = (row.tokens * row.unit) / 1e6;
@@ -540,6 +585,7 @@ window.__ModuleLoader__.load({
           hitText === null ? null : t('usage.hitNote', { hit: hitText }),
           modelId.indexOf('deepseek') === 0 ? t('usage.writeNote') : null,
           modelId.indexOf('glm') === 0 ? t('usage.storageNote') : null,
+          converted ? t('usage.fxNote', { rate: USD_CNY_RATE }) : null,
           t('usage.estimateNote'),
         ].filter(function (line) {
           return line !== null;
@@ -724,6 +770,29 @@ window.__ModuleLoader__.load({
         cell('total:cost', costText(shownTotal), shownTotal === null),
       );
 
+      const currencyToggle = pricing
+        ? h(
+            'span',
+            { className: 'cudP_cur', role: 'group', 'aria-label': t('usage.currencyLabel') },
+            ['cny', 'usd'].map(function (key) {
+              return h(
+                'button',
+                {
+                  key: key,
+                  type: 'button',
+                  className: 'cudP_curBtn',
+                  'aria-pressed': displayCurrency === key,
+                  title: t('usage.currencyLabel'),
+                  onClick: function () {
+                    setCurrency(key);
+                  },
+                },
+                CURRENCY_SYMBOLS[key],
+              );
+            }),
+          )
+        : null;
+
       return h(
         'span',
         { className: 'cudP_anchor', 'data-composer-stat': 'usage', ref: anchorRef },
@@ -778,7 +847,7 @@ window.__ModuleLoader__.load({
               h(
                 'div',
                 { className: 'cudP_title' },
-                h('span', { className: 'cudP_titleLabel' }, ICON, t('usage.dialogTitle')),
+                h('span', { className: 'cudP_titleLabel' }, ICON, t('usage.dialogTitle'), currencyToggle),
                 h('span', { className: 'cudP_titleValue' }, t('usage.count', { count: exactTokens(total) })),
               ),
               h('div', { className: 'cudP_rule', 'aria-hidden': true }),
@@ -877,6 +946,8 @@ window.__ModuleLoader__.load({
                 'usage.storageNote': 'GLM 缓存写入（存储）当前限时免费，不计费。',
                 'usage.planNote': '当前渠道为订阅套餐，金额按官方牌价折算，仅供参考，套餐内不另行扣费。',
                 'usage.unknownNote': '未收录「{model}」的单价，暂无法估算费用，仅显示用量。',
+                'usage.currencyLabel': '显示币种',
+                'usage.fxNote': '该模型官方只有美元价，金额按 1 美元 ≈ ¥{rate} 换算。',
                 'usage.estimateNote': '金额为按官方单价折算的估算值，非账单。',
               },
               en: {
@@ -921,6 +992,8 @@ window.__ModuleLoader__.load({
                 'usage.storageNote': 'GLM cache-write storage is free for a limited time and not billed.',
                 'usage.planNote': 'This channel is a subscription plan; amounts are reference estimates at list prices and are not billed on top of the plan.',
                 'usage.unknownNote': 'No unit price listed for "{model}"; showing usage only.',
+                'usage.currencyLabel': 'Display currency',
+                'usage.fxNote': 'This model is listed in USD only; amounts are converted at ¥{rate} per USD.',
                 'usage.estimateNote': 'Amounts are estimates from list prices, not a bill.',
               },
             });

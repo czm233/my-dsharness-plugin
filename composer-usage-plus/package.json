@@ -1,9 +1,9 @@
 {
   "name": "@local/composer-usage-plus",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "Composer usage pill showing the estimated session cost; click for a per-model breakdown of input/output/cache tokens, unit prices, and amounts, plus the plan quota of the active channel (GLM Coding Plan or Bailian Token Plan).",
+  "description": "Composer usage pill showing the estimated session cost in ¥ or $ (your pick); click for a per-model breakdown of input/output/cache tokens, unit prices, and amounts, plus the active channel's plan quota (GLM Coding Plan or Bailian Token Plan).",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
