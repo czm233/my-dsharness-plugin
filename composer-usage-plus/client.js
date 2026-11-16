@@ -66,7 +66,8 @@ window.__ModuleLoader__.load({
     };
 
     /** Subscription gateways whose plans cover token usage without per-token billing. */
-    const PLAN_PROVIDERS = ['zai-coding', 'coding-plan', 'token-plan'];
+    const ZAI_PLAN_PROVIDERS = ['zai-coding', 'coding-plan'];
+    const BAILIAN_PLAN_PROVIDERS = ['qwen', 'bailian', 'token-plan'];
 
     /** Exact id first, then the longest id the model name starts with. */
     function matchPricing(modelId) {
@@ -80,11 +81,16 @@ window.__ModuleLoader__.load({
       return best === undefined ? undefined : PRICING[best];
     }
 
-    function isPlanProvider(providerId) {
+    /** 'zai' | 'bailian' | null — which plan quota the current channel bills against. */
+    function planKindOf(providerId) {
       const provider = typeof providerId === 'string' ? providerId.toLowerCase() : '';
-      return PLAN_PROVIDERS.some(function (key) {
+      if (provider === '') return null;
+      const hit = function (key) {
         return provider.indexOf(key) >= 0;
-      });
+      };
+      if (ZAI_PLAN_PROVIDERS.some(hit)) return 'zai';
+      if (BAILIAN_PLAN_PROVIDERS.some(hit)) return 'bailian';
+      return null;
     }
 
     const CSS = [
@@ -136,6 +142,11 @@ window.__ModuleLoader__.load({
       'text-align:right;white-space:nowrap}',
       '.cudP_quotaReset{display:block;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary));font-size:11px}',
       '.cudP_quotaError{margin:0 0 10px;color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary))}',
+      '.cudP_authButton{display:inline-flex;margin:0 0 10px;padding:2px 10px;font:inherit;font-size:12px;',
+      'border-radius:var(--dsw-radius-sm,6px);border:.5px solid var(--dsw-alias-border-l2);background:0 0;',
+      'color:var(--dsw-alias-label-primary);cursor:pointer}',
+      '.cudP_authButton:hover:enabled{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}',
+      '.cudP_authButton:disabled{color:var(--dsw-alias-label-tertiary);cursor:default}',
       '.cudP_today{margin:0 0 10px;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
     ].join('');
 
@@ -216,11 +227,33 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Bailian Token Plan snapshot, normalized to a single monthly bar.
+     * The skill script returns { plan, percentageUsed (0..1), resetTime, creditsTotal, creditsUsed }.
+     */
+    function extractBailianQuota(envelope) {
+      const fraction = envelope.percentageUsed;
+      if (typeof fraction !== 'number' || !Number.isFinite(fraction)) return { error: 'shape' };
+      const creditsTotal = num(envelope.creditsTotal);
+      return {
+        limits: [
+          {
+            type: 'MONTH_LIMIT',
+            percent: fraction * 100,
+            resetText: typeof envelope.resetTime === 'string' ? envelope.resetTime : '',
+            plan: typeof envelope.plan === 'string' ? envelope.plan : '',
+            creditsTotal: creditsTotal,
+            creditsUsed: creditsTotal > 0 ? Math.round(fraction * creditsTotal) : 0,
+          },
+        ],
+      };
+    }
+
+    /**
      * Pull quota percentages out of the official zai-org glm-plan-usage shape:
      * data.limits = [{ type: 'TOKENS_LIMIT' | 'TIME_LIMIT' | ..., percentage }],
      * with a flat-fields fallback for the older community-documented shape.
      */
-    function extractQuota(envelope) {
+    function extractQuota(envelope, kind) {
       if (!envelope || typeof envelope !== 'object') return { error: 'network' };
       if (envelope.ok !== true) {
         const reason =
@@ -231,6 +264,7 @@ window.__ModuleLoader__.load({
               : 'upstream';
         return { error: reason };
       }
+      if (kind === 'bailian') return extractBailianQuota(envelope);
       let data = envelope.body;
       if (data && typeof data === 'object' && data.data && typeof data.data === 'object') data = data.data;
       if (!data || typeof data !== 'object') return { error: 'shape' };
@@ -303,11 +337,13 @@ window.__ModuleLoader__.load({
       const rawUsage = useProjection('tokenUsage');
       const rawSelection = useProjection('modelSelection');
       const selectionInfo = readSelection(rawSelection);
-      const plan = isPlanProvider(selectionInfo.providerId);
+      const planKind = planKindOf(selectionInfo.providerId);
+      const plan = planKind !== null;
       const [open, setOpen] = React.useState(false);
       const [pos, setPos] = React.useState(null);
       const [quota, setQuota] = React.useState(null);
       const [daily, setDaily] = React.useState(null);
+      const [authPending, setAuthPending] = React.useState(false);
       const anchorRef = React.useRef(null);
       const panelRef = React.useRef(null);
 
@@ -359,11 +395,21 @@ window.__ModuleLoader__.load({
 
       React.useEffect(
         function () {
-          if (!plan) return undefined;
+          if (planKind === null) return undefined;
           let cancelled = false;
           let timer = null;
           async function load() {
             try {
+              if (planKind === 'bailian') {
+                // Bailian has no official per-day usage endpoint, so skip the daily call.
+                const response = await fetch('/api/composer-usage.bailian');
+                const body = await response.json();
+                if (!cancelled) {
+                  setQuota({ at: Date.now(), envelope: body });
+                  setDaily({ at: Date.now(), envelope: null });
+                }
+                return;
+              }
               const [quotaResponse, dailyResponse] = await Promise.all([
                 fetch('/api/composer-usage.quota'),
                 fetch('/api/composer-usage.daily'),
@@ -387,8 +433,54 @@ window.__ModuleLoader__.load({
             clearInterval(timer);
           };
         },
-        [plan],
+        [planKind],
       );
+
+      // After handing the browser the authorisation page, poll until the token
+      // file lands (the host script writes it) or the 15-minute window closes.
+      React.useEffect(
+        function () {
+          if (!authPending) return undefined;
+          let cancelled = false;
+          const poll = setInterval(async function () {
+            try {
+              const response = await fetch('/api/composer-usage.bailian');
+              const body = await response.json();
+              if (cancelled) return;
+              setQuota({ at: Date.now(), envelope: body });
+              if (body && body.ok === true) setAuthPending(false);
+            } catch {
+              /* keep waiting */
+            }
+          }, 5000);
+          const expire = setTimeout(
+            function () {
+              if (!cancelled) setAuthPending(false);
+            },
+            15 * 60 * 1000,
+          );
+          return function () {
+            cancelled = true;
+            clearInterval(poll);
+            clearTimeout(expire);
+          };
+        },
+        [authPending],
+      );
+
+      const startLogin = React.useCallback(function () {
+        setAuthPending(true);
+        fetch('/api/composer-usage.login', { method: 'POST' })
+          .then(function (response) {
+            return response.json();
+          })
+          .then(function (body) {
+            if (!body || body.ok !== true) setAuthPending(false);
+          })
+          .catch(function () {
+            setAuthPending(false);
+          });
+      }, []);
 
       if (rawUsage === undefined || rawUsage === null) return null;
 
@@ -462,10 +554,11 @@ window.__ModuleLoader__.load({
         notes = [t('usage.unknownNote', { model: modelId === '' ? t('usage.unknownModel') : modelId })];
       }
 
-      const quotaView = plan ? extractQuota(quota ? quota.envelope : null) : null;
+      const quotaView = planKind === null ? null : extractQuota(quota ? quota.envelope : null, planKind);
       let quotaBars = [];
       if (quotaView !== null && quotaView.limits) {
         const labelOf = function (type) {
+          if (type === 'MONTH_LIMIT') return t('usage.quotaMonth');
           if (type.indexOf('WEEK') >= 0 || /7[_\s-]?D/i.test(type)) return t('usage.quotaWeek');
           if (type.indexOf('TIME') >= 0) return t('usage.quotaMcp');
           if (/5\s*H/i.test(type)) return t('usage.quota5h');
@@ -491,7 +584,14 @@ window.__ModuleLoader__.load({
           }
           if (seenLabels[label] === true) label = type + ' (' + seenTypes[type] + ')';
           seenLabels[label] = true;
-          return { label: label, percent: item.percent, raw: item };
+          return {
+            label: label,
+            percent: item.percent,
+            raw: item,
+            resetText: typeof item.resetText === 'string' ? item.resetText : '',
+            creditsTotal: num(item.creditsTotal),
+            creditsUsed: num(item.creditsUsed),
+          };
         });
       }
 
@@ -501,7 +601,16 @@ window.__ModuleLoader__.load({
         // visualize the remaining quota, so fill with 100 - used.
         const left = 100 - clamped;
         const origin = bar.raw && bar.raw.raw ? bar.raw.raw : bar.raw;
-        const reset = resetTimeText(origin && origin.nextResetTime);
+        const reset =
+          bar.resetText !== '' ? bar.resetText : resetTimeText(origin && origin.nextResetTime);
+        const credits =
+          bar.creditsTotal > 0
+            ? ' · ' +
+              bar.creditsUsed.toLocaleString('en-US') +
+              ' / ' +
+              bar.creditsTotal.toLocaleString('en-US') +
+              ' Credits'
+            : '';
         return h(
           'div',
           { key: key, className: 'cudP_quotaRow', title: JSON.stringify(bar.raw).slice(0, 300) },
@@ -515,7 +624,7 @@ window.__ModuleLoader__.load({
             'span',
             {
               className: 'cudP_quotaValue',
-              title: t('usage.quotaUsed', { percent: clamped.toFixed(1), left: left.toFixed(1) }),
+              title: t('usage.quotaUsed', { percent: clamped.toFixed(1), left: left.toFixed(1) }) + credits,
             },
             t('usage.quotaLeft', { left: left.toFixed(1) }),
             reset === null
@@ -524,13 +633,31 @@ window.__ModuleLoader__.load({
           ),
         );
       };
+      /** Friendly text for the reasons the host reports. */
+      const reasonText = function (reason) {
+        if (reason === 'no-token') return t('usage.quotaNoToken');
+        if (reason === 'expired') return t('usage.quotaExpired');
+        if (reason === 'no-skill') return t('usage.quotaNoSkill');
+        return reason;
+      };
+      // Local authorisation is the only thing this plugin can fix itself.
+      const needsAuth =
+        planKind === 'bailian' && quotaView !== null && (quotaView.error === 'no-token' || quotaView.error === 'expired');
+
       let quotaSection = null;
       if (quotaView !== null) {
         if (quotaView.error !== undefined) {
           quotaSection = h(
             'div',
-            { className: 'cudP_quotaError' },
-            t('usage.quotaError', { reason: quotaView.error }),
+            null,
+            h('div', { className: 'cudP_quotaError' }, t('usage.quotaError', { reason: reasonText(quotaView.error) })),
+            needsAuth
+              ? h(
+                  'button',
+                  { type: 'button', className: 'cudP_authButton', onClick: startLogin, disabled: authPending },
+                  authPending ? t('usage.authWaiting') : t('usage.auth'),
+                )
+              : null,
           );
         } else if (quotaBars.length > 0) {
           quotaSection = h(
@@ -563,6 +690,10 @@ window.__ModuleLoader__.load({
         return t('usage.quotaInlineWeek', o);
       });
       if (badgeWeek !== null) inlineBadges.push(badgeWeek);
+      const badgeMonth = quotaBadge(t('usage.quotaMonth'), function (o) {
+        return t('usage.quotaInlineMonth', o);
+      });
+      if (badgeMonth !== null) inlineBadges.push(badgeMonth);
 
       const costText = function (value) {
         return value === null ? '—' : symbol + value.toFixed(digits);
@@ -621,7 +752,9 @@ window.__ModuleLoader__.load({
                   className: 'cudP_label',
                   title: [
                     todayCount > 0 ? t('usage.todayTitle') : null,
-                    quotaBars.length > 0 ? t('usage.quotaInlineTitle') : null,
+                    quotaBars.length > 0
+                      ? t(planKind === 'bailian' ? 'usage.quotaInlineTitleBailian' : 'usage.quotaInlineTitle')
+                      : null,
                   ]
                     .filter(function (line) {
                       return line !== null;
@@ -725,6 +858,14 @@ window.__ModuleLoader__.load({
                 'usage.todayTitle': '官方接口统计的今日全部 token 用量（含缓存，与本账号使用详情页一致）',
                 'usage.quotaWeek': '7 天额度',
                 'usage.quotaMcp': 'MCP 月度',
+                'usage.quotaMonth': '月度额度',
+                'usage.quotaInlineMonth': '月度剩 {percent}%',
+                'usage.quotaInlineTitleBailian': 'Token Plan 月度额度剩余百分比',
+                'usage.quotaNoToken': '尚未授权',
+                'usage.quotaExpired': '授权已过期',
+                'usage.quotaNoSkill': '未安装 token-plan-quota 技能',
+                'usage.auth': '授权登录',
+                'usage.authWaiting': '等待浏览器授权…',
                 'usage.quotaUsed': '已用 {percent}% · 剩 {left}%',
                 'usage.quotaLeft': '剩 {left}%',
                 'usage.resetAt': '{time} 刷新',
@@ -761,6 +902,14 @@ window.__ModuleLoader__.load({
                 'usage.todayTitle': "Official per-day token usage for this account, including cached tokens (matches the web usage page)",
                 'usage.quotaWeek': '7-day quota',
                 'usage.quotaMcp': 'MCP monthly',
+                'usage.quotaMonth': 'Monthly quota',
+                'usage.quotaInlineMonth': 'monthly {percent}% left',
+                'usage.quotaInlineTitleBailian': 'Token Plan monthly quota remaining',
+                'usage.quotaNoToken': 'not authorized',
+                'usage.quotaExpired': 'authorization expired',
+                'usage.quotaNoSkill': 'token-plan-quota skill not installed',
+                'usage.auth': 'Authorize',
+                'usage.authWaiting': 'Waiting for browser…',
                 'usage.quotaUsed': 'used {percent}% · {left}% left',
                 'usage.quotaLeft': '{left}% left',
                 'usage.resetAt': 'resets {time}',

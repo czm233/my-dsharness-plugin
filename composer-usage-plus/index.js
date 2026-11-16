@@ -1,19 +1,29 @@
 /**
- * Host half: serves the GLM Coding Plan quota snapshot to the Web page over the
- * authenticated /api fetch bridge, so the browser never touches the API key.
+ * Host half: serves plan quota snapshots to the Web page over the authenticated
+ * /api fetch bridge, so the browser never touches a credential.
  *
- * Upstream endpoint (community-documented, unauthenticated-probe verified):
+ * Two upstreams, picked by the page per channel:
+ * - GLM Coding Plan (zai channels), fetched here with the configured API key.
  *   GET {gateway}/api/monitor/usage/quota/limit
  *   Authorization: <api key>   (no Bearer prefix)
  *   -> { success: true, data: { tokenUsage5Hour: 45.2, mcpUsage1Month: 12.3 } }
- * Responses are cached briefly to stay well under the 60 req/min upstream limit.
+ * - Bailian Token Plan (qwen channels), delegated to the token-plan-quota skill's
+ *   script, which owns the console protocol, the token file and the browser login.
+ * Responses are cached briefly to stay well under the upstream rate limits.
  *
  * Kept dependency-free on purpose: this linked workspace bundle cannot resolve
  * shipped packages like @deepseek-ai/schemastery, so tunables are constants.
  */
 
+import { execFile, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 const ROUTE_PATH = "/api/composer-usage.quota";
 const DAILY_ROUTE_PATH = "/api/composer-usage.daily";
+const BAILIAN_ROUTE_PATH = "/api/composer-usage.bailian";
+const LOGIN_ROUTE_PATH = "/api/composer-usage.login";
 const CREDENTIAL_NAME_PATTERN = /^[A-Z][A-Z0-9_]*$/;
 const DEFAULT_GATEWAY = "https://open.bigmodel.cn/api/coding/paas/v4";
 const API_KEY_ENV = "ZAI_CODING_CN_API_KEY";
@@ -57,6 +67,38 @@ export function apply(ctx) {
 			});
 		},
 		"composer-usage-plus: daily route"
+	);
+
+	ctx.effect(
+		function () {
+			const connection = Reflect.get(ctx, "connection");
+			if (connection === void 0) return undefined;
+			return connection.fetch.register({
+				path: BAILIAN_ROUTE_PATH,
+				methods: ["GET"],
+				requestBody: "buffered",
+				fetch: function () {
+					return handleBailian();
+				}
+			});
+		},
+		"composer-usage-plus: bailian quota route"
+	);
+
+	ctx.effect(
+		function () {
+			const connection = Reflect.get(ctx, "connection");
+			if (connection === void 0) return undefined;
+			return connection.fetch.register({
+				path: LOGIN_ROUTE_PATH,
+				methods: ["POST"],
+				requestBody: "buffered",
+				fetch: function () {
+					return handleLogin();
+				}
+			});
+		},
+		"composer-usage-plus: bailian login route"
 	);
 
 	async function resolveKey() {
@@ -162,6 +204,86 @@ export function apply(ctx) {
 			});
 		}
 		const body = await dailyCache.promise;
+		return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+	}
+
+	// Bailian Token Plan quota lives in the token-plan-quota skill, which already
+	// owns the console protocol, the credential file and the browser login flow.
+	// Running its script keeps that knowledge (and the endpoint) out of this repo.
+
+	function skillScript() {
+		const home =
+			typeof process.env.DSH_HOME === "string" && process.env.DSH_HOME.trim() !== ""
+				? process.env.DSH_HOME.trim()
+				: path.join(os.homedir(), ".dsh");
+		return path.join(home, "skills", "token-plan-quota", "scripts", "quota.py");
+	}
+
+	function pythonBinary() {
+		// Launched from Finder the app inherits a minimal PATH; prefer the system python.
+		return existsSync("/usr/bin/python3") ? "/usr/bin/python3" : "python3";
+	}
+
+	function runQuota(args, timeoutMs) {
+		return new Promise(function (resolve) {
+			const script = skillScript();
+			if (!existsSync(script)) {
+				resolve({ ok: false, reason: "no-skill" });
+				return;
+			}
+			execFile(pythonBinary(), [script].concat(args), { timeout: timeoutMs, maxBuffer: 1 << 20 }, function (error, stdout) {
+				if (error) {
+					if (error.code === 2) resolve({ ok: false, reason: "no-token" });
+					else if (error.code === 3) resolve({ ok: false, reason: "expired" });
+					else resolve({ ok: false, reason: "script" });
+					return;
+				}
+				let parsed = null;
+				try {
+					parsed = JSON.parse(String(stdout));
+				} catch {
+					parsed = null;
+				}
+				if (parsed === null || typeof parsed !== "object") {
+					resolve({ ok: false, reason: "shape" });
+					return;
+				}
+				resolve(Object.assign({ ok: true, kind: "bailian" }, parsed));
+			});
+		});
+	}
+
+	async function handleBailian() {
+		const body = await runQuota(["--json"], 20000);
+		return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+	}
+
+	// One authorisation at a time: the script serves the 127.0.0.1 callback and
+	// opens the console page, then writes the token file itself (0600).
+	let loginChild = null;
+
+	function startLogin() {
+		if (loginChild !== null) return { ok: true, pending: true };
+		const script = skillScript();
+		if (!existsSync(script)) return { ok: false, reason: "no-skill" };
+		try {
+			const child = spawn(pythonBinary(), [script, "login"], { detached: true, stdio: "ignore" });
+			child.on("exit", function () {
+				loginChild = null;
+			});
+			child.on("error", function () {
+				loginChild = null;
+			});
+			child.unref();
+			loginChild = child;
+		} catch {
+			return { ok: false, reason: "spawn" };
+		}
+		return { ok: true, pending: false };
+	}
+
+	async function handleLogin() {
+		const body = startLogin();
 		return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 	}
 }
