@@ -1,18 +1,20 @@
 {
   "name": "@local/business-flows",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "业务流程：按工程收藏对话里的问答——回复尾部一键收藏，业务流程 tab 左列表右回放；数据存在 ~/.dsh/storages/business-flows/<工程>/ 下，同一工程的每个会话共享同一份。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
     "cordis.patch.yml",
+    "locale/*.json",
     "icon.svg"
   ],
   "dsh": {
