@@ -78,7 +78,13 @@ window.__ModuleLoader__.load({
         pointer-events: none;
       }
       .tqCard[data-waiting="true"] {
-        box-shadow: inset 2px 0 0 var(--dsw-alias-state-business-primary, rgba(90, 140, 255, 0.9));
+        background: var(--dsw-alias-state-warn-secondary, #f7ad31);
+        color: #3b2a00;
+      }
+      @media (hover: hover) {
+        .tqCard[data-waiting="true"]:hover {
+          background: var(--dsw-alias-state-warn-primary, #f59e0b);
+        }
       }
     `
 
