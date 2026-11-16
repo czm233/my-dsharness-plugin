@@ -32,7 +32,15 @@ async function main() {
   }
   const ctx = {
     inject(_deps, fn) { fn(child) },
-    get(name) { return name === 'sessionQuery' ? { readSession: async (id) => ({ events: id === SESSION_ID ? EVENTS : [] }) } : undefined },
+    get(name) {
+      return name === 'sessionQuery' ? {
+        readSession: async (id) => {
+          const bare = String(id).startsWith('session-') ? String(id).slice('session-'.length) : String(id)
+          if (bare === 'ghost-cwd-1') return { events: EVENTS, cwd: '/Users/czm/test-project' }
+          return { events: bare === SESSION_ID || bare === 'other-1' ? (bare === 'other-1' ? [] : EVENTS) : [] }
+        },
+      } : undefined
+    },
   }
 
   const { apply } = await import('../index.js')
@@ -109,6 +117,17 @@ async function main() {
   fs.mkdirSync(path.join(home, 'sessions', '--Users-czm-other-project--', 'session-other-1'), { recursive: true })
   result = await rpc({ action: 'list', sessionId: 'other-1' })
   assert(result.ok === true && result.value.flows.length === 0, 'other workspace empty')
+
+  // 12. canonical prefixed id resolves to the SAME workspace shelf
+  result = await rpc({ action: 'create', sessionId: `session-${SESSION_ID}`, title: '前缀形态' })
+  assert(result.ok === true, 'prefixed id accepted')
+  result = await rpc({ action: 'list', sessionId: SESSION_ID })
+  assert(result.ok === true && result.value.flows.some(flow => flow.title === '前缀形态'), 'prefixed id hits same shelf')
+
+  // 13. cwd fallback: id unknown to the store layout but sessionQuery reports cwd
+  result = await rpc({ action: 'create', sessionId: 'session-ghost-cwd-1', title: 'cwd 兜底' })
+  assert(result.ok === true, 'cwd fallback accepted')
+  assert(fs.existsSync(path.join(home, 'storages', 'business-flows', '--Users-czm-test-project--', 'index.json')), 'cwd fallback writes under derived key')
 
   console.log('host-sim: all assertions passed')
 }

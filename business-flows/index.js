@@ -72,9 +72,15 @@ function mintFlowId() {
  * Resolve the workspace key of a session from the session-store layout:
  * ~/.dsh/sessions/<encoded-workspace>/session-<id>/… — the encoded directory
  * name is itself filesystem-safe, so it doubles as the storage folder name.
- * @returns {string} encoded workspace directory name, or '' when unknown.
+ * The client-prop session id may arrive with or without the canonical
+ * `session-` prefix; try every shape. @returns {string} encoded workspace
+ * directory name, or '' when unknown.
  */
 function workspaceKeyFor(sessionId) {
+  const raw = String(sessionId ?? '').trim()
+  if (raw === '') return ''
+  const bare = raw.startsWith('session-') ? raw.slice('session-'.length) : raw
+  const candidates = [...new Set([raw, bare, `session-${bare}`])]
   const root = sessionsRoot()
   let entries
   try {
@@ -84,11 +90,13 @@ function workspaceKeyFor(sessionId) {
   }
   for (const entry of entries) {
     if (!(entry.startsWith('--') && entry.endsWith('--'))) continue
-    try {
-      fs.accessSync(path.join(root, entry, `session-${sessionId}`))
-      return entry
-    } catch {
-      /* not in this workspace */
+    for (const candidate of candidates) {
+      try {
+        fs.accessSync(path.join(root, entry, candidate))
+        return entry
+      } catch {
+        /* not in this workspace */
+      }
     }
   }
   return ''
@@ -231,9 +239,27 @@ export function apply(ctx) {
 
   /** @returns {Promise<string>} encoded workspace key */
   async function requireWorkspace(sessionId) {
-    const key = workspaceKeyFor(sessionId)
+    let key = workspaceKeyFor(sessionId)
+    if (key === '') key = await workspaceFromSnapshot(sessionId)
     if (key === '') throw new Error('session does not belong to a known workspace')
     return key
+  }
+
+  /** Fallback: derive the encoded workspace name from the session's recorded cwd. */
+  async function workspaceFromSnapshot(sessionId) {
+    try {
+      const query = ctx.get('sessionQuery')
+      const snapshot = query !== undefined && query !== null && typeof query.readSession === 'function'
+        ? await query.readSession(sessionId)
+        : null
+      const cwd = snapshot?.cwd ?? snapshot?.header?.cwd ?? snapshot?.session?.cwd
+      if (typeof cwd === 'string' && cwd.startsWith('/')) {
+        return `--${cwd.slice(1).replace(/\//g, '--')}--`
+      }
+    } catch {
+      /* fallback only */
+    }
+    return ''
   }
 
   async function createFlow(wsDir, title) {
