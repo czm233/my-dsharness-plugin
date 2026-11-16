@@ -3,17 +3,19 @@
  *
  * Two registrations:
  *   1. A `conversation.view` tab (the same seat family as the workflow
- *      canvas): left column lists this workspace's collected flows, right
- *      pane reads one as a replayed conversation — the human's prompt and
- *      the assistant's committed answer, rendered with the official
- *      MarkdownText (code blocks included; Mermaid stays a code block for now).
+ *      canvas): left column lists this workspace's notes, right pane reads
+ *      one note as markdown — collected sections keep the original question
+ *      and answer, the whole body is editable in place (编辑 → textarea →
+ *      保存), so appending notes by hand is the normal workflow.
  *   2. A `conversation.chat.turnTail` seat (the same tail row as turn-cost):
- *      a small 「收藏」 button per turn. Picking a flow (or creating one)
- *      stores that turn's question + answer through the host RPC; nothing on
- *      screen is scraped, the host re-reads the turn from the session log.
+ *      a small 「收藏」 button per turn. Picking a note (or creating one)
+ *      appends that turn's question + answer as a markdown section; nothing
+ *      on screen is scraped, the host re-reads the turn from the session log.
  *
- * The workspace is derived host-side from the session's cwd, so the same
- * shelf shows for every session of the same project and nowhere else.
+ * Images pasted (or dropped) into the editor upload into the note's
+ * <flowId>.assets/ folder next to the .md file on disk and are referenced
+ * relatively, so the note stays Obsidian-compatible; the reader swaps those
+ * relative refs for the host asset route when rendering.
  */
 
 window.__ModuleLoader__.load({
@@ -27,6 +29,8 @@ window.__ModuleLoader__.load({
     const NS = 'businessFlows'
     const RPC_CHANNEL = '/api'
     const RPC_METHOD = 'business-flows/rpc'
+    const ASSET_ROUTE = '/api/business-flows/asset'
+    const ASSET_REF = /\.assets\//
 
     const primitives = (() => {
       try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (_unavailable) { return null }
@@ -45,6 +49,9 @@ window.__ModuleLoader__.load({
       'create': '创建',
       'cancel': '取消',
       'save': '保存',
+      'edit': '编辑',
+      'saveFailed': '保存失败',
+      'uploadFailed': '图片上传失败',
       'rename': '改名',
       'del': '删除',
       'confirmDelete': '删除？',
@@ -68,6 +75,9 @@ window.__ModuleLoader__.load({
       'create': 'Create',
       'cancel': 'Cancel',
       'save': 'Save',
+      'edit': 'Edit',
+      'saveFailed': 'Save failed',
+      'uploadFailed': 'Image upload failed',
       'rename': 'Rename',
       'del': 'Delete',
       'confirmDelete': 'Delete?',
@@ -138,23 +148,43 @@ window.__ModuleLoader__.load({
   padding:6px 8px;border-radius:8px;cursor:pointer}
 .bfc-new-btn:hover{opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12))}
 .bfc-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.bfc-reader-head{padding:14px 18px 10px;font-weight:600;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.18))}
+.bfc-reader-head{display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.18))}
+.bfc-reader-title{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bfc-reader{flex:1;overflow:auto;padding:14px 18px 24px;min-height:0}
 .bfc-reader-empty{height:100%;display:flex;align-items:center;justify-content:center;opacity:.55}
-.bfc-entry{margin-bottom:18px}
-.bfc-q{margin-bottom:8px}
-.bfc-q-role{opacity:.55;margin-right:8px;font-size:12px}
-.bfc-q-text{white-space:pre-wrap;opacity:.85}
+.bfc-editor-wrap{flex:1;display:flex;min-height:0}
+.bfc-editor{flex:1;width:100%;box-sizing:border-box;resize:none;border:none;outline:none;background:transparent;
+  color:inherit;font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px 18px;min-height:0}
+.bfc-note-error{padding:8px 18px;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:12px}
 .bfc-a{line-height:1.65}
-.bfc-at{margin-top:6px;font-size:11px;opacity:.45}
 .bfc-error{padding:10px 14px;color:var(--dsw-alias-state-error-primary,#e5484d)}
 `
 
-    function timeLabel(at) {
-      const d = new Date(Number(at))
-      if (!Number.isFinite(d.getTime())) return ''
-      const pad = (n) => String(n).padStart(2, '0')
-      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    const ctxRef = { service: null }
+
+    /** One shaped RPC call through the client connection carrier. */
+    async function callRpc(action, args) {
+      const service = ctxRef.service
+      if (service === null || typeof service.rpc?.call !== 'function') {
+        throw new Error('connection service is unavailable')
+      }
+      const result = await service.rpc.call(RPC_CHANNEL, RPC_METHOD, { action, ...args })
+      if (result === null || typeof result !== 'object' || result.ok !== true) {
+        throw new Error(String(result?.error?.message ?? 'rpc returned no payload'))
+      }
+      return result.value
+    }
+
+    /**
+     * Swap the note-relative asset refs (`<flowId>.assets/<name>`) for the
+     * host asset route so the markdown renderer can load them as images.
+     */
+    function renderableBody(body, flowId) {
+      if (typeof body !== 'string' || body === '' || flowId === '') return ''
+      return body.replace(/(!\[[^\]]*\]\()\s*([^\s)]*\.assets\/[^\s)]+)\s*(\))/g, (_all, head, ref, tail) => {
+        const name = ref.slice(ref.indexOf('.assets/') + '.assets/'.length)
+        return `${head}${ASSET_ROUTE}?flow=${encodeURIComponent(flowId)}&name=${encodeURIComponent(name)}${tail}`
+      })
     }
 
     function AnswerBody(props) {
@@ -163,7 +193,7 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'bfc-a' }, h('div', { style: { whiteSpace: 'pre-wrap' } }, text))
     }
 
-    /** The turn-tail 「收藏」 button with its flow picker menu. */
+    /** The turn-tail 「收藏」 button with its note picker menu. */
     function CollectTail(props) {
       const { t, callRpc } = props
       const turnLocation = props.turn
@@ -294,23 +324,12 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function EntryView(props) {
-      const { entry, labels, t } = props
-      return h('div', { className: 'bfc-entry' },
-        h('div', { className: 'bfc-q' },
-          h('span', { className: 'bfc-q-role' }, '你'),
-          h('div', { className: 'bfc-q-text' }, entry.question),
-        ),
-        h(AnswerBody, { text: entry.answer, labels }),
-        h('div', { className: 'bfc-at' }, timeLabel(entry.at)),
-      )
-    }
-
-    /** The workspace tab: flows on the left, one replayed conversation on the right. */
+    /** Note pane: read (rendered markdown) or edit (raw textarea + paste images). */
     function FlowsPage(props) {
       const safeProps = props && typeof props === 'object' ? props : {}
       const t = typeof safeProps.t === 'function' ? safeProps.t : (key) => zh[key] || key
       const sessionId = typeof safeProps.sessionId === 'string' ? safeProps.sessionId : ''
+      const rpc = typeof safeProps.callRpc === 'function' ? safeProps.callRpc : callRpc
 
       const [flows, setFlows] = useState(null)
       const [error, setError] = useState('')
@@ -321,42 +340,48 @@ window.__ModuleLoader__.load({
       const [renameId, setRenameId] = useState('')
       const [renameTitle, setRenameTitle] = useState('')
       const [confirmId, setConfirmId] = useState('')
+      const [editing, setEditing] = useState(false)
+      const [draft, setDraft] = useState('')
+      const [noteError, setNoteError] = useState('')
+      const taRef = useRef(null)
       const labels = markdownLabels(t)
 
       const reload = useCallback(async () => {
         if (sessionId === '') { setFlows([]); return }
         try {
-          const value = await safeProps.callRpc('list', { sessionId })
+          const value = await rpc('list', { sessionId })
           setFlows(Array.isArray(value?.flows) ? value.flows : [])
           setError('')
         } catch (failure) {
           setFlows([])
           setError(String(failure?.message ?? failure))
         }
-      }, [safeProps.callRpc, sessionId])
+      }, [rpc, sessionId])
 
       useEffect(() => {
         setSelectedId('')
         setDetail(null)
+        setEditing(false)
         reload()
       }, [reload])
 
       const openFlow = useCallback(async (id) => {
         setSelectedId(id)
         setDetail(null)
+        setEditing(false)
         try {
-          const value = await safeProps.callRpc('flow', { sessionId, id })
+          const value = await rpc('flow', { sessionId, id })
           setDetail(value?.flow ?? null)
         } catch (failure) {
           setError(String(failure?.message ?? failure))
         }
-      }, [safeProps.callRpc, sessionId])
+      }, [rpc, sessionId])
 
       const submitCreate = async () => {
         const trimmed = newTitle.trim()
         if (trimmed === '' || sessionId === '') return
         try {
-          const value = await safeProps.callRpc('create', { sessionId, title: trimmed })
+          const value = await rpc('create', { sessionId, title: trimmed })
           setCreating(false)
           setNewTitle('')
           await reload()
@@ -370,11 +395,11 @@ window.__ModuleLoader__.load({
         const trimmed = renameTitle.trim()
         if (trimmed === '' || renameId === '') return
         try {
-          const value = await safeProps.callRpc('rename', { sessionId, id: renameId, title: trimmed })
+          const value = await rpc('rename', { sessionId, id: renameId, title: trimmed })
           setRenameId('')
           setRenameTitle('')
           await reload()
-          if (renameId === selectedId && value?.flow) setDetail(value.flow)
+          if (renameId === selectedId && value?.flow) setDetail(prev => prev === null ? prev : { ...prev, title: value.flow.title })
         } catch (failure) {
           setError(String(failure?.message ?? failure))
         }
@@ -382,13 +407,98 @@ window.__ModuleLoader__.load({
 
       const submitRemove = async (id) => {
         try {
-          await safeProps.callRpc('remove', { sessionId, id })
+          await rpc('remove', { sessionId, id })
           setConfirmId('')
           await reload()
-          if (id === selectedId) { setSelectedId(''); setDetail(null) }
+          if (id === selectedId) { setSelectedId(''); setDetail(null); setEditing(false) }
         } catch (failure) {
           setError(String(failure?.message ?? failure))
         }
+      }
+
+      const startEdit = () => {
+        setDraft(typeof detail?.body === 'string' ? detail.body : '')
+        setNoteError('')
+        setEditing(true)
+      }
+
+      const submitSave = async () => {
+        if (detail === null) return
+        try {
+          await rpc('save', { sessionId, id: detail.id, body: draft })
+          setDetail(prev => prev === null ? prev : { ...prev, body: draft })
+          setEditing(false)
+          setNoteError('')
+          reload()
+        } catch (failure) {
+          setNoteError(`${t('saveFailed')}：${String(failure?.message ?? failure)}`)
+        }
+      }
+
+      /** Insert text at the editor cursor (used by the image upload path). */
+      const insertAtCursor = useCallback((text) => {
+        const ta = taRef.current
+        setDraft(prev => {
+          const start = ta !== null && typeof ta.selectionStart === 'number' ? ta.selectionStart : prev.length
+          const end = ta !== null && typeof ta.selectionEnd === 'number' ? ta.selectionEnd : start
+          const next = prev.slice(0, start) + text + prev.slice(end)
+          requestAnimationFrame(() => {
+            if (taRef.current !== null) taRef.current.setSelectionRange(start + text.length, start + text.length)
+          })
+          return next
+        })
+      }, [])
+
+      const uploadImage = useCallback(async (file) => {
+        if (detail === null) return
+        const type = String(file.type ?? '')
+        const match = /^image\/(png|jpeg|jpg|gif|webp)$/.exec(type)
+        if (match === null) {
+          setNoteError(`${t('uploadFailed')}：${type || 'unknown'}`)
+          return
+        }
+        setNoteError('')
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result ?? ''))
+            reader.onerror = () => reject(new Error('read failed'))
+            reader.readAsDataURL(file)
+          })
+          const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+          const d = new Date()
+          const pad = (n) => String(n).padStart(2, '0')
+          const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+          const value = await rpc('upload', { sessionId, id: detail.id, name: `截图-${stamp}.${ext}`, dataBase64: dataUrl })
+          if (typeof value?.name !== 'string' || value.name === '') throw new Error('no asset name returned')
+          insertAtCursor(`\n![${value.name}](${detail.id}.assets/${value.name})\n`)
+        } catch (failure) {
+          setNoteError(`${t('uploadFailed')}：${String(failure?.message ?? failure)}`)
+        }
+      }, [detail, insertAtCursor, rpc, sessionId, t])
+
+      const onEditorPaste = (event) => {
+        const items = event.clipboardData?.items
+        if (!items) return
+        let file = null
+        for (const item of items) {
+          if (item !== null && typeof item === 'object' && item.kind === 'file' && String(item.type ?? '').startsWith('image/')) {
+            file = item.getAsFile()
+            break
+          }
+        }
+        if (file === null) return
+        event.preventDefault()
+        uploadImage(file)
+      }
+
+      const onEditorDrop = (event) => {
+        const files = event.dataTransfer?.files
+        if (!files || files.length === 0) return
+        const file = Array.from(files).find(candidate => String(candidate.type ?? '').startsWith('image/'))
+        if (file === undefined) return
+        event.preventDefault()
+        uploadImage(file)
       }
 
       const rows = flows === null ? [] : flows
@@ -417,7 +527,7 @@ window.__ModuleLoader__.load({
               if (confirmId === flow.id) {
                 return h('div', { key: flow.id, className: 'bfc-row-form' },
                   h('span', { style: { flex: 1, fontSize: 12 } }, t('confirmDelete')),
-                  h('button', { type: 'button', className: 'bfc-mini-btn primary', style: { color: '#e5484d' }, onClick: () => submitRemove(flow.id) }, t('del')),
+                  h('button', { type: 'button', className: 'bfc-mini-btn primary', style: { color: 'var(--dsw-alias-state-error-primary,#e5484d)' }, onClick: () => submitRemove(flow.id) }, t('del')),
                   h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setConfirmId('') }, t('cancel')),
                 )
               }
@@ -472,30 +582,38 @@ window.__ModuleLoader__.load({
               h('div', { className: 'bfc-reader-empty' },
                 rows.length === 0 && flows !== null ? t('empty') : (flows === null ? null : t('pickHint'))))
             : h(React.Fragment, null,
-              h('div', { className: 'bfc-reader-head', title: detail.title }, detail.title),
-              h('div', { className: 'bfc-reader' },
-                (Array.isArray(detail.entries) ? detail.entries : []).map((entry, index) => h(EntryView, {
-                  key: `${entry.at ?? ''}-${entry.sessionId ?? ''}-${entry.turn ?? ''}-${index}`,
-                  entry, labels, t,
-                }))),
+              h('div', { className: 'bfc-reader-head' },
+                h('span', { className: 'bfc-reader-title', title: detail.title }, detail.title),
+                editing
+                  ? h('span', { className: 'bfc-head-actions', style: { display: 'flex', gap: 4 } },
+                    h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitSave }, t('save')),
+                    h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setEditing(false) }, t('cancel')))
+                  : h('button', { type: 'button', className: 'bfc-mini-btn', onClick: startEdit }, t('edit')),
+              ),
+              noteError !== '' ? h('div', { className: 'bfc-note-error' }, noteError) : null,
+              editing
+                ? h('div', { className: 'bfc-editor-wrap' },
+                  h('textarea', {
+                    ref: taRef,
+                    className: 'bfc-editor',
+                    value: draft,
+                    autoFocus: true,
+                    spellCheck: false,
+                    onChange: (event) => setDraft(event.target.value),
+                    onKeyDown: (event) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+                        event.preventDefault()
+                        submitSave()
+                      }
+                    },
+                    onPaste: onEditorPaste,
+                    onDrop: onEditorDrop,
+                  }))
+                : h('div', { className: 'bfc-reader' },
+                  h(AnswerBody, { text: renderableBody(detail.body, detail.id), labels })),
             ),
         ),
       )
-    }
-
-    const ctxRef = { service: null }
-
-    /** One shaped RPC call through the client connection carrier. */
-    async function callRpc(action, args) {
-      const service = ctxRef.service
-      if (service === null || typeof service.rpc?.call !== 'function') {
-        throw new Error('connection service is unavailable')
-      }
-      const result = await service.rpc.call(RPC_CHANNEL, RPC_METHOD, { action, ...args })
-      if (result === null || typeof result !== 'object' || result.ok !== true) {
-        throw new Error(String(result?.error?.message ?? 'rpc returned no payload'))
-      }
-      return result.value
     }
 
     return {

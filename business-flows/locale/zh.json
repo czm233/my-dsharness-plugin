@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "业务流程",
-    "description": "把对话里值得保留的问答按工程收藏成笔记：每轮回复尾部一键收藏，在业务流程 tab 里左列表右回放。"
+    "description": "按工程收藏的 Markdown 笔记：回复尾部一键收藏问答原文，业务流程 tab 左列表右阅读，正文可直接编辑、追加、粘贴截图；数据存在 ~/.dsh/storages/business-flows/<工程>/ 下。"
   }
 }

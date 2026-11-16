@@ -1,25 +1,28 @@
 /**
  * Host half of Business Flows (业务流程).
  *
- * A per-workspace note shelf: one "business flow" is a note that collects
- * (question, answer) pairs picked from conversation turns. Storage lives in
- * ~/.dsh/storages/business-flows/<workspace-key>/ — outside every project
- * directory. <workspace-key> is the session-store directory name that encodes
- * the session's cwd (~/.dsh/sessions/--Users-…-<project>--), so notes follow
- * the DSH notion of "project": every session in the same workspace shares the
- * same shelf, and switching projects switches the shelf.
+ * A per-workspace markdown shelf — a built-in Obsidian, nothing more:
+ * every note is a REAL <flowId>.md file under
+ * ~/.dsh/storages/business-flows/<workspace-key>/, images live in a sibling
+ * <flowId>.assets/ folder and are referenced relatively, so the notes stay
+ * readable/editable outside DSH too. <workspace-key> is the session-store
+ * directory name that encodes the session's cwd, so every session of the
+ * same project shares one shelf and other projects see their own.
  *
- * The turn's text is read through the sessionQuery service (the same source
- * turn-cost folds usage from); only question/answer text is stored, tool
- * traffic and context reminders stay out.
+ * Collecting appends the turn's question + answer as a markdown section
+ * (marker comment enables duplicate detection); the note is plain text from
+ * then on — the user edits and appends freely in the tab.
  *
  * RPC actions (client → host, /api/business-flows/rpc):
- *   list    { sessionId }                    → { flows }
- *   flow    { sessionId, id }                → { flow }
- *   create  { sessionId, title }             → { flow }
- *   rename  { sessionId, id, title }         → { flow }
- *   remove  { sessionId, id }                → { removed: true }
- *   collect { sessionId, turn, flowId? | title? } → { flow, entry?, duplicate? }
+ *   list    { sessionId }                          → { flows }
+ *   flow    { sessionId, id }                      → { flow: {id,title,body} }
+ *   create  { sessionId, title }                   → { flow }
+ *   rename  { sessionId, id, title }               → { flow }
+ *   remove  { sessionId, id }                      → { removed: true }
+ *   collect { sessionId, turn, flowId? | title? }  → { flow, duplicate? }
+ *   save    { sessionId, id, body }                → { flow }
+ *   upload  { sessionId, id, name, dataBase64 }    → { name }
+ * GET /api/business-flows/asset?flow=<id>&name=<file> serves note images.
  */
 
 import fs from 'node:fs'
@@ -28,13 +31,16 @@ import os from 'node:os'
 import path from 'node:path'
 
 const ROUTE = '/api/business-flows/rpc'
+const ASSET_ROUTE = '/api/business-flows/asset'
 const LIMITS = {
   titleMax: 60,
   questionMax: 20000,
   answerMax: 120000,
-  entriesMax: 200,
+  bodyMax: 512 * 1024,
+  uploadMax: 12 * 1024 * 1024,
   flowsMax: 200,
 }
+const ASSET_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }
 
 function dshHome() {
   const raw = process.env.DSH_HOME && process.env.DSH_HOME.trim() !== '' ? process.env.DSH_HOME.trim() : ''
@@ -102,29 +108,69 @@ function workspaceKeyFor(sessionId) {
   return ''
 }
 
-function flowPath(wsDir, id) {
-  return path.join(wsDir, `${sanitizeFlowId(id)}.json`)
+function notePath(wsDir, id) {
+  return path.join(wsDir, `${sanitizeFlowId(id)}.md`)
 }
 
-async function readFlow(wsDir, id) {
+function assetsDir(wsDir, id) {
+  return path.join(wsDir, `${sanitizeFlowId(id)}.assets`)
+}
+
+async function readBody(wsDir, id) {
   try {
-    const raw = await fsp.readFile(flowPath(wsDir, id), 'utf8')
-    const flow = JSON.parse(raw)
-    if (flow === null || typeof flow !== 'object' || sanitizeFlowId(flow.id) !== sanitizeFlowId(id)) return null
-    if (!Array.isArray(flow.entries)) flow.entries = []
-    return flow
+    return await fsp.readFile(notePath(wsDir, id), 'utf8')
   } catch {
     return null
   }
 }
 
-async function writeFlow(wsDir, flow) {
+async function writeBody(wsDir, id, body) {
   await fsp.mkdir(wsDir, { recursive: true })
-  await fsp.writeFile(flowPath(wsDir, flow.id), JSON.stringify(flow, null, 2), 'utf8')
+  await fsp.writeFile(notePath(wsDir, id), String(body ?? ''), 'utf8')
 }
 
-function metaOf(flow) {
-  return { id: flow.id, title: flow.title, createdAt: flow.createdAt, updatedAt: flow.updatedAt, count: flow.entries.length }
+/**
+ * One-time migration: legacy 0.1 notes stored entries as structured JSON.
+ * Fold them into a markdown body, write the .md, drop the .json.
+ */
+async function migrateLegacyJson(wsDir, id, legacy) {
+  if (legacy === null || typeof legacy !== 'object' || !Array.isArray(legacy.entries)) return null
+  const sections = legacy.entries.map((entry) => {
+    if (entry === null || typeof entry !== 'object') return ''
+    const at = new Date(Number(entry.at ?? 0))
+    const pad = (n) => String(n).padStart(2, '0')
+    const stamp = Number.isFinite(at.getTime())
+      ? `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+      : ''
+    const question = String(entry.question ?? '').slice(0, LIMITS.questionMax)
+    const answer = String(entry.answer ?? '').slice(0, LIMITS.answerMax)
+    const marker = entry.sessionId !== undefined && entry.turn !== undefined
+      ? ` <!--bfc s=${String(entry.sessionId).replace(/--/g, '')} t=${Number(entry.turn)}-->`
+      : ''
+    const quoted = question !== '' ? `> ${question.replace(/\n+/g, '\n> ')}\n\n` : ''
+    return `## ${stamp}${marker}\n\n${quoted}${answer}\n`
+  })
+  const body = sections.filter(Boolean).join('\n')
+  await writeBody(wsDir, id, body)
+  await fsp.rm(path.join(wsDir, `${sanitizeFlowId(id)}.json`), { force: true })
+  return body
+}
+
+async function readNote(wsDir, id, titleFallback) {
+  const flowId = sanitizeFlowId(id)
+  if (flowId === '') return null
+  let body = await readBody(wsDir, flowId)
+  if (body === null) {
+    // legacy structured note → fold into markdown on first touch
+    try {
+      const raw = await fsp.readFile(path.join(wsDir, `${flowId}.json`), 'utf8')
+      body = await migrateLegacyJson(wsDir, flowId, JSON.parse(raw))
+    } catch {
+      body = null
+    }
+  }
+  if (body === null) return null
+  return { id: flowId, title: titleFallback ?? flowId, body }
 }
 
 async function readIndex(wsDir) {
@@ -143,28 +189,46 @@ async function writeIndex(wsDir, flows) {
   await fsp.writeFile(path.join(wsDir, 'index.json'), JSON.stringify({ flows }, null, 2), 'utf8')
 }
 
-/** Flows of one workspace, newest-updated first. Reads index.json, falls back to scanning. */
+/** Notes of one workspace: scan the real .md files, merge stored titles, newest first. */
 async function listFlows(wsDir) {
-  const index = await readIndex(wsDir)
-  if (index !== null) return index.flows
   let names
   try {
     names = await fsp.readdir(wsDir)
   } catch {
     return []
   }
+  const index = await readIndex(wsDir)
+  const titleById = new Map((index?.flows ?? []).map(meta => [meta.id, meta]))
+  // scan real .md notes plus legacy 0.1 structured .json notes (migrated on open)
+  const ids = names
+    .filter(name => (name.endsWith('.md') || (name.endsWith('.json') && name !== 'index.json')))
+    .map(name => name.slice(0, name.lastIndexOf('.')))
   const metas = []
-  for (const name of names) {
-    if (!name.endsWith('.json') || name === 'index.json') continue
-    const flow = await readFlow(wsDir, name.slice(0, -5))
-    if (flow !== null) metas.push(metaOf(flow))
+  for (const id of ids) {
+    const stored = titleById.get(id)
+    let createdAt = stored?.createdAt ?? 0
+    let stat = null
+    try {
+      stat = await fsp.stat(notePath(wsDir, id))
+    } catch {
+      try {
+        stat = await fsp.stat(path.join(wsDir, `${id}.json`))
+      } catch {
+        continue
+      }
+    }
+    const updatedAt = stat.mtimeMs
+    if (!createdAt) createdAt = updatedAt
+    metas.push({ id, title: stored?.title ?? id, createdAt, updatedAt })
   }
   metas.sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
-  await writeIndex(wsDir, metas).catch(() => {})
+  const same = JSON.stringify(metas.map(m => [m.id, m.title, Math.round(m.createdAt), Math.round(m.updatedAt)]))
+    === JSON.stringify((index?.flows ?? []).map(m => [m.id, m.title, Math.round(m.createdAt), Math.round(m.updatedAt)]))
+  if (!same) await writeIndex(wsDir, metas).catch(() => {})
   return metas
 }
 
-/** Serialize mutations per workspace: rapid double-collect must not lose an entry. */
+/** Serialize mutations per workspace: rapid double-collect must not lose a section. */
 const locks = new Map()
 function withLock(key, fn) {
   const previous = locks.get(key) ?? Promise.resolve()
@@ -189,8 +253,7 @@ function textOfContent(content) {
  * Extract the (question, answer) pair of one turn from session events.
  * The question is the last human prompt before the turn's first assistant
  * message (and after the previous turn's last one); the answer is the turn's
- * last committed assistant text — the same "one reply per turn" rule the
- * side-chat preview uses. Returns null when the turn has no assistant text.
+ * last committed assistant text. Returns null when the turn has no answer.
  */
 function extractTurn(events, turn) {
   let question = ''
@@ -223,21 +286,44 @@ function extractTurn(events, turn) {
   return { question: question.slice(0, LIMITS.questionMax), answer: answer.slice(0, LIMITS.answerMax) }
 }
 
+function stampOf(at) {
+  const d = new Date(at)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function sectionOf(qa, sessionId, turn, at) {
+  const marker = `<!--bfc s=${String(sessionId).replace(/-{2,}/g, '-')} t=${Number(turn)}-->`
+  const quoted = qa.question !== '' ? `> ${qa.question.replace(/\n+/g, '\n> ')}\n\n` : ''
+  return `## ${stampOf(at)} ${marker}\n\n${quoted}${qa.answer}\n`
+}
+
+function contentTypeOf(name) {
+  const ext = path.extname(name).slice(1).toLowerCase()
+  return ASSET_TYPES[ext] ?? null
+}
+
 export function apply(ctx) {
   ctx.inject(['sessionQuery', 'connection'], (child) => {
     child.effect(() => {
-      const dispose = child.connection.fetch.register({
-        path: ROUTE,
-        methods: ['POST'],
-        fetch: (request) => serve(request),
-      })
+      const disposables = [
+        child.connection.fetch.register({
+          path: ROUTE,
+          methods: ['POST'],
+          fetch: (request) => serve(request),
+        }),
+        child.connection.fetch.register({
+          path: ASSET_ROUTE,
+          methods: ['GET'],
+          fetch: (request) => serveAsset(request),
+        }),
+      ]
       return () => {
-        dispose()
+        for (const dispose of disposables) dispose()
       }
-    }, 'business-flows: rpc route')
+    }, 'business-flows: rpc + asset routes')
   })
 
-  /** @returns {Promise<string>} encoded workspace key */
   async function requireWorkspace(sessionId) {
     let key = workspaceKeyFor(sessionId)
     if (key === '') key = await workspaceFromSnapshot(sessionId)
@@ -263,13 +349,13 @@ export function apply(ctx) {
   }
 
   async function createFlow(wsDir, title) {
-    const now = Date.now()
-    const flow = { id: mintFlowId(), title, createdAt: now, updatedAt: now, entries: [] }
     const existing = await listFlows(wsDir)
     if (existing.length >= LIMITS.flowsMax) throw new Error('flow limit reached')
-    await writeFlow(wsDir, flow)
-    await writeIndex(wsDir, [metaOf(flow), ...existing])
-    return flow
+    const now = Date.now()
+    const flow = { id: mintFlowId(), title, createdAt: now, updatedAt: now }
+    await writeBody(wsDir, flow.id, '')
+    await writeIndex(wsDir, [flow, ...existing])
+    return { ...flow, body: '' }
   }
 
   async function collectFor(payload) {
@@ -288,29 +374,53 @@ export function apply(ctx) {
     const wsDir = path.join(storageRoot(), wsKey)
     return withLock(wsKey, async () => {
       let flow = null
+      let title = ''
       const flowId = sanitizeFlowId(payload.flowId)
       if (flowId !== '') {
-        flow = await readFlow(wsDir, flowId)
-        if (flow === null) throw new Error('flow not found')
+        const metas = await listFlows(wsDir)
+        const meta = metas.find(entry => entry.id === flowId)
+        if (meta === undefined) throw new Error('flow not found')
+        title = meta.title
+        flow = { id: flowId }
       } else {
-        const title = sanitizeTitle(payload.title)
-        if (title === '') throw new Error('title is required')
-        flow = await createFlow(wsDir, title)
+        const newTitle = sanitizeTitle(payload.title)
+        if (newTitle === '') throw new Error('title is required')
+        const created = await createFlow(wsDir, newTitle)
+        flow = { id: created.id }
+        title = created.title
       }
-      const existing = flow.entries.findIndex(entry => entry !== null && typeof entry === 'object'
-        && entry.sessionId === sessionId && Number(entry.turn) === turn)
-      if (existing >= 0) return { flow, duplicate: true }
-      const now = Date.now()
-      flow.entries.push({ at: now, sessionId, turn, question: qa.question, answer: qa.answer })
-      if (flow.entries.length > LIMITS.entriesMax) flow.entries = flow.entries.slice(-LIMITS.entriesMax)
-      flow.updatedAt = now
-      await writeFlow(wsDir, flow)
-      const flows = await listFlows(wsDir)
-      const meta = metaOf(flow)
-      const next = [meta, ...flows.filter(entry => entry.id !== flow.id)]
-      await writeIndex(wsDir, next)
-      return { flow, entry: flow.entries[flow.entries.length - 1] }
+      let body = await readBody(wsDir, flow.id) ?? ''
+      const marker = `<!--bfc s=${String(sessionId).replace(/-{2,}/g, '-')} t=${turn}-->`
+      if (body.includes(marker)) return { flow: { ...flow, title, body }, duplicate: true }
+      const at = Date.now()
+      body = `${body}${body.endsWith('\n') || body === '' ? '' : '\n'}\n${sectionOf(qa, sessionId, turn, at)}`
+      await writeBody(wsDir, flow.id, body.slice(0, LIMITS.bodyMax))
+      const metas = await listFlows(wsDir)
+      return { flow: metas.find(entry => entry.id === flow.id) ?? { ...flow, title }, appended: true }
     })
+  }
+
+  async function uploadFor(payload, wsDir) {
+    const id = sanitizeFlowId(payload.id)
+    if (id === '') throw new Error('id is required')
+    let raw = String(payload.dataBase64 ?? '')
+    const comma = raw.indexOf(',')
+    if (raw.startsWith('data:') && comma >= 0) raw = raw.slice(comma + 1)
+    if (raw === '' || raw.length > LIMITS.uploadMax) throw new Error('image too large or empty')
+    const baseName = path.basename(String(payload.name ?? '')).replace(/[^\w\u4e00-\u9fa5.-]+/g, '-').slice(0, 80)
+    const ext = path.extname(baseName).slice(1).toLowerCase()
+    if (!(ext in ASSET_TYPES)) throw new Error('unsupported image type')
+    const dir = assetsDir(wsDir, id)
+    await fsp.mkdir(dir, { recursive: true })
+    let name = baseName
+    try {
+      await fsp.access(path.join(dir, name))
+      name = `${path.basename(baseName, path.extname(baseName))}-${Date.now().toString(36)}.${ext}`
+    } catch {
+      /* unique */
+    }
+    await fsp.writeFile(path.join(dir, name), Buffer.from(raw, 'base64'))
+    return { name }
   }
 
   async function serve(request) {
@@ -333,9 +443,11 @@ export function apply(ctx) {
       if (action === 'list') {
         value = { flows: await listFlows(wsDir) }
       } else if (action === 'flow') {
-        const flow = await readFlow(wsDir, payload.id)
-        if (flow === null) throw new Error('flow not found')
-        value = { flow }
+        const metas = await listFlows(wsDir)
+        const meta = metas.find(entry => entry.id === sanitizeFlowId(payload.id))
+        const note = meta === undefined ? null : await readNote(wsDir, meta.id, meta.title)
+        if (note === null) throw new Error('flow not found')
+        value = { flow: { ...meta, body: note.body } }
       } else if (action === 'create') {
         const title = sanitizeTitle(payload.title)
         if (title === '') throw new Error('title is required')
@@ -347,30 +459,33 @@ export function apply(ctx) {
           if (action === 'rename') {
             const title = sanitizeTitle(payload.title)
             if (title === '') throw new Error('title is required')
-            const flow = await readFlow(wsDir, id)
-            if (flow === null) throw new Error('flow not found')
-            flow.title = title
-            flow.updatedAt = Date.now()
-            await writeFlow(wsDir, flow)
-          } else {
-            await fsp.rm(flowPath(wsDir, id), { force: true })
+            const metas = await listFlows(wsDir)
+            if (!metas.some(entry => entry.id === id)) throw new Error('flow not found')
+            const updated = metas.map(meta => meta.id === id ? { ...meta, title } : meta)
+            await writeIndex(wsDir, updated)
+            return { flow: updated.find(meta => meta.id === id) }
           }
-          const flows = (await listFlows(wsDir)).filter(entry => entry.id !== id)
-          const refreshed = []
-          for (const meta of flows) {
-            if (action === 'rename' && meta.id === id) {
-              const flow = await readFlow(wsDir, id)
-              refreshed.push(flow === null ? meta : metaOf(flow))
-            } else {
-              refreshed.push(meta)
-            }
-          }
-          refreshed.sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))
-          await writeIndex(wsDir, refreshed)
-          return action === 'rename' ? { flow: await readFlow(wsDir, id) } : { removed: true }
+          await fsp.rm(notePath(wsDir, id), { force: true })
+          await fsp.rm(assetsDir(wsDir, id), { recursive: true, force: true })
+          const metas = (await listFlows(wsDir)).filter(entry => entry.id !== id)
+          await writeIndex(wsDir, metas)
+          return { removed: true }
         })
       } else if (action === 'collect') {
         value = await collectFor(payload)
+      } else if (action === 'save') {
+        const id = sanitizeFlowId(payload.id)
+        if (id === '') throw new Error('id is required')
+        if (typeof payload.body !== 'string') throw new Error('body must be a string')
+        value = await withLock(wsKey, async () => {
+          const metas = await listFlows(wsDir)
+          if (!metas.some(entry => entry.id === id)) throw new Error('flow not found')
+          await writeBody(wsDir, id, payload.body.slice(0, LIMITS.bodyMax))
+          const next = await listFlows(wsDir)
+          return { flow: next.find(entry => entry.id === id) ?? null }
+        })
+      } else if (action === 'upload') {
+        value = await withLock(wsKey, () => uploadFor(payload, wsDir))
       } else {
         throw new Error(`unknown action ${JSON.stringify(action)}`)
       }
@@ -381,5 +496,40 @@ export function apply(ctx) {
         error: { code: 'internal', message: String(error?.message ?? error), details: {} },
       })
     }
+  }
+
+  async function serveAsset(request) {
+    let url
+    try {
+      url = new URL(request.url)
+    } catch {
+      return new Response('bad request', { status: 400 })
+    }
+    const flowId = sanitizeFlowId(url.searchParams.get('flow'))
+    const name = path.basename(String(url.searchParams.get('name') ?? ''))
+    const type = contentTypeOf(name)
+    if (flowId === '' || name === '' || type === null) return new Response('not found', { status: 404 })
+    const candidates = []
+    const root = storageRoot()
+    let entries
+    try {
+      entries = fs.readdirSync(root)
+    } catch {
+      return new Response('not found', { status: 404 })
+    }
+    for (const entry of entries) {
+      if (entry.startsWith('--') && entry.endsWith('--')) candidates.push(path.join(root, entry, `${flowId}.assets`, name))
+    }
+    for (const file of candidates) {
+      try {
+        const data = await fsp.readFile(file)
+        return new Response(data, {
+          headers: { 'content-type': type, 'cache-control': 'private, max-age=2592000, immutable' },
+        })
+      } catch {
+        /* try next workspace */
+      }
+    }
+    return new Response('not found', { status: 404 })
   }
 }

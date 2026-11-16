@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Business Flows",
-    "description": "Collect question/answer pairs from conversation turns into per-workspace notes: save a turn from its tail, then review the flows and replays in the Business Flows tab."
+    "description": "Per-workspace markdown notes: a Save button on each turn tail appends the question and answer, and the Business Flows tab lists notes on the left with an editable reader on the right; stored under ~/.dsh/storages/business-flows/<workspace>."
   }
 }

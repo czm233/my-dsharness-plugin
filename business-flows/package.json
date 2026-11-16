@@ -1,9 +1,9 @@
 {
   "name": "@local/business-flows",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "业务流程：按工程收藏对话里的问答——回复尾部一键收藏，业务流程 tab 左列表右回放；数据存在 ~/.dsh/storages/business-flows/<工程>/ 下，同一工程的每个会话共享同一份。",
+  "description": "业务流程：按工程收藏的 Markdown 笔记——回复尾部一键收藏问答原文，tab 左列表右阅读，正文可编辑、追加、粘贴截图。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
