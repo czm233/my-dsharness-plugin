@@ -1671,8 +1671,8 @@
         "zh": "业务流程"
       },
       "description": {
-        "en": "Collect question/answer pairs from conversation turns into per-workspace notes: a Save button on each turn tail and a Business Flows tab with the flow list on the left and replayed conversations on the right; stored under ~/.dsh/storages/business-flows/<workspace>.",
-        "zh": "把对话里值得保留的问答按工程收藏成笔记：每轮回复尾部一键收藏，业务流程 tab 左列表右回放；数据存在 ~/.dsh/storages/business-flows/<工程>/ 下，同一工程的每个会话共享同一份。"
+        "en": "Per-workspace markdown notes: a Save button on each turn tail appends the question and answer, and the Business Flows tab lists notes on the left with an editable reader on the right; images paste into the note's assets folder; stored under ~/.dsh/storages/business-flows/<workspace>.",
+        "zh": "按工程收藏的 Markdown 笔记：回复尾部一键收藏问答原文，业务流程 tab 左列表右阅读，正文可直接编辑、追加、粘贴截图；数据存在 ~/.dsh/storages/business-flows/<工程>/ 下。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -1688,6 +1688,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1763271600,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5880c792f0d8811fc89f2ecf02c6598dd1404db2",
+            "path": "business-flows"
+          }
+        },
         {
           "version": "0.1.1",
           "publishTimestamp": 1794797741,
