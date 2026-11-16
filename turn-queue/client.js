@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
       @media (hover: hover) {
         .tqCard[data-waiting="true"]:hover {
           background: var(--dsw-alias-state-warn-primary, #f59e0b);
+          color: #3b2a00;
         }
       }
     `
