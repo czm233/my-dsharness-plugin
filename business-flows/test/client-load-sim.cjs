@@ -20,6 +20,13 @@ const hooks = {}
 const reactStub = new Proxy({
   createElement: (type, props, ...children) => ({ type, props, children }),
   Fragment: 'fragment',
+  // single-render hook shim: enough to exhaustively invoke one component body
+  useState: (init) => [init, () => {}],
+  useRef: (init) => ({ current: init }),
+  useEffect: () => {},
+  useLayoutEffect: () => {},
+  useCallback: (fn) => fn,
+  useMemo: (fn) => fn(),
 }, {
   get(target, prop) {
     if (prop in target) return target[prop]
@@ -116,10 +123,23 @@ const tabLabel = viewSpec.label
 assert(typeof tabLabel === 'function' && tabLabel() === '业务流程', 'tab label resolves in zh')
 
 // callRpc round-trip through the fake connection
-tailProps.callRpc('list', { sessionId: 's1' }).then((value) => {
+tailProps.callRpc('list', { sessionId: 's1' }).then(async (value) => {
   assert(Array.isArray(value.flows), 'callRpc resolves value')
   assert(rpcCalls.length === 1 && rpcCalls[0].channel === '/api' && rpcCalls[0].method === 'business-flows/rpc', 'rpc carrier path')
   assert(rpcCalls[0].payload.action === 'list', 'rpc payload action')
+
+  // turnTail: one click collects straight into a timestamp-named note (no picker)
+  const tailComponent = tailReg[0][2]
+  assert(typeof tailComponent === 'function', 'tail component registered')
+  const button = tailComponent({ ...tailProps, t: (key) => key, sessionId: 'session-abc', turn: { turn: 4 } })
+  assert(button && button.type === 'button' && button.props.className === 'bfc-tail-btn', 'tail renders a plain button')
+  assert(JSON.stringify(button.children).includes('collect'), 'tail label is the collect button')
+  await button.props.onClick()
+  const last = rpcCalls[rpcCalls.length - 1]
+  assert(last.payload.action === 'collect', 'click calls collect directly')
+  assert(last.payload.sessionId === 'session-abc' && last.payload.turn === 4, 'collect payload carries session + turn')
+  assert(last.payload.title === undefined && last.payload.flowId === undefined, 'no title/flow picker params sent')
+
   console.log(failures === 0 ? 'client-load-sim: all assertions passed' : 'client-load-sim: FAILURES above')
   process.exit(failures === 0 ? 0 : 1)
 }).catch((error) => {

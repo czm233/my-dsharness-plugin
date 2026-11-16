@@ -8,9 +8,10 @@
  *      and answer, the whole body is editable in place (编辑 → textarea →
  *      保存), so appending notes by hand is the normal workflow.
  *   2. A `conversation.chat.turnTail` seat (the same tail row as turn-cost):
- *      a small 「收藏」 button per turn. Picking a note (or creating one)
- *      appends that turn's question + answer as a markdown section; nothing
- *      on screen is scraped, the host re-reads the turn from the session log.
+ *      a small 「收藏」 button per turn. One click files that turn's question
+ *      and answer into a brand-new note named after the current timestamp; no
+ *      picker, no prompt. Nothing on screen is scraped — the host re-reads the
+ *      turn from the session log.
  *
  * Images pasted (or dropped) into the editor upload into the note's
  * <flowId>.assets/ folder next to the .md file on disk and are referenced
@@ -22,7 +23,6 @@ window.__ModuleLoader__.load({
   id: '@local/business-flows',
   factory(require) {
     const React = require('react')
-    const { createPortal } = require('react-dom')
     const h = React.createElement
     const { useState, useRef, useEffect, useCallback } = React
 
@@ -167,22 +167,11 @@ window.__ModuleLoader__.load({
         color:var(--dsw-alias-label-primary);font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px 20px;min-height:0}
       .bfc-note-error{padding:8px 20px;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:11px}
       .bfc-a :first-child{margin-top:0}
-      /* --- turnTail 收藏按钮与菜单（独立语境，沿用同一 token） --- */
+      /* --- turnTail 收藏按钮（独立语境，沿用同一 token） --- */
       .bfc-tail-btn{border:none;background:none;color:var(--dsw-alias-label-secondary,inherit);opacity:.8;font-size:12px;line-height:1;
         padding:5px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
       .bfc-tail-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
       .bfc-tail-btn[disabled]{opacity:.45;cursor:default}
-      .bfc-menu{position:fixed;z-index:10000;min-width:200px;max-width:280px;max-height:300px;overflow:auto;
-        background:var(--dsw-alias-bg-layer-1,#1e1f22);color:var(--dsw-alias-label-primary,inherit);
-        border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.3));border-radius:10px;
-        box-shadow:0 8px 28px rgba(0,0,0,.28);padding:4px;font-size:12px}
-      .bfc-menu-item{display:block;width:100%;text-align:left;border:none;background:none;color:inherit;
-        padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .bfc-menu-item:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
-      .bfc-menu-item:disabled{opacity:.5;cursor:default}
-      .bfc-menu-sep{height:1px;background:var(--dsw-alias-border-l1,rgba(128,128,128,.25));margin:4px 2px}
-      .bfc-menu-note{padding:6px 10px;opacity:.6;white-space:nowrap}
-      .bfc-menu-error{padding:6px 10px;color:var(--dsw-alias-state-error-primary,#e5484d);white-space:normal;max-width:260px}
       .bfc-mini-btn{border:none;background:none;color:inherit;opacity:.75;font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
       .bfc-mini-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
       .bfc-mini-btn:disabled{opacity:.4;cursor:default}
@@ -271,109 +260,46 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** The turn-tail 「收藏」 button with its note picker menu. */
+    /** The turn-tail 「收藏」 button: one click files this turn into a fresh timestamp-named note. */
     function CollectTail(props) {
       const { t, callRpc } = props
       const turnLocation = props.turn
       const sessionId = typeof props.sessionId === 'string' ? props.sessionId : ''
       const turnNo = typeof turnLocation?.turn === 'number' ? turnLocation.turn : undefined
 
-      const [open, setOpen] = useState(false)
-      const [flows, setFlows] = useState(null)
-      const [error, setError] = useState('')
       const [busy, setBusy] = useState(false)
       const [done, setDone] = useState(false)
-      const [pos, setPos] = useState(null)
-      const btnRef = useRef(null)
-      const menuRef = useRef(null)
+      const [error, setError] = useState('')
+      const disabled = done || busy || sessionId === '' || turnNo === undefined
 
-      const openMenu = useCallback(() => {
-        if (done || busy || sessionId === '' || turnNo === undefined) return
-        const rect = btnRef.current?.getBoundingClientRect()
-        if (rect) setPos({ top: rect.bottom + 6, left: Math.max(8, rect.right - 250) })
-        setError('')
-        setFlows(null)
-        setOpen(true)
-        callRpc('list', { sessionId }).then(
-          (value) => setFlows(Array.isArray(value?.flows) ? value.flows : []),
-          (failure) => { setFlows([]); setError(String(failure?.message ?? failure)) },
-        )
-      }, [busy, callRpc, done, sessionId, turnNo])
-
-      const disabled = done || sessionId === '' || turnNo === undefined
-
-      useEffect(() => {
-        if (!open) return undefined
-        const onDown = (event) => {
-          const target = event.target
-          if (menuRef.current?.contains(target)) return
-          if (btnRef.current?.contains(target)) return
-          setOpen(false)
-        }
-        document.addEventListener('mousedown', onDown)
-        return () => document.removeEventListener('mousedown', onDown)
-      }, [open])
-
-      const collect = useCallback(async (args) => {
+      const collect = useCallback(async () => {
+        if (disabled) return
         setBusy(true)
         setError('')
         try {
-          await callRpc('collect', { sessionId, turn: turnNo, ...args })
+          await callRpc('collect', { sessionId, turn: turnNo })
           setDone(true)
-          setOpen(false)
         } catch (failure) {
-          setError(`${t('collectFailed')}：${String(failure?.message ?? failure)}`)
+          setError(String(failure?.message ?? failure))
         } finally {
           setBusy(false)
         }
-      }, [callRpc, sessionId, t, turnNo])
+      }, [callRpc, disabled, sessionId, turnNo])
 
-      const submitNew = () => {
-        if (busy) return
-        collect({})
-      }
+      // Failures are rare (turn without answer); brief inline label + full reason on hover.
+      useEffect(() => {
+        if (error === '') return undefined
+        const timer = setTimeout(() => setError(''), 4000)
+        return () => clearTimeout(timer)
+      }, [error])
 
-      const menu = open && pos !== null
-        ? createPortal(
-          h('div', {
-            ref: menuRef,
-            className: 'bfc-menu',
-            style: { top: pos.top, left: pos.left },
-            onMouseDown: (event) => event.stopPropagation(),
-          },
-            flows === null
-              ? h('div', { className: 'bfc-menu-note' }, '…')
-              : flows.map((flow) => h('button', {
-                key: flow.id,
-                type: 'button',
-                className: 'bfc-menu-item',
-                disabled: busy,
-                title: flow.title,
-                onClick: () => collect({ flowId: flow.id }),
-              }, flow.title)),
-            flows !== null ? h('div', { className: 'bfc-menu-sep' }) : null,
-            h('button', {
-              type: 'button',
-              className: 'bfc-menu-item',
-              disabled: busy,
-              onClick: submitNew,
-            }, `＋ ${t('newFlow')}`),
-            error !== '' ? h('div', { className: 'bfc-menu-error' }, error) : null,
-          ),
-          document.body,
-        )
-        : null
-
-      return h('span', { ref: btnRef, style: { display: 'inline-flex', position: 'relative' } },
-        h('button', {
-          type: 'button',
-          className: 'bfc-tail-btn',
-          disabled,
-          title: t('collect'),
-          onClick: openMenu,
-        }, done ? t('saved') : `＋ ${t('collect')}`),
-        menu,
-      )
+      return h('button', {
+        type: 'button',
+        className: 'bfc-tail-btn',
+        disabled,
+        title: error !== '' ? error : t('collect'),
+        onClick: collect,
+      }, done ? t('saved') : error !== '' ? t('collectFailed') : `＋ ${t('collect')}`)
     }
 
     /** Note pane: read (rendered markdown) or edit (raw textarea + paste images). */
