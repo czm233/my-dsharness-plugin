@@ -66,16 +66,10 @@ window.__ModuleLoader__.load({
         cursor: pointer;
       }
       @media (hover: hover) {
-        .tqCard:not([data-empty="true"]):hover {
+        .tqCard:hover {
           background: var(--dsw-alias-interactive-bg-pressed, rgba(127, 127, 127, 0.26));
           color: var(--dsw-alias-label-primary, inherit);
         }
-      }
-      .tqCard[data-empty="true"] {
-        background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, 0.08));
-        opacity: 0.45;
-        cursor: default;
-        pointer-events: none;
       }
       .tqCard[data-waiting="true"] {
         background: var(--dsw-alias-state-warn-secondary, #f7ad31);
@@ -436,16 +430,13 @@ window.__ModuleLoader__.load({
           () => sessions.list.getSnapshot(),
         )
 
+        // Nothing queued means nothing to show: the header row disappears
+        // entirely instead of leaving an empty placeholder behind.
+        if (entries.length === 0) return null
         const cells = []
-        // An empty queue still needs one slot to show where it lives; the row
-        // only grows to three when entries actually exist.
-        const count = Math.min(VISIBLE, Math.max(1, entries.length))
+        const count = Math.min(VISIBLE, entries.length)
         for (let index = 0; index < count; index += 1) {
           const entry = entries[index]
-          if (entry === undefined) {
-            cells.push(h('div', { key: `empty-${index}`, className: 'tqCard', 'data-empty': 'true' }))
-            continue
-          }
           const label = titleOf(snapshot, entry.id)
           cells.push(h('button', {
             key: entryKey(entry.id, entry.token),

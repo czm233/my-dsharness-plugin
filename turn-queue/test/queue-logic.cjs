@@ -383,15 +383,16 @@ function check(name, condition) {
   const cellsAfter = Array.isArray(treeAfter.children[0]) ? treeAfter.children[0] : treeAfter.children
   check('the next entry slides into the first slot',
     cellsAfter[0].props.title === 'Session B')
+
+  cellsAfter[0].props.onClick()
+  check('emptying the queue hides the row', env.registered[0].Component() === null)
 }
 
-// 15. A single slot is rendered while the queue is empty
+// 15. The header row is hidden entirely while the queue is empty
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
-  const tree = env.registered[0].Component()
-  const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
-  check('empty queue renders exactly one slot', cells.length === 1)
+  check('empty queue renders nothing', env.registered[0].Component() === null)
 }
 
 // 16. A reload restores the persisted queue and prunes dead sessions
