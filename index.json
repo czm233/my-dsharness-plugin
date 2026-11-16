@@ -1789,6 +1789,123 @@
           }
         }
       ]
+    },
+    {
+      "name": "turn-queue",
+      "title": {
+        "en": "Turn Queue",
+        "zh": "完成队列"
+      },
+      "description": {
+        "en": "A session queue pinned in the conversation header: sessions waiting on you or just finished join automatically, and the sidebar right-click menu adds one by hand; one click jumps back to that session.",
+        "zh": "在对话标题栏里排一条会话队列：等待你回答、刚完成的会话自动入队，也可以在左栏右键手动加入；点一下跳回那个会话。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "turn-queue"
+      },
+      "metadata": {
+        "category": "workflow",
+        "keywords": [
+          "dsh",
+          "queue",
+          "sessions",
+          "header",
+          "notifications"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.4.4",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "91d937b49088ffa9ed83850b0f1e3a7e5eac930b",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.4.3",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "f3c79ab9c725572d98f4e4c71e81c5a42a984813",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.4.2",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "5f0b3cc3a6b367f372cc30c71297955308a17723",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.4.1",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "0a791a8643409c2a3b3be65051e1240d64b1ca81",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.4.0",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "f33636d36c4cd36980cc5f3099946f3ba274abe7",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.3.2",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "68ad12b1e005052e9de50e86ec73a533bbaf2add",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.3.1",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8846c857cad5973e95c48e48f94b9bfd4b8c03e2",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "e422d452e31c0c5fa689303acc947ed70e5b8a78",
+            "path": "turn-queue"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1794820718,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ca22d1f1d57380373338fcd879b677f3ca50df64",
+            "path": "turn-queue"
+          }
+        }
+      ]
     }
   ]
 }
