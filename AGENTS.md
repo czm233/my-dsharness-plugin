@@ -66,11 +66,19 @@
 
 ## 5. 新插件上手清单
 
-1. 在本仓库建子目录,包含 `package.json`、`cordis.patch.yml`、`client.js`/`index.js`、`locale/`、`icon.svg`;
+1. 在本仓库建子目录,包含 `package.json`、`cordis.patch.yml`、`client.js`/`index.js`、`locale/en.json` + `locale/zh.json`(中文名,见 §5.1)、`icon.svg`;
 2. 更新根目录 `index.json`;
 3. `git commit + push`;
 4. plugin_manager install,目录填本仓库内路径;
 5. 重载界面,用版本号确认生效。
+
+## 5.1 插件中文名(强制,2026-11-16 制定)
+
+1. 每个自研插件必须在插件目录提供 `locale/en.json` 与 `locale/zh.json`,两个文件的 `meta.title`、`meta.description` 都要写;`locale/zh.json` 的 `meta.title` 就是插件管理页显示的中文名。
+2. `package.json` 必须导出 `"./locale/*.json": "./locale/*.json"`,并把 `locale/*.json` 写进 `files`;否则 DSH 读不到 locale,列表只能回落到包名。
+3. **只写 `zh.json` 不写 `en.json` 无效**:DSH 以 `locale/en.json` 为入口发现同目录的语言文件。
+4. 中文名要能直接看懂用途(例如「完成队列」「侧边对话」「业务流程」),不要音译包名;根目录 `index.json` 的 `title.zh` 与 `locale/zh.json` 的 `meta.title` 必须一致。
+5. 新插件、改名、补语言时都按本节执行;上线前用 `require.resolve('<包名>/locale/zh.json')` 确认导出可用,并确认文件内容是合法 JSON。
 
 ## 6. 用户环境红线(永久有效,任何 AI 会话不得违反)
 
