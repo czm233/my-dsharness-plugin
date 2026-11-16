@@ -106,57 +106,84 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
-.bfc-tail-btn{border:none;background:none;color:var(--dsw-alias-label-secondary,inherit);opacity:.8;font-size:12px;line-height:1;
-  padding:5px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
-.bfc-tail-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
-.bfc-tail-btn[disabled]{opacity:.45;cursor:default}
-.bfc-menu{position:fixed;z-index:10000;min-width:200px;max-width:280px;max-height:300px;overflow:auto;
-  background:var(--dsw-alias-bg-layer-1,#1e1f22);color:var(--dsw-alias-label-primary,inherit);
-  border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.3));border-radius:10px;
-  box-shadow:0 8px 28px rgba(0,0,0,.28);padding:4px;font-size:12px}
-.bfc-menu-item{display:block;width:100%;text-align:left;border:none;background:none;color:inherit;
-  padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bfc-menu-item:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
-.bfc-menu-item:disabled{opacity:.5;cursor:default}
-.bfc-menu-sep{height:1px;background:var(--dsw-alias-border-l1,rgba(128,128,128,.25));margin:4px 2px}
-.bfc-menu-note{padding:6px 10px;opacity:.6;white-space:nowrap}
-.bfc-menu-error{padding:6px 10px;color:var(--dsw-alias-state-error-primary,#e5484d);white-space:normal;max-width:260px}
-.bfc-new-row{display:flex;gap:4px;padding:4px 6px 2px}
-.bfc-input{flex:1;min-width:0;font-size:12px;padding:5px 8px;border-radius:6px;
-  border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));
-  background:var(--dsw-alias-bg-layer-2,transparent);color:inherit;outline:none}
-.bfc-mini-btn{border:none;background:none;color:inherit;opacity:.75;font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
-.bfc-mini-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
-.bfc-mini-btn:disabled{opacity:.4;cursor:default}
-.bfc-mini-btn.primary{opacity:1;font-weight:600}
-.bfc-page{display:flex;height:100%;min-height:0;font-size:13px}
-.bfc-side{width:220px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.22));min-height:0}
-.bfc-side-head{padding:12px 14px 8px;font-weight:600;color:var(--dsw-alias-label-primary,inherit)}
-.bfc-side-list{flex:1;overflow:auto;padding:0 6px;min-height:0}
-.bfc-row{position:relative;display:flex;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;cursor:pointer}
-.bfc-row:hover{background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12))}
-.bfc-row.active{background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.18))}
-.bfc-row-title{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bfc-row-actions{display:none;flex:none;gap:2px}
-.bfc-row:hover .bfc-row-actions,.bfc-row.active .bfc-row-actions{display:flex}
-.bfc-icon-btn{border:none;background:none;color:inherit;opacity:.6;font-size:12px;padding:2px 4px;border-radius:5px;cursor:pointer;line-height:1}
-.bfc-icon-btn:hover{opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.2))}
-.bfc-row-form{display:flex;align-items:center;gap:4px;padding:4px 6px;width:100%}
-.bfc-side-foot{padding:8px;border-top:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.18))}
-.bfc-new-btn{width:100%;text-align:left;border:none;background:none;color:inherit;opacity:.7;font-size:12px;
-  padding:6px 8px;border-radius:8px;cursor:pointer}
-.bfc-new-btn:hover{opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12))}
-.bfc-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.bfc-reader-head{display:flex;align-items:center;gap:8px;padding:12px 18px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.18))}
-.bfc-reader-title{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bfc-reader{flex:1;overflow:auto;padding:14px 18px 24px;min-height:0}
-.bfc-reader-empty{height:100%;display:flex;align-items:center;justify-content:center;opacity:.55}
-.bfc-editor-wrap{flex:1;display:flex;min-height:0}
-.bfc-editor{flex:1;width:100%;box-sizing:border-box;resize:none;border:none;outline:none;background:transparent;
-  color:inherit;font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px 18px;min-height:0}
-.bfc-note-error{padding:8px 18px;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:12px}
-.bfc-a{line-height:1.65}
-.bfc-error{padding:10px 14px;color:var(--dsw-alias-state-error-primary,#e5484d)}
+      /* 本视图挂载时隐藏常驻输入区与宽度拖柄，整块对话区归笔记页用（同流程画布契约） */
+      [data-conversation-content]:has([data-business-flows-view]) [data-conversation-region=composer],[data-conversation-content]:has([data-business-flows-view]) [data-width-handle]{display:none !important}
+      /* 设计语言照 agent-workflow-board：顶部工具栏 + 左侧面板 + 可拖拽分隔条 + 统一 dsw token */
+      .bfc{display:flex;flex-direction:column;height:100%;min-height:0;flex:1 1 0;overflow:hidden;
+        color:var(--dsw-alias-label-primary,inherit);font-size:12px;line-height:18px;background:var(--dsw-alias-bg-layer-1,transparent)}
+      /* --- 顶部工具栏 --- */
+      .bfc-toolbar{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
+      .bfc-brand{flex:0 0 auto;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;
+        background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-layer-1);font-size:12px;font-weight:700}
+      .bfc-title{flex:0 1 auto;min-width:60px;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .bfc-sub{flex:0 0 auto;color:var(--dsw-alias-label-tertiary);font-size:11px}
+      .bfc-spacer{flex:1 1 auto}
+      .bfc-btn{border:1px solid var(--dsw-alias-border-l1);background:transparent;color:var(--dsw-alias-label-primary);
+        font:inherit;padding:2px 9px;border-radius:6px;cursor:pointer;white-space:nowrap}
+      .bfc-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
+      .bfc-btn:disabled{opacity:.4;cursor:not-allowed}
+      .bfc-btn.primary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+      .bfc-btn.danger{border-color:transparent;color:var(--dsw-alias-state-error-primary,#e5484d)}
+      /* --- 左侧面板 --- */
+      .bfc-palette{flex:0 0 auto;width:240px;min-width:0;display:flex;flex-direction:column;min-height:0;
+        border-right:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
+      .bfc-pal-head{display:flex;align-items:baseline;gap:6px;padding:10px 12px 6px}
+      .bfc-pal-title{font-weight:600;font-size:12px}
+      .bfc-pal-sub{color:var(--dsw-alias-label-tertiary);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .bfc-pal-scroll{flex:1 1 auto;min-height:0;overflow:auto;padding:0 8px 10px;display:flex;flex-direction:column;gap:4px}
+      .bfc-card{position:relative;display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:8px;cursor:pointer;user-select:none}
+      .bfc-card:hover{background:var(--dsw-alias-bg-layer-2)}
+      .bfc-card.active{background:var(--dsw-alias-bg-layer-2)}
+      .bfc-card.active .bfc-card-title{color:var(--dsw-alias-brand-primary)}
+      .bfc-card-title{flex:1 1 auto;min-width:0;font-weight:500;font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .bfc-card-actions{display:none;flex:0 0 auto;gap:2px}
+      .bfc-card:hover .bfc-card-actions,.bfc-card.active .bfc-card-actions{display:flex}
+      .bfc-icon-btn{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;
+        padding:1px 4px;border-radius:4px;cursor:pointer;line-height:1}
+      .bfc-icon-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2)}
+      .bfc-row-form{display:flex;align-items:center;gap:4px;padding:4px 6px;width:100%}
+      .bfc-input{flex:1 1 auto;min-width:0;font:inherit;font-size:12px;padding:2px 8px;border-radius:6px;
+        border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);outline:none}
+      .bfc-input:focus{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+      .bfc-pal-foot{padding:8px;border-top:1px solid var(--dsw-alias-border-l1)}
+      .bfc-new-btn{width:100%;text-align:left;border:1px dashed var(--dsw-alias-border-l1);background:transparent;
+        color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;padding:5px 8px;border-radius:8px;cursor:pointer}
+      .bfc-new-btn:hover{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2)}
+      /* --- 拖拽分隔条 --- */
+      .bfc-resizer{flex:0 0 8px;cursor:col-resize;background:transparent;position:relative;z-index:5}
+      .bfc-resizer:hover,.bfc-resizer.active{background:var(--dsw-alias-border-l1)}
+      /* --- 右侧内容 --- */
+      .bfc-stage{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;min-height:0}
+      .bfc-reader{flex:1 1 auto;overflow:auto;padding:16px 20px 28px;min-height:0;font-size:13px;line-height:1.7}
+      .bfc-reader-empty{height:100%;display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);font-size:11px}
+      .bfc-editor-wrap{flex:1 1 auto;display:flex;min-height:0}
+      .bfc-editor{flex:1 1 auto;width:100%;box-sizing:border-box;resize:none;border:0;outline:none;background:transparent;
+        color:var(--dsw-alias-label-primary);font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px 20px;min-height:0}
+      .bfc-note-error{padding:8px 20px;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:11px}
+      .bfc-a :first-child{margin-top:0}
+      /* --- turnTail 收藏按钮与菜单（独立语境，沿用同一 token） --- */
+      .bfc-tail-btn{border:none;background:none;color:var(--dsw-alias-label-secondary,inherit);opacity:.8;font-size:12px;line-height:1;
+        padding:5px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      .bfc-tail-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
+      .bfc-tail-btn[disabled]{opacity:.45;cursor:default}
+      .bfc-menu{position:fixed;z-index:10000;min-width:200px;max-width:280px;max-height:300px;overflow:auto;
+        background:var(--dsw-alias-bg-layer-1,#1e1f22);color:var(--dsw-alias-label-primary,inherit);
+        border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.3));border-radius:10px;
+        box-shadow:0 8px 28px rgba(0,0,0,.28);padding:4px;font-size:12px}
+      .bfc-menu-item{display:block;width:100%;text-align:left;border:none;background:none;color:inherit;
+        padding:6px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .bfc-menu-item:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
+      .bfc-menu-item:disabled{opacity:.5;cursor:default}
+      .bfc-menu-sep{height:1px;background:var(--dsw-alias-border-l1,rgba(128,128,128,.25));margin:4px 2px}
+      .bfc-menu-note{padding:6px 10px;opacity:.6;white-space:nowrap}
+      .bfc-menu-error{padding:6px 10px;color:var(--dsw-alias-state-error-primary,#e5484d);white-space:normal;max-width:260px}
+      .bfc-new-row{display:flex;gap:4px;padding:4px 6px 2px}
+      .bfc-mini-btn{border:none;background:none;color:inherit;opacity:.75;font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+      .bfc-mini-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.16))}
+      .bfc-mini-btn:disabled{opacity:.4;cursor:default}
+      .bfc-mini-btn.primary{opacity:1;font-weight:600}
+      .bfc-a{line-height:1.65}
+      .bfc-error{padding:10px 14px;color:var(--dsw-alias-state-error-primary,#e5484d)}
 `
 
     const ctxRef = { service: null }
@@ -565,97 +592,119 @@ window.__ModuleLoader__.load({
         uploadImage(file)
       }
 
+      const [paletteW, setPaletteW] = useState(240)
+      const startResize = (event) => {
+        event.preventDefault()
+        const startX = event.clientX
+        const startW = paletteW
+        const onMove = (moveEvent) => setPaletteW(Math.min(420, Math.max(170, startW + moveEvent.clientX - startX)))
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove)
+          document.removeEventListener('mouseup', onUp)
+        }
+        document.addEventListener('mousemove', onMove)
+        document.addEventListener('mouseup', onUp)
+      }
+
       const rows = flows === null ? [] : flows
-      return h('div', { className: 'bfc-page' },
-        h('div', { className: 'bfc-side' },
-          h('div', { className: 'bfc-side-head' }, t('title')),
-          h('div', { className: 'bfc-side-list' },
-            rows.map((flow) => {
-              if (renameId === flow.id) {
-                return h('div', { key: flow.id, className: 'bfc-row-form' },
+      return h('div', { className: 'bfc', 'data-business-flows-view': '' },
+        h('div', { className: 'bfc-toolbar' },
+          h('span', { className: 'bfc-brand' }, '流'),
+          h('span', { className: 'bfc-title' }, detail !== null ? detail.title : t('title')),
+          h('span', { className: 'bfc-spacer' }),
+          detail === null
+            ? null
+            : editing
+              ? h(React.Fragment, null,
+                h('button', { type: 'button', className: 'bfc-btn primary', onClick: submitSave }, t('save')),
+                h('button', { type: 'button', className: 'bfc-btn', onClick: () => setEditing(false) }, t('cancel')))
+              : h('button', { type: 'button', className: 'bfc-btn', onClick: startEdit }, t('edit')),
+        ),
+        h('div', { style: { flex: '1 1 auto', display: 'flex', minHeight: 0 } },
+          h('div', { className: 'bfc-palette', style: { width: paletteW } },
+            h('div', { className: 'bfc-pal-head' },
+              h('span', { className: 'bfc-pal-title' }, t('title')),
+              flows !== null ? h('span', { className: 'bfc-pal-sub' }, String(rows.length)) : null,
+            ),
+            h('div', { className: 'bfc-pal-scroll' },
+              rows.map((flow) => {
+                if (renameId === flow.id) {
+                  return h('div', { key: flow.id, className: 'bfc-row-form' },
+                    h('input', {
+                      className: 'bfc-input',
+                      value: renameTitle,
+                      maxLength: 60,
+                      autoFocus: true,
+                      onChange: (event) => setRenameTitle(event.target.value),
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter') submitRename()
+                        if (event.key === 'Escape') setRenameId('')
+                      },
+                    }),
+                    h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitRename }, t('save')),
+                    h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setRenameId('') }, t('cancel')),
+                  )
+                }
+                if (confirmId === flow.id) {
+                  return h('div', { key: flow.id, className: 'bfc-row-form' },
+                    h('span', { style: { flex: 1, fontSize: 12 } }, t('confirmDelete')),
+                    h('button', { type: 'button', className: 'bfc-mini-btn primary', style: { color: 'var(--dsw-alias-state-error-primary,#e5484d)' }, onClick: () => submitRemove(flow.id) }, t('del')),
+                    h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setConfirmId('') }, t('cancel')),
+                  )
+                }
+                return h('div', {
+                  key: flow.id,
+                  className: `bfc-card${selectedId === flow.id ? ' active' : ''}`,
+                  onClick: () => openFlow(flow.id),
+                },
+                  h('span', { className: 'bfc-card-title', title: flow.title }, flow.title),
+                  h('span', { className: 'bfc-card-actions', onClick: (event) => event.stopPropagation() },
+                    h('button', {
+                      type: 'button',
+                      className: 'bfc-icon-btn',
+                      title: t('rename'),
+                      onClick: () => { setConfirmId(''); setRenameId(flow.id); setRenameTitle(flow.title) },
+                    }, '✎'),
+                    h('button', {
+                      type: 'button',
+                      className: 'bfc-icon-btn',
+                      title: t('del'),
+                      onClick: () => { setRenameId(''); setConfirmId(flow.id) },
+                    }, '✕'),
+                  ),
+                )
+              }),
+            ),
+            h('div', { className: 'bfc-pal-foot' },
+              creating
+                ? h('div', { className: 'bfc-row-form' },
                   h('input', {
                     className: 'bfc-input',
-                    value: renameTitle,
+                    value: newTitle,
+                    placeholder: t('titlePh'),
                     maxLength: 60,
                     autoFocus: true,
-                    onChange: (event) => setRenameTitle(event.target.value),
+                    onChange: (event) => setNewTitle(event.target.value),
                     onKeyDown: (event) => {
-                      if (event.key === 'Enter') submitRename()
-                      if (event.key === 'Escape') setRenameId('')
+                      if (event.key === 'Enter') submitCreate()
+                      if (event.key === 'Escape') setCreating(false)
                     },
                   }),
-                  h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitRename }, t('save')),
-                  h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setRenameId('') }, t('cancel')),
+                  h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: newTitle.trim() === '', onClick: submitCreate }, t('create')),
+                  h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setCreating(false) }, t('cancel')),
                 )
-              }
-              if (confirmId === flow.id) {
-                return h('div', { key: flow.id, className: 'bfc-row-form' },
-                  h('span', { style: { flex: 1, fontSize: 12 } }, t('confirmDelete')),
-                  h('button', { type: 'button', className: 'bfc-mini-btn primary', style: { color: 'var(--dsw-alias-state-error-primary,#e5484d)' }, onClick: () => submitRemove(flow.id) }, t('del')),
-                  h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setConfirmId('') }, t('cancel')),
-                )
-              }
-              return h('div', {
-                key: flow.id,
-                className: `bfc-row${selectedId === flow.id ? ' active' : ''}`,
-                onClick: () => openFlow(flow.id),
-              },
-                h('span', { className: 'bfc-row-title', title: flow.title }, flow.title),
-                h('span', { className: 'bfc-row-actions', onClick: (event) => event.stopPropagation() },
-                  h('button', {
-                    type: 'button',
-                    className: 'bfc-icon-btn',
-                    title: t('rename'),
-                    onClick: () => { setConfirmId(''); setRenameId(flow.id); setRenameTitle(flow.title) },
-                  }, '✎'),
-                  h('button', {
-                    type: 'button',
-                    className: 'bfc-icon-btn',
-                    title: t('del'),
-                    onClick: () => { setRenameId(''); setConfirmId(flow.id) },
-                  }, '✕'),
-                ),
-              )
-            }),
+                : h('button', { type: 'button', className: 'bfc-new-btn', onClick: () => { setNewTitle(''); setCreating(true) } }, `＋ ${t('newFlow')}`),
+            ),
           ),
-          h('div', { className: 'bfc-side-foot' },
-            creating
-              ? h('div', { className: 'bfc-row-form' },
-                h('input', {
-                  className: 'bfc-input',
-                  value: newTitle,
-                  placeholder: t('titlePh'),
-                  maxLength: 60,
-                  autoFocus: true,
-                  onChange: (event) => setNewTitle(event.target.value),
-                  onKeyDown: (event) => {
-                    if (event.key === 'Enter') submitCreate()
-                    if (event.key === 'Escape') setCreating(false)
-                  },
-                }),
-                h('button', { type: 'button', className: 'bfc-mini-btn primary', disabled: newTitle.trim() === '', onClick: submitCreate }, t('create')),
-                h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setCreating(false) }, t('cancel')),
-              )
-              : h('button', { type: 'button', className: 'bfc-new-btn', onClick: () => { setNewTitle(''); setCreating(true) } }, `＋ ${t('newFlow')}`),
-          ),
-        ),
-        h('div', { className: 'bfc-main' },
-          error !== '' ? h('div', { className: 'bfc-error' }, `${t('loadFailed')}：${error}`) : null,
-          detail === null
-            ? h('div', { className: 'bfc-reader' },
-              h('div', { className: 'bfc-reader-empty' },
-                rows.length === 0 && flows !== null ? t('empty') : (flows === null ? null : t('pickHint'))))
-            : h(React.Fragment, null,
-              h('div', { className: 'bfc-reader-head' },
-                h('span', { className: 'bfc-reader-title', title: detail.title }, detail.title),
-                editing
-                  ? h('span', { className: 'bfc-head-actions', style: { display: 'flex', gap: 4 } },
-                    h('button', { type: 'button', className: 'bfc-mini-btn primary', onClick: submitSave }, t('save')),
-                    h('button', { type: 'button', className: 'bfc-mini-btn', onClick: () => setEditing(false) }, t('cancel')))
-                  : h('button', { type: 'button', className: 'bfc-mini-btn', onClick: startEdit }, t('edit')),
-              ),
-              noteError !== '' ? h('div', { className: 'bfc-note-error' }, noteError) : null,
-              editing
+          h('div', { className: 'bfc-resizer', onMouseDown: startResize }),
+          h('div', { className: 'bfc-stage' },
+            error !== '' ? h('div', { className: 'bfc-error' }, `${t('loadFailed')}：${error}`) : null,
+            detail !== null && noteError !== '' ? h('div', { className: 'bfc-note-error' }, noteError) : null,
+            detail === null
+              ? h('div', { className: 'bfc-reader' },
+                h('div', { className: 'bfc-reader-empty' },
+                  rows.length === 0 && flows !== null ? t('empty') : (flows === null ? null : t('pickHint'))))
+              : editing
                 ? h('div', { className: 'bfc-editor-wrap' },
                   h('textarea', {
                     ref: taRef,
@@ -675,7 +724,7 @@ window.__ModuleLoader__.load({
                   }))
                 : h('div', { className: 'bfc-reader', onDrop: onEditorDrop },
                   h(AnswerBody, { segments: segmentList, labels, images })),
-            ),
+          ),
         ),
       )
     }
