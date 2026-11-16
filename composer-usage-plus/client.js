@@ -545,7 +545,6 @@ window.__ModuleLoader__.load({
 
       const nativeCurrency = pricing ? (pricing.cny ? 'cny' : 'usd') : 'usd';
       const displayCurrency = currency === null ? nativeCurrency : currency;
-      let converted = false;
       if (pricing) {
         // Show the model's own list currency unless the user picked one; models
         // published in a single currency are converted at the fixed rate.
@@ -553,7 +552,6 @@ window.__ModuleLoader__.load({
         const official = pricing[displayKey];
         const fxScale = official === undefined ? (displayKey === 'cny' ? USD_CNY_RATE : 1 / USD_CNY_RATE) : 1;
         const rates = official === undefined ? pricing[nativeCurrency] : official;
-        converted = fxScale !== 1;
         symbol = CURRENCY_SYMBOLS[displayKey];
         const index = pricing.peak ? periodIndex(new Date(), pricing.hours) : 0;
         const units = {
@@ -585,7 +583,6 @@ window.__ModuleLoader__.load({
           hitText === null ? null : t('usage.hitNote', { hit: hitText }),
           modelId.indexOf('deepseek') === 0 ? t('usage.writeNote') : null,
           modelId.indexOf('glm') === 0 ? t('usage.storageNote') : null,
-          converted ? t('usage.fxNote', { rate: USD_CNY_RATE }) : null,
           t('usage.estimateNote'),
         ].filter(function (line) {
           return line !== null;
@@ -947,7 +944,6 @@ window.__ModuleLoader__.load({
                 'usage.planNote': '当前渠道为订阅套餐，金额按官方牌价折算，仅供参考，套餐内不另行扣费。',
                 'usage.unknownNote': '未收录「{model}」的单价，暂无法估算费用，仅显示用量。',
                 'usage.currencyLabel': '显示币种',
-                'usage.fxNote': '该模型官方只有美元价，金额按 1 美元 ≈ ¥{rate} 换算。',
                 'usage.estimateNote': '金额为按官方单价折算的估算值，非账单。',
               },
               en: {
@@ -993,7 +989,6 @@ window.__ModuleLoader__.load({
                 'usage.planNote': 'This channel is a subscription plan; amounts are reference estimates at list prices and are not billed on top of the plan.',
                 'usage.unknownNote': 'No unit price listed for "{model}"; showing usage only.',
                 'usage.currencyLabel': 'Display currency',
-                'usage.fxNote': 'This model is listed in USD only; amounts are converted at ¥{rate} per USD.',
                 'usage.estimateNote': 'Amounts are estimates from list prices, not a bill.',
               },
             });

@@ -207,12 +207,9 @@ assert.ok(
   Math.abs(cnyPrice / usdPrice - 7.1) / 7.1 < 0.02,
   'converted amount is ~7.1x, got ' + cnyPrice + ' vs ' + usdPrice,
 );
-expect(cnyView, 'usage.fxNote', 'conversion note when the list price is USD only');
-assert.ok(usdView.indexOf('usage.fxNote') < 0, 'no conversion note on the native currency');
 
 // Models priced in both currencies use the official pair, never the FX rate.
 const twinUsd = render({ provider: 'qwen-token-plan-cn', envelope: null, model: 'deepseek-v4-pro', currency: 'usd' });
 expect(twinUsd, '$', 'dual-priced model shows usd on request');
-assert.ok(twinUsd.indexOf('usage.fxNote') < 0, 'official usd price needs no conversion note');
 
 console.log('render sim OK: bailian bar + auth button + zai bars + currency toggle');
