@@ -7,11 +7,11 @@
  *      one note as markdown — collected sections keep the original question
  *      and answer, the whole body is editable in place (编辑 → textarea →
  *      保存), so appending notes by hand is the normal workflow.
- *   2. A `conversation.chat.turnTail` seat (the same tail row as turn-cost):
- *      a small 「收藏」 button per turn. One click files that turn's question
- *      and answer into a brand-new note named after the current timestamp; no
- *      picker, no prompt. Nothing on screen is scraped — the host re-reads the
- *      turn from the session log.
+ *   2. A `conversation.chat.assistant-actions` seat (the shipped per-turn
+ *      action row, inline with copy / branch / usage): a 「收藏」 button. One
+ *      click files that turn's question and answer into a brand-new note named
+ *      after the current timestamp; no picker, no prompt. Nothing on screen is
+ *      scraped — the host re-reads the turn from the session log.
  *
  * Images pasted (or dropped) into the editor upload into the note's
  * <flowId>.assets/ folder next to the .md file on disk and are referenced
@@ -167,9 +167,10 @@ window.__ModuleLoader__.load({
         color:var(--dsw-alias-label-primary);font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px 20px;min-height:0}
       .bfc-note-error{padding:8px 20px;color:var(--dsw-alias-state-error-primary,#e5484d);font-size:11px}
       .bfc-a :first-child{margin-top:0}
-      /* --- turnTail 收藏按钮（独立语境，沿用同一 token） --- */
-      .bfc-tail-btn{border:none;background:none;color:var(--dsw-alias-label-secondary,inherit);opacity:.8;font-size:12px;line-height:1;
-        padding:5px 8px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
+      /* --- 收藏按钮：坐在官方操作行里，尺寸随行高 --- */
+      .bfc-tail-btn{border:none;background:none;color:var(--dsw-alias-label-tertiary,inherit);opacity:.9;font-size:12px;line-height:1;
+        height:calc(24px + var(--dsh-content-font-delta,0px));padding:0 6px;border-radius:6px;cursor:pointer;
+        display:inline-flex;align-items:center;gap:3px;white-space:nowrap}
       .bfc-tail-btn:hover:not(:disabled){opacity:1;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.14))}
       .bfc-tail-btn[disabled]{opacity:.45;cursor:default}
       .bfc-mini-btn{border:none;background:none;color:inherit;opacity:.75;font-size:12px;padding:4px 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
@@ -260,31 +261,30 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** The turn-tail 「收藏」 button: one click files this turn into a fresh timestamp-named note. */
+    /** The 「收藏」 action: one click files this turn into a fresh timestamp-named note. */
     function CollectTail(props) {
       const { t, callRpc } = props
-      const turnLocation = props.turn
       const sessionId = typeof props.sessionId === 'string' ? props.sessionId : ''
-      const turnNo = typeof turnLocation?.turn === 'number' ? turnLocation.turn : undefined
+      const messageId = typeof props.messageId === 'string' ? props.messageId : ''
 
       const [busy, setBusy] = useState(false)
       const [done, setDone] = useState(false)
       const [error, setError] = useState('')
-      const disabled = done || busy || sessionId === '' || turnNo === undefined
+      const disabled = done || busy || sessionId === '' || messageId === ''
 
       const collect = useCallback(async () => {
         if (disabled) return
         setBusy(true)
         setError('')
         try {
-          await callRpc('collect', { sessionId, turn: turnNo })
+          await callRpc('collect', { sessionId, messageId })
           setDone(true)
         } catch (failure) {
           setError(String(failure?.message ?? failure))
         } finally {
           setBusy(false)
         }
-      }, [callRpc, disabled, sessionId, turnNo])
+      }, [callRpc, disabled, messageId, sessionId])
 
       // Failures are rare (turn without answer); brief inline label + full reason on hover.
       useEffect(() => {
@@ -740,10 +740,10 @@ window.__ModuleLoader__.load({
           inject: (sessionId) => ({ sessionId: sessionId === undefined ? undefined : String(sessionId), callRpc }),
         }, FlowsPage))
 
-        ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
-          name: 'conversation.chat.turnTail',
+        ctx.slots.inject('conversation.chat.assistant-actions', () => ctx.slots.register({
+          name: 'conversation.chat.assistant-actions',
           id: '@local/business-flows/collect',
-          order: 95,
+          order: 20,
           locale: NS,
           inject: () => ({ callRpc }),
         }, CollectTail))

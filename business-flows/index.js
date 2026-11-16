@@ -19,7 +19,7 @@
  *   create  { sessionId, title }                   → { flow }
  *   rename  { sessionId, id, title }               → { flow }
  *   remove  { sessionId, id }                      → { removed: true }
- *   collect { sessionId, turn, flowId? | title? }  → { flow, duplicate? }
+ *   collect { sessionId, turn | messageId, flowId? | title? } → { flow, duplicate? }
  *   save    { sessionId, id, body }                → { flow }
  *   upload  { sessionId, id, name, dataBase64 }    → { name }
  * GET /api/business-flows/asset?flow=<id>&name=<file> serves note images.
@@ -302,6 +302,17 @@ function extractTurn(events, turn) {
   return { question: question.slice(0, LIMITS.questionMax), answer: answer.slice(0, LIMITS.answerMax) }
 }
 
+/** Resolve a turn number from one assistant message id (the actions row knows only the message). */
+function turnOfMessage(events, messageId) {
+  for (const event of events) {
+    if (event === null || typeof event !== 'object' || event.type !== 'assistant/message') continue
+    if (String(event.data?.message?.id ?? '') !== messageId) continue
+    const turn = Number(event.data?.turn)
+    if (Number.isSafeInteger(turn) && turn >= 0) return turn
+  }
+  return null
+}
+
 function stampOf(at) {
   const d = new Date(at)
   const pad = (n) => String(n).padStart(2, '0')
@@ -408,14 +419,20 @@ export function apply(ctx) {
   async function collectFor(payload) {
     const sessionId = sanitizeSessionId(payload.sessionId)
     if (sessionId === '') throw new Error('sessionId is required')
-    const turn = Number(payload.turn)
-    if (!Number.isSafeInteger(turn) || turn < 0) throw new Error('turn must be a non-negative integer')
     const query = ctx.get('sessionQuery')
     if (query === undefined || query === null || typeof query.readSession !== 'function') {
       throw new Error('sessionQuery.readSession is unavailable')
     }
     const snapshot = await query.readSession(sessionId)
-    const qa = extractTurn(snapshot?.events ?? [], turn)
+    const events = snapshot?.events ?? []
+    let turn = Number(payload.turn)
+    if (!Number.isSafeInteger(turn) || turn < 0) {
+      const messageId = String(payload.messageId ?? '').trim()
+      if (messageId === '') throw new Error('turn or messageId is required')
+      turn = turnOfMessage(events, messageId)
+      if (turn === null) throw new Error('this message is not in the session log')
+    }
+    const qa = extractTurn(events, turn)
     if (qa === null) throw new Error('this turn has no collectable answer')
     const wsKey = await requireWorkspace(sessionId)
     const wsDir = path.join(storageRoot(), wsKey)

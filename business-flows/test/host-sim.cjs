@@ -20,12 +20,12 @@ async function main() {
 
   const EVENTS = [
     { type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '第一个问题' }], source: { kind: 'user' } } },
-    { type: 'assistant/message', seq: 2, data: { turn: 0, message: { content: [{ type: 'text', text: '思考中' }] } } },
+    { type: 'assistant/message', seq: 2, data: { turn: 0, message: { id: 'm-0-a', content: [{ type: 'text', text: '思考中' }] } } },
     { type: 'tool/call', seq: 3, data: {} },
-    { type: 'assistant/message', seq: 4, data: { turn: 0, message: { content: [{ type: 'text', text: '最终答案' }] } } },
+    { type: 'assistant/message', seq: 4, data: { turn: 0, message: { id: 'm-0-final', content: [{ type: 'text', text: '最终答案' }] } } },
     { type: 'user/message', seq: 5, data: { content: [{ type: 'text', text: '系统提醒' }], source: { kind: 'reminder' } } },
     { type: 'user/message', seq: 6, data: { content: [{ type: 'text', text: '第二个问题' }], source: { kind: 'user' } } },
-    { type: 'assistant/message', seq: 7, data: { turn: 1, message: { content: [{ type: 'text', text: '答案二' }] } } },
+    { type: 'assistant/message', seq: 7, data: { turn: 1, message: { id: 'm-1-final', content: [{ type: 'text', text: '答案二' }] } } },
   ]
 
   const routes = new Map()
@@ -186,6 +186,15 @@ async function main() {
   result = await rpc({ action: 'collect', sessionId: SESSION_ID, turn: 1 })
   assert(result.ok === true && STAMP.test(result.value.flow.title), `collect auto-names, got ${result.value.flow?.title}`)
   assert(fs.existsSync(path.join(home, 'storages', 'business-flows', WS, `${result.value.flow.id}.md`)), 'auto-named note is a real .md')
+
+  // 14c. collect addressed by messageId (the actions-row seat knows only the message)
+  result = await rpc({ action: 'collect', sessionId: SESSION_ID, messageId: 'm-1-final' })
+  assert(result.ok === true && STAMP.test(result.value.flow.title), `messageId collect auto-names, got ${result.value.flow?.title}`)
+  const byMessage = fs.readFileSync(path.join(home, 'storages', 'business-flows', WS, `${result.value.flow.id}.md`), 'utf8')
+  assert(byMessage.includes('第二个问题') && byMessage.includes('答案二'), 'messageId resolves the right turn')
+  assert(byMessage.includes('<!--bfc s=test-session-1 t=1-->'), 'messageId collect carries the turn marker')
+  result = await rpc({ action: 'collect', sessionId: SESSION_ID, messageId: 'no-such-message' })
+  assert(result.ok === false && /not in the session log/.test(result.error.message), 'unknown messageId rejected')
 
   // 15. search hits titles and bodies
   result = await rpc({ action: 'search', sessionId: SESSION_ID, query: '语音识别' })

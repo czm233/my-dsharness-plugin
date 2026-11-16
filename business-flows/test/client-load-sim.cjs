@@ -112,12 +112,12 @@ assert(viewProps.sessionId === 'session-abc' && typeof viewProps.callRpc === 'fu
 const viewPropsBlank = viewSpec.inject(undefined)
 assert(viewPropsBlank.sessionId === undefined, 'view inject tolerates blank session')
 
-const tailReg = registered.filter(([kind, spec]) => kind === 'slot' && spec.name === 'conversation.chat.turnTail')
-assert(tailReg.length === 1, 'one turnTail registration')
+const tailReg = registered.filter(([kind, spec]) => kind === 'slot' && spec.name === 'conversation.chat.assistant-actions')
+assert(tailReg.length === 1, 'one assistant-actions registration (the shipped action row)')
 const tailSpec = tailReg[0][1]
-assert(tailSpec.id === '@local/business-flows/collect', 'tail slot id')
-const tailProps = tailSpec.inject()
-assert(typeof tailProps.callRpc === 'function', 'tail inject passes callRpc')
+assert(tailSpec.id === '@local/business-flows/collect', 'collect action id')
+const tailProps = tailSpec.inject('session-abc')
+assert(typeof tailProps.callRpc === 'function', 'collect inject passes callRpc')
 
 const tabLabel = viewSpec.label
 assert(typeof tabLabel === 'function' && tabLabel() === '业务流程', 'tab label resolves in zh')
@@ -128,17 +128,17 @@ tailProps.callRpc('list', { sessionId: 's1' }).then(async (value) => {
   assert(rpcCalls.length === 1 && rpcCalls[0].channel === '/api' && rpcCalls[0].method === 'business-flows/rpc', 'rpc carrier path')
   assert(rpcCalls[0].payload.action === 'list', 'rpc payload action')
 
-  // turnTail: one click collects straight into a timestamp-named note (no picker)
+  // collect action: one click files this turn, no picker, addressed by messageId
   const tailComponent = tailReg[0][2]
-  assert(typeof tailComponent === 'function', 'tail component registered')
-  const button = tailComponent({ ...tailProps, t: (key) => key, sessionId: 'session-abc', turn: { turn: 4 } })
-  assert(button && button.type === 'button' && button.props.className === 'bfc-tail-btn', 'tail renders a plain button')
-  assert(JSON.stringify(button.children).includes('collect'), 'tail label is the collect button')
+  assert(typeof tailComponent === 'function', 'collect component registered')
+  const button = tailComponent({ ...tailProps, t: (key) => key, sessionId: 'session-abc', messageId: 'm-1-final' })
+  assert(button && button.type === 'button' && button.props.className === 'bfc-tail-btn', 'collect renders a plain button')
+  assert(JSON.stringify(button.children).includes('collect'), 'label is the collect button')
   await button.props.onClick()
   const last = rpcCalls[rpcCalls.length - 1]
   assert(last.payload.action === 'collect', 'click calls collect directly')
-  assert(last.payload.sessionId === 'session-abc' && last.payload.turn === 4, 'collect payload carries session + turn')
-  assert(last.payload.title === undefined && last.payload.flowId === undefined, 'no title/flow picker params sent')
+  assert(last.payload.sessionId === 'session-abc' && last.payload.messageId === 'm-1-final', 'collect payload carries session + message')
+  assert(last.payload.title === undefined && last.payload.flowId === undefined && last.payload.turn === undefined, 'no turn/title/flow picker params sent')
 
   console.log(failures === 0 ? 'client-load-sim: all assertions passed' : 'client-load-sim: FAILURES above')
   process.exit(failures === 0 ? 0 : 1)
