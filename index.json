@@ -1259,8 +1259,8 @@
         "zh": "侧边对话"
       },
       "description": {
-        "en": "Adds a right-sidebar guide entry that starts a fork-backend subagent child of the current session — it inherits the parent's completed conversation turns, never appears in the left session list, and continues the conversation in an official right-sidebar tab. Closing the tab keeps the child reachable from the parent's subagent catalog.",
-        "zh": "在官方右栏加一个入口：为当前会话开一个 fork 型子代理分支——完整继承父会话已完成轮次，不出现在左侧列表，在右栏 tab 里继续聊；首条消息触发创建；关闭 tab 不影响子会话，可从父会话头部子代理目录找回。"
+        "en": "Opening the tab natively forks the current session into a real one: the full official composer, status bar, and inherited history are there from the first paint; branch sessions appear in the session list.",
+        "zh": "打开 tab 即把当前会话原生分叉成真会话：官方完整输入区、状态栏与继承的历史从第一帧起全部呈现，在右栏继续聊；分支会话会出现在左侧列表。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -1277,6 +1277,16 @@
         ]
       },
       "versions": [
+        {
+          "version": "0.5.0",
+          "publishTimestamp": 1794882094,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d9c9f481f28a08f5ad25ec7173b5d3c04e416418",
+            "path": "side-chat"
+          }
+        },
         {
           "version": "0.4.5",
           "publishTimestamp": 1794881082,
