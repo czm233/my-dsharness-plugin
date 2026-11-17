@@ -759,8 +759,10 @@ window.__ModuleLoader__.load({
         overflowY: 'auto',
         overflowX: 'hidden',
         padding: '14px 16px 6px',
-        fontSize: 13,
-        lineHeight: 1.55,
+        // Same typography surface as the official chat markdown, so the
+        // preview reads exactly like the conversation it mirrors (including
+        // the user's own content-font-size setting).
+        font: 'var(--dsw-font-markdown-base)',
         color: 'var(--dsw-alias-label-primary)',
         userSelect: 'text',
       },
@@ -874,8 +876,7 @@ window.__ModuleLoader__.load({
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
         padding: 12,
-        fontSize: 13,
-        lineHeight: 1.5,
+        font: 'var(--dsw-font-markdown-base)',
         color: 'var(--dsw-alias-label-primary)',
       },
       title: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
