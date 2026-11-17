@@ -1278,6 +1278,16 @@
       },
       "versions": [
         {
+          "version": "0.4.5",
+          "publishTimestamp": 1794881082,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "f0b585078b4806f5bd54215f1942aee5bfa80f3c",
+            "path": "side-chat"
+          }
+        },
+        {
           "version": "0.4.4",
           "publishTimestamp": 1794880293,
           "source": {
