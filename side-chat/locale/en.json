@@ -1,6 +1,11 @@
 {
   "meta": {
     "title": "Side Chat",
-    "description": "Open a forked subagent branch of the current session in the official right sidebar: preview recent turns before the first message, then continue with the full parent context in a tab."
-  }
+    "description": "Opening the tab natively forks the current session into a real one: the full official composer, status bar, and inherited history are there from the first paint."
+  },
+  "guide.label": "Side chat",
+  "guide.desc": "Fork the current session and keep chatting in the right sidebar",
+  "tab.title": "Side chat",
+  "fork.error": "Failed to create the branch",
+  "fork.retry": "Retry"
 }

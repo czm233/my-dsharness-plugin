@@ -1,24 +1,24 @@
 #!/usr/bin/env node
 /*
  * side-chat 装机前门禁：加载【真实 client.js】，用最小 React hook 运行时复刻
- * tab body 的挂载/卸载生命周期，验证「fork 型子代理」新生命周期（0.3.0）。
+ * tab body 的挂载/卸载生命周期，验证「打开即原生 fork 真会话」生命周期（0.5.0）。
  *
  * 用法：node side-chat/test/branch-lifecycle.cjs
  * 退出码：全绿 0；任何断言失败 1。
  *
  * 覆盖：
  *   1. tab 类型注册带 keepMounted（会话切走时 body 不卸载）；
- *   2. 首次挂载（无映射）：渲染首条消息界面，不 retain、不创建、无映射；
- *   3. 发送首条消息：POST /api/side-chat/create，映射落 localStorage，
- *      以 subagent 地址对象 retain，渲染出 child 会话；
- *   4. 创建失败：映射不落、回到首条消息界面并显示失败；
+ *   2. 首次挂载（无映射）：立刻 fork 一次父会话，显示加载态，不 retain、不落映射；
+ *   3. fork 落地：映射写 localStorage，以会话 id 直接 retain，渲染出 child 会话；
+ *      不再调用已退役的 /api/side-chat/create；
+ *   4. fork 失败：映射不落、错误面板可重试，重试成功后渲染 child；
  *   5. 切会话导致 body 卸载：只 release，映射必须保留；
- *   6. 切回重挂载：复用同一个 child，不再 POST；
+ *   6. 切回重挂载：复用同一 child，不再 fork；
  *   7. 页面重载（模块重新加载、内存映射清空）：仍从 localStorage 复用；
- *   8. 不同父会话同名 tab id（tab1）：互不串号，各自创建；
- *   9. 死映射（child 无法 resolve）：清掉映射，回到首条消息界面；
+ *   8. 不同父会话同名 tab id（tab1）：互不串号，各自 fork；
+ *   9. 死映射（child 无法 resolve）：清掉映射并自动重新 fork 出新 child；
  *  10. 同一个 tab 永远只绑定一个 child；
- *  11. 主对话预览：只渲染人类提问与每轮最后一段正文，划词引用写成引用块进草稿。
+ *  11. 诊断上报走独立路由（/api/side-chat/log），不混进任何业务断言。
  */
 const fs = require('fs')
 const os = require('os')
@@ -91,7 +91,7 @@ const React = {
     return instance.hooks[index]
   },
   useCallback(fn) { return fn },
-  useMemo(fn) { return fn() },
+  useMemo(fn) { return fn },
 }
 
 function commitEffects(instance) {
@@ -151,63 +151,75 @@ async function settle() {
 
 // ---- 假服务 ----
 function createWorld() {
-  const byId = { A: { id: 'A' }, B: { id: 'B' } }
   let serial = 0
-  const calls = { create: [], retain: [], release: [] }
+  const calls = { fork: [], retain: [], release: [], create: [] }
   const deadChildren = new Set()
-  let failNext = false
+  let failNextFork = false
+  let holdNextForkFlag = false
+  let heldResolve = null
+  const byId = {}
   const list = {
     phase: 'ready',
     byId,
     subscribe: () => () => {},
   }
-  const bindings = {}
   const sessions = {
     list: { getSnapshot: () => list, subscribe: () => () => {} },
     binding(id) { return bindings[id] },
+    // 0.5.0：客户端直接 fork 父会话（原生真会话分支）
+    fork(opts) {
+      calls.fork.push(opts)
+      if (failNextFork) {
+        failNextFork = false
+        return Promise.reject(new Error('fork refused'))
+      }
+      if (holdNextForkFlag) {
+        holdNextForkFlag = false
+        return new Promise((resolve) => {
+          heldResolve = () => {
+            serial += 1
+            const id = `child-${serial}`
+            byId[id] = { id }
+            resolve(id)
+          }
+        })
+      }
+      serial += 1
+      const id = `child-${serial}`
+      byId[id] = { id }
+      return Promise.resolve(id)
+    },
     retain(target) {
       calls.retain.push(target)
       const id = typeof target === 'string' ? target : target.childSessionId
       const reference = {
         sessionId: id,
-        ready: deadChildren.has(id) ? Promise.reject(new Error(`subagent/not-found: ${id}`)) : Promise.resolve(),
+        ready: deadChildren.has(id) ? Promise.reject(new Error(`session/not-found: ${id}`)) : Promise.resolve(),
         release() { calls.release.push(id) },
       }
       if (deadChildren.has(id)) reference.ready.catch(() => {})
       return reference
     },
   }
+  const bindings = {}
   const diagnostics = []
-  global.fetch = async (path, init) => {
+  global.fetch = async (pathUrl, init) => {
     const body = JSON.parse(init.body)
-    // 诊断上报走独立路由，不能混进创建请求的断言
-    if (path === '/api/side-chat/log') {
+    // 诊断上报走独立路由，不能混进业务断言
+    if (pathUrl === '/api/side-chat/log') {
       diagnostics.push(body)
       return { ok: true, status: 204, json: async () => undefined }
     }
-    calls.create.push(body)
-    if (failNext) {
-      failNext = false
-      return { ok: false, status: 500, json: async () => ({ error: 'boom' }) }
-    }
-    serial += 1
-    const id = `child-${serial}`
-    byId[id] = { id, title: body.text }
-    return { ok: true, status: 200, json: async () => ({ childId: id, label: body.text }) }
+    // 0.4.x 的创建路由已退役；任何对它的调用都算回归
+    calls.create.push({ path: pathUrl, body })
+    return { ok: false, status: 404, json: async () => ({ error: 'gone' }) }
   }
   return {
     byId, calls, list, sessions, deadChildren, diagnostics,
     markDead(id) { deadChildren.add(id) },
-    failNextCreate() { failNext = true },
-    // 父会话的活事件窗：预览从 (type, event) 条目里读最近轮次
-    bind(id, events) {
-      bindings[id] = {
-        eventSource: {
-          getSnapshot: () => ({ entries: events.map(event => ({ type: 'durable', event })) }),
-          subscribe: () => () => {},
-        },
-      }
-    },
+    failNextFork() { failNextFork = true },
+    holdNextFork() { holdNextForkFlag = true },
+    releaseFork() { const resolve = heldResolve; heldResolve = null; if (resolve) resolve() },
   }
 }
 
@@ -253,121 +265,27 @@ function activate(plugin, world) {
   return { ...registered, ForkChatTab: body.component }
 }
 
-const slotCalls = []
 function tabProps(sessionId, tabId) {
   return {
     useTabInfo: () => ({ tab: { id: tabId, kind: 'forkchat', signal: new AbortController().signal } }),
     useSession: (selector) => selector({ sessionId }),
     SessionProvider: 'SessionProvider',
-    renderSlot: (name, props, options) => {
-      slotCalls.push({ name, props, options })
-      return null
+    renderSlot: (name, props) => {
+      return { slot: name, props }
     },
   }
 }
 
 const branchStorageKey = (sessionId, tabId) => `dsh.side-chat.branch.v1.${JSON.stringify([sessionId, tabId])}`
+// 绑定阶段：children[0] 是 SessionProvider，其 props.session 携带会话引用
 const childOf = (instance) => {
   const provider = instance.output && instance.output.children[0]
   return provider && provider.props && provider.props.session && provider.props.session.sessionId
 }
-// 首条消息阶段：children[0] 是带 data-sidechat-pane 的容器，内含可选的
-// 主对话只读预览，以及固定在最下方的首条消息输入区。
-const paneOf = (instance) => {
-  const pane = instance.output && instance.output.children[0]
-  return pane !== null && pane !== undefined && pane.props && pane.props['data-sidechat-pane'] === '' ? pane : undefined
-}
-const isPhaseA = (instance) => paneOf(instance) !== undefined
-// 预览外面套了一层安全边界（桩环境里 React.Component 缺失，边界退化成
-// 透传组件），所以取第一个带 messages 的函数组件 vnode。
-const previewOf = (instance) => {
-  const pane = paneOf(instance)
-  if (pane === undefined) return undefined
-  const stack = Array.isArray(pane.children) ? [...pane.children] : []
-  while (stack.length > 0) {
-    const node = stack.shift()
-    if (node === null || node === undefined || typeof node !== 'object') continue
-    if (typeof node.tag === 'function' && node.props !== undefined) {
-      if (typeof node.props.onQuote === 'function') return node
-      if (node.children !== undefined) stack.push(...(Array.isArray(node.children) ? node.children : [node.children]))
-      if (node.props.children !== undefined) stack.push(node.props.children)
-      continue
-    }
-    if (Array.isArray(node.children)) stack.push(...node.children)
-  }
-  return undefined
-}
-const composerVNodeOf = (instance) => {
-  const pane = paneOf(instance)
-  if (pane === undefined) return undefined
-  const kids = Array.isArray(pane.children) ? pane.children : []
-  for (let index = kids.length - 1; index >= 0; index -= 1) {
-    if (kids[index] !== null && kids[index] !== undefined && typeof kids[index].tag === 'function') return kids[index]
-  }
-  return undefined
-}
-// 函数组件的 vnode 在桩环境里不会自动执行；把它挂成一个可持续重渲染的
-// 迷你实例，交互句柄触发的 setState 走正常 flush 重渲染。
-function mountComponent(vnode) {
-  if (vnode === null || vnode === undefined || typeof vnode.tag !== 'function') return undefined
-  const instance = { vnode, hooks: [], cursor: 0, queued: false, unmounted: false }
-  instance.render = () => {
-    currentInstance = instance
-    instance.cursor = 0
-    // 复刻 React 语义：children 也出现在 props.children 上
-    const kids = instance.vnode.children !== undefined && instance.vnode.children.length > 0
-      ? (instance.vnode.children.length === 1 ? instance.vnode.children[0] : instance.vnode.children)
-      : instance.vnode.props.children
-    instance.output = instance.vnode.tag({ ...instance.vnode.props, children: kids })
-    currentInstance = null
-  }
-  instance.unmount = () => {
-    instance.unmounted = true
-    for (const cell of instance.hooks) {
-      if (cell !== undefined && cell.kind === 'effect' && cell.cleanup !== undefined) {
-        cell.cleanup()
-        cell.cleanup = undefined
-      }
-    }
-  }
-  instance.render()
-  commitEffects(instance)
-  flush()
-  return instance
-}
-// 父组件状态变化后，把最新 vnode 的 props 灌回已挂载的子实例并重渲染：
-// 桩环境不传播 props，这一步等价于真实 React 的 prop 更新。
-function syncProps(instance, vnode) {
-  if (instance === undefined || vnode === undefined) return
-  instance.vnode = vnode
-  instance.render()
-  commitEffects(instance)
-  flush()
-}
-function flattenText(node) {
-  if (node === null || node === undefined) return ''
-  if (typeof node === 'string') return node
-  if (Array.isArray(node)) return node.map(flattenText).join('')
-  if (typeof node === 'object' && node.props && node.props.children !== undefined) return flattenText(node.props.children)
-  if (typeof node === 'object' && node.children !== undefined) return flattenText(node.children)
-  return ''
-}
-// 收集可见文本：普通子节点 + 未挂载的函数组件的 props.text（预览正文
-// 由 MessageText 渲染，桩环境不会执行它）。
-function collectText(root) {
-  const out = []
-  const stack = [root]
-  while (stack.length > 0) {
-    const node = stack.pop()
-    if (node === null || node === undefined) continue
-    if (typeof node === 'string') { out.push(node); continue }
-    if (Array.isArray(node)) { stack.push(...node); continue }
-    if (typeof node !== 'object') continue
-    if (node.props && typeof node.props.text === 'string') out.push(node.props.text)
-    const kids = node.children !== undefined ? node.children : (node.props && node.props.children)
-    if (kids !== undefined) stack.push(kids)
-  }
-  return out.join('\n')
+// 加载态：整体是 aria-busy 的居中容器
+const isBusy = (instance) => {
+  const node = instance.output
+  return node !== null && node !== undefined && typeof node === 'object' && node.props && node.props['aria-busy'] === true
 }
 function findButton(root, label) {
   const stack = [root]
@@ -376,28 +294,10 @@ function findButton(root, label) {
     if (node === null || node === undefined) continue
     if (typeof node === 'object') {
       if (node.tag === 'button' && node.props) {
-        const text = flattenText(node.children)
-        const aria = typeof node.props['aria-label'] === 'string' ? node.props['aria-label'] : ''
-        const title = typeof node.props.title === 'string' ? node.props.title : ''
-        if (text === label || aria === label || title === label) return node
+        const text = Array.isArray(node.children) ? node.children.filter((c) => typeof c === 'string').join('') : ''
+        if (text === label) return node
       }
-      const kids = Array.isArray(node.children) ? node.children : (node.children !== undefined && typeof node.children !== 'object' ? [] : node.children)
-      if (Array.isArray(kids)) stack.push(...kids)
-      else if (kids && typeof kids === 'object') stack.push(kids)
-    }
-  }
-  return undefined
-}
-function findTextarea(root) {
-  const stack = [root]
-  while (stack.length > 0) {
-    const node = stack.pop()
-    if (node === null || node === undefined) continue
-    if (typeof node === 'object') {
-      if (node.tag === 'textarea') return node
-      const kids = Array.isArray(node.children) ? node.children : (node.children !== undefined && typeof node.children !== 'object' ? [] : node.children)
-      if (Array.isArray(kids)) stack.push(...kids)
-      else if (kids && typeof kids === 'object') stack.push(kids)
+      if (Array.isArray(node.children)) stack.push(...node.children)
     }
   }
   return undefined
@@ -422,147 +322,90 @@ async function main() {
   check('注册 keepMounted: true', first.tabType.keepMounted === true, String(first.tabType.keepMounted))
   check('tab kind 为 forkchat 且 multiple', first.tabType.kind === 'forkchat' && first.tabType.multiple === true)
 
-  console.log('[2] 首次挂载（无映射）：首条消息界面，不 retain 不创建')
+  console.log('[2] 首次挂载（无映射）：立刻 fork 父会话，加载态，不 retain')
+  world.holdNextFork()
   const a1 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  check('渲染首条消息界面', isPhaseA(a1) === true, String(a1.output && a1.output.children[0] && a1.output.children[0].tag))
-  check('没有 retain', world.calls.retain.length === 0, JSON.stringify(world.calls.retain))
-  check('没有创建请求', world.calls.create.length === 0, JSON.stringify(world.calls.create))
-  check('映射不存在', storage.get(branchStorageKey('A', 'tab1')) === undefined)
+  check('挂载即 fork 父会话', JSON.stringify(world.calls.fork) === JSON.stringify([{ sessionId: 'A', increaseTitle: true }]), JSON.stringify(world.calls.fork))
+  check('fork 未落地前显示加载态', isBusy(a1) === true, String(a1.output && a1.output.props && a1.output.props['aria-busy']))
+  check('fork 未落地前不 retain', world.calls.retain.length === 0, JSON.stringify(world.calls.retain))
+  check('映射还不存在', storage.get(branchStorageKey('A', 'tab1')) === undefined)
+  world.releaseFork()
 
-  console.log('[3] 发送首条消息：POST 创建 + 地址 retain + 渲染 child')
-  const composerInst = mountComponent(composerVNodeOf(a1))
-  const composer = composerInst.output
-  const textarea = findTextarea(composer)
-  const sendButton = findButton(composer, 'first.send')
-  check('界面含输入框与发送按钮', textarea !== undefined && sendButton !== undefined)
-  textarea.props.onChange({ target: { value: 'hello side chat' } })
-  flush()
-  syncProps(composerInst, composerVNodeOf(a1))
-  const sendButton2 = findButton(composerInst.output, 'first.send')
-  await sendButton2.props.onClick()
+  console.log('[3] fork 落地：映射写入 localStorage，以会话 id retain，渲染 child')
   await settle()
-  check('创建请求携带父会话与文本', JSON.stringify(world.calls.create) === JSON.stringify([{ sessionId: 'A', text: 'hello side chat' }]), JSON.stringify(world.calls.create))
   check('映射写入 localStorage', storage.get(branchStorageKey('A', 'tab1')) === 'child-1')
   const retainCall = world.calls.retain[world.calls.retain.length - 1]
-  check('以 subagent 地址对象 retain', retainCall !== undefined && typeof retainCall === 'object' && retainCall.parentSessionId === 'A' && retainCall.childSessionId === 'child-1' && retainCall.mode === 'continuable', JSON.stringify(retainCall))
+  check('以会话 id 直接 retain', retainCall === 'child-1', JSON.stringify(retainCall))
   check('渲染的是 child-1', childOf(a1) === 'child-1', String(childOf(a1)))
+  check('不再调用已退役的创建路由', world.calls.create.length === 0, JSON.stringify(world.calls.create))
 
-  console.log('[4] 创建失败：映射不落、回到首条消息界面并显示失败')
-  const b0 = mount(first.ForkChatTab, tabProps('B', 'tab9'))
+  console.log('[4] fork 失败：映射不落、错误面板可重试，重试成功后渲染')
+  world.failNextFork()
+  const b0 = mount(first.ForkChatTab, tabProps('B', 'tab1'))
   await settle()
-  world.failNextCreate()
-  const composerBInst = mountComponent(composerVNodeOf(b0))
-  const textareaB = findTextarea(composerBInst.output)
-  textareaB.props.onChange({ target: { value: 'will fail' } })
-  flush()
-  syncProps(composerBInst, composerVNodeOf(b0))
-  await findButton(composerBInst.output, 'first.send').props.onClick()
+  check('失败后映射不存在', storage.get(branchStorageKey('B', 'tab1')) === undefined)
+  const retryButton = findButton(b0.output, 'fork.retry')
+  check('错误面板带重试按钮', retryButton !== undefined)
+  await retryButton.props.onClick()
   await settle()
-  check('失败后映射不存在', storage.get(branchStorageKey('B', 'tab9')) === undefined)
-  check('失败后仍在首条消息界面', isPhaseA(b0) === true, String(b0.output && b0.output.children[0] && b0.output.children[0].tag))
-  const failureView = mountComponent(composerVNodeOf(b0))
-  check('失败文案已显示', flattenText(failureView.output).includes('fork.error'), flattenText(failureView.output).slice(0, 120))
-  failureView.unmount()
-  composerBInst.unmount()
-  b0.unmount()
+  check('重试后映射写入', storage.get(branchStorageKey('B', 'tab1')) === 'child-2')
+  check('重试后渲染 child-2', childOf(b0) === 'child-2', String(childOf(b0)))
 
   console.log('[5] 切到别的会话导致卸载：只释放引用，映射保留')
-  const createCountAfterFailure = world.calls.create.length
+  const forkCountAfterB = world.calls.fork.length
   a1.unmount()
   await settle()
   check('卸载时 release 了 child-1', world.calls.release.includes('child-1'), JSON.stringify(world.calls.release))
   check('映射仍在 localStorage', storage.get(branchStorageKey('A', 'tab1')) === 'child-1')
 
-  console.log('[6] 切回 A：重挂载复用同一 child，不再 POST')
+  console.log('[6] 切回 A：重挂载复用同一 child，不再 fork')
   const a2 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  check('没有新的创建请求', world.calls.create.length === createCountAfterFailure, JSON.stringify(world.calls.create))
-  check('重新 retain 的还是 child-1', world.calls.retain.filter((entry) => (typeof entry === 'object' ? entry.childSessionId : entry) === 'child-1').length === 2)
+  check('没有新的 fork', world.calls.fork.length === forkCountAfterB, JSON.stringify(world.calls.fork))
+  check('重新 retain 的还是 child-1', world.calls.retain.filter((entry) => entry === 'child-1').length === 2)
   check('渲染的仍是 child-1', childOf(a2) === 'child-1', String(childOf(a2)))
 
   console.log('[7] 页面重载：内存清空，仍从 localStorage 复用')
   const reloaded = activate(loadPlugin(), world)
   const a3 = mount(reloaded.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  check('重载后没有创建请求', world.calls.create.length === createCountAfterFailure, JSON.stringify(world.calls.create))
+  check('重载后没有新的 fork', world.calls.fork.length === forkCountAfterB, JSON.stringify(world.calls.fork))
   check('重载后渲染 child-1', childOf(a3) === 'child-1', String(childOf(a3)))
 
-  console.log('[8] 另一个会话的同名 tab1：不能串用 A 的分支')
-  const b1 = mount(first.ForkChatTab, tabProps('B', 'tab1'))
+  console.log('[8] 另一个会话的同名 tab1：不能串用，各自 fork')
+  const d1 = mount(reloaded.ForkChatTab, tabProps('D', 'tab1'))
   await settle()
-  const composerB1 = mountComponent(composerVNodeOf(b1))
-  const textareaB1 = findTextarea(composerB1.output)
-  textareaB1.props.onChange({ target: { value: 'hello from B' } })
-  flush()
-  syncProps(composerB1, composerVNodeOf(b1))
-  await findButton(composerB1.output, 'first.send').props.onClick()
-  await settle()
-  check('B 的 tab1 自己创建一次', JSON.stringify(world.calls.create[world.calls.create.length - 1]) === JSON.stringify({ sessionId: 'B', text: 'hello from B' }), JSON.stringify(world.calls.create))
-  check('B 渲染自己的 child-2', childOf(b1) === 'child-2', String(childOf(b1)))
+  check('D 的 tab1 自己 fork 一次', JSON.stringify(world.calls.fork[world.calls.fork.length - 1]) === JSON.stringify({ sessionId: 'D', increaseTitle: true }), JSON.stringify(world.calls.fork))
+  check('D 渲染自己的 child-3', childOf(d1) === 'child-3', String(childOf(d1)))
   check('A 的映射没被覆盖', storage.get(branchStorageKey('A', 'tab1')) === 'child-1')
+  check('D 的映射独立', storage.get(branchStorageKey('D', 'tab1')) === 'child-3')
 
-  console.log('[9] 死映射：child 无法 resolve 时清映射回到首条消息界面')
+  console.log('[9] 死映射：child 无法 resolve 时清映射并自动重新 fork')
   world.markDead('child-1')
-  const a4 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
+  const a4 = mount(reloaded.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  check('死映射被清除', storage.get(branchStorageKey('A', 'tab1')) === undefined)
-  check('回到首条消息界面', isPhaseA(a4) === true, String(a4.output && a4.output.children[0] && a4.output.children[0].tag))
-  a4.unmount()
+  check('死映射被清除并换成新 child', storage.get(branchStorageKey('A', 'tab1')) === 'child-4', String(storage.get(branchStorageKey('A', 'tab1'))))
+  check('自动 fork 出的新 child 已渲染', childOf(a4) === 'child-4', String(childOf(a4)))
 
   console.log('[10] 同一个 tab 永远只绑定一个 child')
-  const a5 = mount(first.ForkChatTab, tabProps('A', 'tab1'))
+  const a5 = mount(reloaded.ForkChatTab, tabProps('A', 'tab1'))
   await settle()
-  const composerA5 = mountComponent(composerVNodeOf(a5))
-  const textareaA5 = findTextarea(composerA5.output)
-  textareaA5.props.onChange({ target: { value: 'second branch' } })
-  flush()
-  syncProps(composerA5, composerVNodeOf(a5))
-  await findButton(composerA5.output, 'first.send').props.onClick()
-  await settle()
-  check('重建后渲染自己的 child-3', childOf(a5) === 'child-3', String(childOf(a5)))
-  check('A/tab1 映射指向 child-3', storage.get(branchStorageKey('A', 'tab1')) === 'child-3')
+  check('映射稳定不再变化', storage.get(branchStorageKey('A', 'tab1')) === 'child-4')
+  check('渲染的仍是 child-4', childOf(a5) === 'child-4', String(childOf(a5)))
   const providerA5 = a5.output.children[0]
   check('SessionProvider 只挂一份', providerA5 !== null && providerA5.props.session !== undefined)
 
-  console.log('[11] 主对话预览：渲染父会话最近几轮，划词引用写入侧栏草稿')
-  // 现行会话表面语义（对真实会话日志核实过）：assistant/message 事件带
-  // surfaceOp:'append'，每条只是该轮回复的一段（每段独立 message id），
-  // 没有承载完整回复的结算事件——预览必须把同一轮的各段按序合并。
-  world.bind('C', [
-    { type: 'user/message', seq: 1, surfaceOp: 'append', data: { content: [{ type: 'text', text: '主对话的问题' }], source: { kind: 'user' } } },
-    { type: 'user/message', seq: 2, surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文提醒不该出现' }], source: { kind: 'agent-instructions' } } },
-    { type: 'assistant/message', seq: 3, surfaceOp: 'append', data: { turn: 1, step: 1, message: { id: 'm1', content: [{ type: 'reasoning', text: '内部推理不该出现' }, { type: 'text', text: '先看一眼文件' }] } } },
-    { type: 'assistant/message', seq: 4, surfaceOp: 'append', data: { turn: 1, step: 2, message: { id: 'm2', content: [{ type: 'text', text: '主对话的回答正文' }] } } },
-    { type: 'user/message', seq: 5, surfaceOp: 'append', data: { content: [{ type: 'text', text: '第二轮的提问' }], source: { kind: 'user' } } },
-    { type: 'assistant/message', seq: 6, surfaceOp: 'append', data: { turn: 2, step: 1, message: { id: 'm3', content: [{ type: 'text', text: '第二轮的回答' }] } } },
-  ])
-  const c1 = mount(first.ForkChatTab, tabProps('C', 'tab1'))
-  await settle()
-  const preview = previewOf(c1)
-  check('渲染主对话预览', preview !== undefined)
-  const previewMessages = preview !== undefined ? preview.props.messages : undefined
-  check('同一轮的各段合并为一条消息', Array.isArray(previewMessages) && previewMessages.length === 4
-    && previewMessages[1].role === 'assistant'
-    && previewMessages[1].text === '先看一眼文件\n\n主对话的回答正文'
-    && previewMessages[3].text === '第二轮的回答', JSON.stringify(previewMessages))
-  const previewInst = mountComponent(preview)
-  const previewText = previewInst === undefined ? '' : collectText(previewInst.output)
-  check('预览含人类提问', previewText.includes('主对话的问题'), previewText.slice(0, 160))
-  check('预览含助手各段正文（不再只留最后一段）', previewText.includes('先看一眼文件') && previewText.includes('主对话的回答正文'), previewText.slice(0, 160))
-  check('预览不含上下文提醒', previewText.includes('上下文提醒不该出现') === false, previewText.slice(0, 160))
-  check('预览不含推理内容', previewText.includes('内部推理不该出现') === false, previewText.slice(0, 160))
-  if (previewInst !== undefined) previewInst.unmount()
-  preview.props.onQuote('这一段我不懂')
-  flush()
-  const quotedDraft = composerVNodeOf(c1) !== undefined ? String(composerVNodeOf(c1).props.draft) : ''
-  check('引用以 Markdown 引用块写入草稿', quotedDraft.includes('> 这一段我不懂'), quotedDraft)
-  c1.unmount()
+  console.log('[11] 诊断走独立路由：module 事件已上报，不混入业务')
+  check('诊断上报包含 module 事件', world.diagnostics.some((entry) => entry.event === 'module'), JSON.stringify(world.diagnostics))
+  check('业务创建路由全程零调用', world.calls.create.length === 0, JSON.stringify(world.calls.create))
 
   a2.unmount()
   a3.unmount()
+  a4.unmount()
   a5.unmount()
-  b1.unmount()
+  b0.unmount()
+  d1.unmount()
 
   if (failures.length > 0) {
     console.error(`\n${failures.length} check(s) failed`)

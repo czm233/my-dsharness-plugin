@@ -1,27 +1,14 @@
 /**
- * Client half of Side Chat (侧边对话), fork-subagent edition.
+ * Client half of Side Chat (侧边对话), native-fork edition.
  *
- * The guide entry opens a first-message surface in the official right
- * Sidebar; sending the first message asks the Host half to create a
- * continuable child session through the `fork` subagent backend
- * (`dsh-subagent-fork-in-process`), whose seed is the parent's completed
- * conversation turns — the child continues this conversation with full
- * inherited context. The tab then renders the shared Conversation factory
- * bound to that child, exactly like the shipped subagent Sidebar chat;
- * the session's own subagent projections drive delivery, queueing, and the
- * composer semantics.
- *
- * Subagent children never join the left session list, so there is no
- * archive interplay at all: closing the tab only closes the tab, and the
- * child stays reachable from the parent's subagent catalog.
- *
- * Before that child exists the tab is not empty: it shows the parent's own
- * recent turns as a read-only preview read from the live Session event feed,
- * so the reply that prompted the side chat can be read (and quoted) right
- * away. A selection made there offers a quote action that appends the
- * selection to the side-chat draft as a Markdown blockquote. The preview is
- * text-only and never mounts the parent's conversation surface, so the main
- * pane keeps its composer, draft, and scroll state untouched.
+ * Opening the tab immediately forks the parent session through the client
+ * session service (`sessions.fork`, latest completed-turn prefix) and binds
+ * the tab to the child. From the first paint the tab hosts the official
+ * Conversation factory for a real session: the full composer with model,
+ * effort, and permission controls, the status bar, and the inherited history
+ * rendered exactly like the main pane. The previous custom first-message
+ * composer and the read-only parent preview are gone — the real thing
+ * replaces both, and quoting uses the client's built-in text interaction.
  *
  * A tab owns exactly one child:
  *   - `keepMounted: true` keeps the body mounted while another session or
@@ -29,6 +16,8 @@
  *   - the tab → child mapping is persisted in localStorage, so a remount
  *     (full reload, session view retirement) re-binds the same child.
  *     Tab ids are minted per session, so the key is (session id, tab id).
+ *   - a mapping whose session no longer resolves is dropped; the eager fork
+ *     then creates a fresh child on the next pass.
  */
 
 window.__ModuleLoader__.load({
@@ -41,61 +30,22 @@ window.__ModuleLoader__.load({
     const KIND = 'forkchat'
     const TAB_ID = '@local/side-chat/forkchat'
     const CONV_SLOT = 'sidechat.conversation'
-    const CREATE_PATH = '/api/side-chat/create'
 
-    // The shell provides the shared primitives module to every client plugin
-    // (the shipped quote plugin requires it the same way). Only the send glyph
-    // is borrowed here; a build without it falls back to a text arrow.
-    let primitivesError = ''
-    const primitives = (() => {
-      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (error) {
-        primitivesError = String((error && error.message) || error)
-        return null
-      }
-    })()
-    const defined = (value) => value !== undefined && value !== null
-    // React.memo components are objects, not functions: only test for presence.
-    const MarkdownText = primitives !== null && defined(primitives.MarkdownText) ? primitives.MarkdownText : null
-    const SendIcon = primitives !== null && defined(primitives.IconSendOutlineRegular) ? primitives.IconSendOutlineRegular : null
-
-    /** Turns of the parent conversation the pre-branch preview shows. */
-    const PREVIEW_TURNS = 6
-    /** Longest selection a single quote action carries. */
-    const QUOTE_LIMIT = 4000
-
-    // The apply() ctx, captured for component closures: `ctx` is not a module
-    // binding, so views reach services through this captured reference.
     let clientCtx = null
 
     const zh = {
       'guide.label': '侧边对话',
       'guide.desc': '把当前会话分出一个分支，在右栏继续聊',
       'tab.title': '侧边对话',
-      'first.placeholder': '发消息，开始侧边对话',
-      'first.send': '发送',
       'fork.error': '创建分支失败',
-      'quote.add': '引用',
-      'markdown.copy': '复制',
-      'markdown.copied': '已复制',
-      'markdown.code': '代码',
-      'markdown.wrap': '换行',
-      'markdown.unwrap': '不换行',
-      'markdown.footnotes': '脚注',
+      'fork.retry': '重试',
     }
     const en = {
       'guide.label': 'Side chat',
       'guide.desc': 'Fork the current session and keep chatting in the right sidebar',
       'tab.title': 'Side chat',
-      'first.placeholder': 'Send a message to start this side chat',
-      'first.send': 'Send',
-      'fork.error': 'Failed to create branch',
-      'quote.add': 'Quote',
-      'markdown.copy': 'Copy',
-      'markdown.copied': 'Copied',
-      'markdown.code': 'Code',
-      'markdown.wrap': 'Wrap',
-      'markdown.unwrap': 'Unwrap',
-      'markdown.footnotes': 'Footnotes',
+      'fork.error': 'Failed to create the branch',
+      'fork.retry': 'Retry',
     }
 
     // One branch per tab, remembered across body remounts and page reloads.
@@ -147,8 +97,8 @@ window.__ModuleLoader__.load({
     }
 
     // Silent diagnostic trail (the desktop client has no console): what the
-    // preview renderer decided, readable from the profile's localStorage.
-    function recordPreviewDiag(event, detail) {
+    // tab decided, readable from the profile's localStorage.
+    function recordDiag(event, detail) {
       try {
         const body = JSON.stringify({ event, detail: String(detail === undefined ? '' : detail).slice(0, 800) })
         fetch('/api/side-chat/log', {
@@ -168,261 +118,9 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Contain a preview rendering failure instead of the whole tab. */
-    const PreviewBoundary = typeof React.Component === 'function'
-      ? class PreviewBoundary extends React.Component {
-        constructor(props) {
-          super(props)
-          this.state = { failed: false }
-        }
-
-        static getDerivedStateFromError() {
-          return { failed: true }
-        }
-
-        componentDidCatch(error) {
-          recordPreviewDiag('preview-failed', (error && error.stack) || error)
-        }
-
-        render() {
-          if (!this.state.failed) return this.props.children
-          return this.props.fallback === undefined ? null : h('div', { style: styles.plainText }, this.props.fallback)
-        }
-      }
-      : function PreviewPassthrough(props) {
-        return props.children
-      }
-
-    /**
-     * Markdown labels for standalone text rendering. The chat View builds the
-     * same shape from its own dictionary; only code blocks and footnotes read
-     * these.
-     * @param t - translator bound to this plugin's namespace.
-     * @returns labels accepted by the primitives MarkdownText.
-     */
-    function markdownLabels(t) {
-      return {
-        code: {
-          copyLabel: t('markdown.copy'),
-          copiedLabel: t('markdown.copied'),
-          toolbarLabels: {
-            codeLabel: t('markdown.code'),
-            wrapLabel: t('markdown.wrap'),
-            unwrapLabel: t('markdown.unwrap'),
-          },
-        },
-        footnotes: t('markdown.footnotes'),
-      }
-    }
-
-    /** Concatenated text blocks of one message content array. */
-    function textOfContent(content) {
-      if (!Array.isArray(content)) return ''
-      const parts = []
-      for (const block of content) {
-        if (block === null || typeof block !== 'object') continue
-        if (block.type !== 'text' || typeof block.text !== 'string') continue
-        if (block.text.trim() === '') continue
-        parts.push(block.text)
-      }
-      return parts.join('\n\n').trim()
-    }
-
-    /**
-     * Read the parent's recent visible turns from the live Session event feed.
-     * Only the human's own prompts and the assistant's committed text qualify:
-     * context reminders (their source kinds differ) and tool traffic stay out,
-     * so the preview reads as the conversation the user remembers. A turn's
-     * assistant sections (streaming appends, one per step) merge into one
-     * preview block in event order.
-     * @param parentId - owning session identity, when known.
-     * @returns the last {@link PREVIEW_TURNS} messages, oldest first.
-     */
-    function previewMessages(parentId) {
-      if (parentId === undefined || clientCtx === null || clientCtx === undefined) return []
-      let binding
-      try {
-        binding = typeof clientCtx.sessions.binding === 'function' ? clientCtx.sessions.binding(parentId) : undefined
-      } catch (_bindingUnavailable) {
-        return []
-      }
-      if (binding === undefined || binding.eventSource === undefined) return []
-      const payload = binding.eventSource.getSnapshot()
-      const entries = payload !== null && payload !== undefined && Array.isArray(payload.entries) ? payload.entries : []
-      const messages = []
-      // Current session surface semantics (verified against the app bundle and
-      // a real session log): every `assistant/message` event carries
-      // `surfaceOp: 'append'` and holds ONE independently rendered section of
-      // its turn's reply (each section has its own message id). There is no
-      // settlement event that contains the full reply, so the preview must
-      // merge the turn's sections in event order — keeping only the last
-      // section would show a mid-reply fragment instead of the answer.
-      const sectionOfTurn = new Map()
-      for (const entry of entries) {
-        if (entry === null || typeof entry !== 'object' || entry.type === 'transient') continue
-        const event = entry.event
-        if (event === null || typeof event !== 'object') continue
-        if (event.type === 'user/message') {
-          const source = event.data !== undefined ? event.data.source : undefined
-          if (source !== undefined && source.kind !== 'user') continue
-          const text = textOfContent(event.data !== undefined ? event.data.content : undefined)
-          if (text !== '') messages.push({ key: `u${event.seq}`, role: 'user', text })
-          continue
-        }
-        if (event.type === 'assistant/message') {
-          const message = event.data !== undefined ? event.data.message : undefined
-          const text = textOfContent(message !== undefined ? message.content : undefined)
-          if (text === '') continue
-          const turn = event.data !== undefined && typeof event.data.turn === 'number' ? event.data.turn : undefined
-          const previous = turn === undefined ? undefined : sectionOfTurn.get(turn)
-          if (previous !== undefined) {
-            messages[previous] = { key: messages[previous].key, role: 'assistant', text: `${messages[previous].text}\n\n${text}` }
-            continue
-          }
-          messages.push({ key: `a${event.seq}`, role: 'assistant', text })
-          if (turn !== undefined) sectionOfTurn.set(turn, messages.length - 1)
-        }
-      }
-      return messages.slice(-PREVIEW_TURNS)
-    }
-
-    /** Borrow the parent's live event feed, or undefined while it is not materialized. */
-    function parentFeed(parentId) {
-      if (parentId === undefined || clientCtx === null || clientCtx === undefined) return undefined
-      try {
-        const binding = typeof clientCtx.sessions.binding === 'function'
-          ? clientCtx.sessions.binding(parentId)
-          : undefined
-        const feed = binding === undefined ? undefined : binding.eventSource
-        return feed !== undefined && feed !== null && typeof feed.subscribe === 'function' ? feed : undefined
-      } catch (_bindingUnavailable) {
-        return undefined
-      }
-    }
-
-    /**
-     * Subscribe the preview to the parent's live event window. The feed can
-     * appear after this mount (a session still opening, or one that was just
-     * switched to), so the catalog store retries the attachment.
-     */
-    function usePreviewMessages(parentId) {
-      const [messages, setMessages] = React.useState(() => previewMessages(parentId))
-      React.useEffect(() => {
-        let attached = null
-        let stopFeed = null
-        const sync = () => {
-          const feed = parentFeed(parentId)
-          if (feed !== undefined && feed !== attached) {
-            if (stopFeed !== null) stopFeed()
-            attached = feed
-            stopFeed = feed.subscribe(() => setMessages(previewMessages(parentId)))
-          }
-          setMessages(previewMessages(parentId))
-        }
-        sync()
-        let stopList = null
-        try {
-          const list = clientCtx.sessions !== undefined ? clientCtx.sessions.list : undefined
-          if (list !== undefined && list !== null && typeof list.subscribe === 'function') stopList = list.subscribe(sync)
-        } catch (_listUnavailable) { /* the feed subscription still covers live turns */ }
-        return () => {
-          if (stopFeed !== null) stopFeed()
-          if (stopList !== null) stopList()
-        }
-      }, [parentId])
-      return messages
-    }
-
-    /**
-     * Render one message body. Falls back to the literal text when the shared
-     * Markdown renderer is unavailable or throws, so the preview can never take
-     * the tab down with it.
-     */
-    let markdownMissingLogged = false
-    function MessageText(props) {
-      if (MarkdownText === null) {
-        if (!markdownMissingLogged) {
-          markdownMissingLogged = true
-          recordPreviewDiag('markdown-missing', primitivesError || `primitives=${primitives === null ? 'null' : typeof primitives}`)
-        }
-        return h('div', { style: styles.plainText }, props.text)
-      }
-      return h(PreviewBoundary, { fallback: props.text },
-        h(MarkdownText, { text: props.text, labels: props.labels }))
-    }
-
-    /** Contain a rendering failure inside the preview instead of the tab. */
-    /**
-     * Read-only transcript of the parent's recent turns, shown while the tab
-     * has no branch yet. Selecting text inside it offers the quote action at
-     * the selection, so a passage can be carried into the side-chat draft
-     * without leaving the tab.
-     */
-    function ParentPreview(props) {
-      const { messages, onQuote, t } = props
-      const hostRef = React.useRef(null)
-      const [pending, setPending] = React.useState(null)
-      const tailKey = messages.length === 0 ? '' : messages[messages.length - 1].key
-      const labels = React.useMemo(() => markdownLabels(t), [t])
-
-      // Follow the live tail so a reply that lands while the tab is open stays
-      // in view without the user chasing it.
-      React.useEffect(() => {
-        const host = hostRef.current
-        if (host !== null && host !== undefined) host.scrollTop = host.scrollHeight
-      }, [tailKey])
-
-      React.useEffect(() => {
-        const host = hostRef.current
-        if (host === null || host === undefined) return undefined
-        if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined
-        const review = () => {
-          const selection = typeof window !== 'undefined' && typeof window.getSelection === 'function'
-            ? window.getSelection()
-            : null
-          if (selection === null || selection.isCollapsed || selection.rangeCount === 0) { setPending(null); return }
-          const range = selection.getRangeAt(0)
-          if (!host.contains(range.commonAncestorContainer)) { setPending(null); return }
-          const text = selection.toString().trim()
-          if (text === '') { setPending(null); return }
-          const box = range.getBoundingClientRect()
-          const base = host.getBoundingClientRect()
-          setPending({
-            text: text.length > QUOTE_LIMIT ? text.slice(0, QUOTE_LIMIT) : text,
-            top: Math.max(2, box.top - base.top + host.scrollTop - 32),
-            left: Math.max(2, box.left - base.left),
-          })
-        }
-        // The selection settles after the pointer/key event itself.
-        const defer = () => setTimeout(review, 0)
-        document.addEventListener('pointerup', defer)
-        document.addEventListener('keyup', defer)
-        return () => {
-          document.removeEventListener('pointerup', defer)
-          document.removeEventListener('keyup', defer)
-        }
-      }, [])
-
-      return h('div', {
-        ref: hostRef,
-        style: styles.preview,
-        'data-sidechat-preview': '',
-        onScroll: () => setPending(null),
-      },
-        messages.map(message => message.role === 'user'
-          ? h('div', { key: message.key, style: styles.previewUser }, message.text)
-          : h('div', { key: message.key, style: styles.previewAssistant },
-            h(MessageText, { text: message.text, labels }))),
-        pending === null ? null : h('button', {
-          type: 'button',
-          style: { ...styles.quoteAction, top: pending.top, left: pending.left },
-          onPointerDown: (event) => event.preventDefault(),
-          onClick: () => {
-            onQuote(pending.text)
-            setPending(null)
-          },
-        }, t('quote.add')))
-    }
+    // Eager-fork dedupe across remounts and React's double effect pass: one
+    // in-flight fork per tab key, cleared on settle so a retry can run.
+    const forkInFlight = new Set()
 
     /** Fixed Chat selection used by the embedded Conversation occurrence. */
     function FixedChatConversationView(props) {
@@ -434,7 +132,7 @@ window.__ModuleLoader__.load({
      * mirroring the shipped sidebar chat panel: embedded variant, no width
      * handles, no main header. The ambient session is the child (bound by the
      * body's SessionProvider); props.sessionId from the body wins when
-     * present. The child session's subagent projections drive delivery.
+     * present.
      */
     function ConversationPanel(props) {
       const session = props.useSession(value => value)
@@ -451,56 +149,11 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * First-message composer shown until the child exists. Sending posts the
-     * text to the Host route, which creates the fork-backend child with the
-     * parent's inherited context; the draft survives a failed attempt. The
-     * draft is owned by the tab so the preview's quote action can append to it.
-     */
-    function FirstMessage({ onSend, pending, failure, t, draft, onDraftChange, inputRef }) {
-      const submit = async () => {
-        const text = draft.trim()
-        if (text === '' || pending) return
-        const ok = await onSend(text)
-        if (ok) onDraftChange('')
-      }
-      const onKeyDown = (event) => {
-        if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
-        event.preventDefault()
-        submit()
-      }
-      const idle = pending || draft.trim() === ''
-      return h('div', { style: styles.composerWrap },
-        h('div', { style: styles.composerCard },
-          h('textarea', {
-            ref: inputRef,
-            style: styles.composerInput,
-            value: draft,
-            placeholder: t('first.placeholder'),
-            'aria-label': t('guide.label'),
-            disabled: pending,
-            rows: 1,
-            onChange: (event) => onDraftChange(event.target.value),
-            onKeyDown,
-          }),
-          h('div', { style: styles.composerRow },
-            failure !== null ? h('div', { style: styles.composerError }, `${t('fork.error')}: ${failure}`) : null,
-            h('button', {
-              type: 'button',
-              style: { ...styles.sendButton, ...(idle ? styles.sendButtonIdle : null) },
-              disabled: idle,
-              'aria-label': t('first.send'),
-              title: t('first.send'),
-              onClick: submit,
-            }, SendIcon === null ? h('span', { style: styles.sendGlyph }, '\u2191') : h(SendIcon, { width: 16, height: 16 })))))
-    }
-
-    /**
-     * Tab body: binds the tab's child (creating it from the first message, or
-     * re-binding the persisted one) and hosts the conversation slot.
-     * `keepMounted` keeps this body alive while its session is off screen;
-     * unmount only happens on tab close or a full reload, so the branch
-     * mapping is never discarded here — the replacement mount resolves the
-     * very same child.
+     * Tab body: binds the tab's child — forked from the parent the moment the
+     * tab opens without a mapping — and hosts the conversation slot hosting
+     * the official surface. `keepMounted` keeps this body alive while its
+     * session is off screen; unmount only happens on tab close or a full
+     * reload, and the replacement mount resolves the very same child.
      */
     function ForkChatTab(props) {
       const { tab } = props.useTabInfo()
@@ -509,75 +162,41 @@ window.__ModuleLoader__.load({
       const key = parentId === undefined ? undefined : tabKey(parentId, tab.id)
       const childId = useBranch(key)
       const [bound, setBound] = React.useState(null)
-      const [pending, setPending] = React.useState(false)
       const [failure, setFailure] = React.useState(null)
       const [healSeq, setHealSeq] = React.useState(0)
-      const [draft, setDraft] = React.useState('')
-      const [caretSeq, setCaretSeq] = React.useState(0)
       const bodyRef = React.useRef(null)
-      const inputRef = React.useRef(null)
-
-      // The parent transcript is previewed only until this tab owns a branch;
-      // once the child exists its own inherited history replaces it.
-      const previews = usePreviewMessages(childId === undefined ? parentId : undefined)
       const t = translator
 
-      // Carry a preview selection into the draft as a Markdown blockquote,
-      // then hand the caret back to the composer.
-      const insertQuote = React.useCallback((text) => {
-        const quoted = text
-          .split('\n')
-          .map(line => line.trim() === '' ? '>' : `> ${line}`)
-          .join('\n')
-        setDraft(current => current.trim() === ''
-          ? `${quoted}\n`
-          : `${current.replace(/\s+$/, '')}\n\n${quoted}\n`)
-        setCaretSeq(seq => seq + 1)
-      }, [])
-
+      // Open-tab eager fork. Without a mapping the tab forks the parent right
+      // away, so the official conversation surface exists from the first
+      // paint; a failed fork stops the automatic passes until a retry.
       React.useEffect(() => {
-        if (caretSeq === 0) return
-        const node = inputRef.current
-        if (node === null || node === undefined) return
-        node.focus()
-        const end = node.value.length
-        try { node.setSelectionRange(end, end) } catch (_unsupported) { /* noop */ }
-      }, [caretSeq])
-
-      // Create the child from the first message through the Host route.
-      const send = React.useCallback(async (text) => {
-        if (key === undefined || parentId === undefined || pending) return false
-        setPending(true)
-        setFailure(null)
-        try {
-          const response = await fetch(CREATE_PATH, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId: parentId, text }),
+        if (childId !== undefined || key === undefined || parentId === undefined) return undefined
+        if (failure !== null || forkInFlight.has(key)) return undefined
+        forkInFlight.add(key)
+        clientCtx.sessions.fork({ sessionId: parentId, increaseTitle: true })
+          .then((created) => {
+            forkInFlight.delete(key)
+            rememberBranch(key, created)
           })
-          const payload = typeof response.json === 'function' ? await response.json() : undefined
-          if (!response.ok) throw new Error((payload && payload.error) || `HTTP ${response.status}`)
-          if (payload === undefined || typeof payload.childId !== 'string' || payload.childId === '') throw new Error('missing childId')
-          rememberBranch(key, payload.childId)
-          return true
-        } catch (error) {
-          setFailure(String((error && error.message) || error))
-          return false
-        } finally {
-          setPending(false)
-        }
-      }, [key, parentId, pending])
+          .catch((error) => {
+            forkInFlight.delete(key)
+            const message = String((error && error.message) || error)
+            recordDiag('fork-failed', message)
+            setFailure(message)
+          })
+        return undefined
+      }, [childId, key, parentId, failure])
 
-      // Retain the child through its durable direct-parent address once the
-      // mapping holds one; a reference whose session no longer resolves drops
-      // the stale mapping so the tab falls back to the first-message surface.
+      // Retain the child through its exact session identity once the mapping
+      // holds one; a reference whose session no longer resolves drops the
+      // stale mapping so the eager fork creates a fresh child.
       React.useEffect(() => {
-        if (childId === undefined || parentId === undefined) return undefined
-        const address = { parentSessionId: parentId, childSessionId: childId, mode: 'continuable' }
+        if (childId === undefined || key === undefined) return undefined
         let reference = null
         let cancelled = false
         try {
-          reference = clientCtx.sessions.retain(address, { source: 'sideChat', signal: tab.signal })
+          reference = clientCtx.sessions.retain(childId, { source: 'sideChat', signal: tab.signal })
         } catch (_unresolvable) {
           forgetBranch(key)
           return undefined
@@ -596,7 +215,7 @@ window.__ModuleLoader__.load({
         // tab.signal is occurrence-scoped and would re-run creation-adjacent
         // work if it were a dependency.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [childId, parentId])
+      }, [childId])
 
       // Composer self-heal. Two audit stages 400ms/500ms apart, so the
       // single-frame race between the editor's DOM update and React's
@@ -633,30 +252,22 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [key, bound])
 
-      if (childId !== undefined && (bound === null || bound.childId !== childId)) {
+      if (childId === undefined) {
+        if (failure !== null) {
+          return h('div', { style: styles.errorPane },
+            h('div', { style: styles.errorText }, `${t('fork.error')}: ${failure}`),
+            h('button', { type: 'button', style: styles.retryButton, onClick: () => setFailure(null) }, t('fork.retry')))
+        }
+        return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
+      }
+      if (bound === null || bound.childId !== childId) {
         return h('div', { style: styles.center, 'aria-busy': true }, h('div', { style: styles.spinner }))
       }
       return h('div', { style: styles.body, ref: bodyRef },
-        bound !== null && bound.childId === childId
-          ? h(props.SessionProvider, {
-              key: `sidechat-conv-${healSeq}`,
-              session: bound.reference,
-            }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId }))
-          : h('div', { style: styles.firstPane, 'data-sidechat-pane': '' },
-              h('div', { style: styles.previewFrame },
-                previews.length === 0
-                  ? null
-                  : h(PreviewBoundary, { fallback: null },
-                    h(ParentPreview, { messages: previews, onQuote: insertQuote, t }))),
-              h(FirstMessage, {
-                onSend: send,
-                pending,
-                failure,
-                t,
-                draft,
-                onDraftChange: setDraft,
-                inputRef,
-              })))
+        h(props.SessionProvider, {
+          key: `sidechat-conv-${healSeq}`,
+          session: bound.reference,
+        }, props.renderSlot(CONV_SLOT, { sessionId: bound.childId })))
     }
 
     /**
@@ -734,150 +345,32 @@ window.__ModuleLoader__.load({
         borderTopColor: 'var(--dsw-alias-label-tertiary)',
         animation: 'sidechat-spin 0.8s linear infinite',
       },
-      firstPane: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 0,
+      errorPane: {
+        height: '100%',
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        padding: 24,
+        textAlign: 'center',
       },
-      previewFrame: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
-      },
-      preview: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 0,
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        padding: '14px 16px 6px',
-        // Same typography surface as the official chat markdown, so the
-        // preview reads exactly like the conversation it mirrors (including
-        // the user's own content-font-size setting).
-        font: 'var(--dsw-font-markdown-base)',
-        color: 'var(--dsw-alias-label-primary)',
-        userSelect: 'text',
-      },
-      previewUser: {
-        alignSelf: 'flex-end',
-        maxWidth: '90%',
-        padding: '8px 11px',
-        borderRadius: 12,
-        background: 'var(--dsw-specific-input-major)',
-        color: 'var(--dsw-alias-label-primary)',
-        whiteSpace: 'pre-wrap',
+      errorText: {
+        fontSize: 12,
+        lineHeight: 1.5,
+        color: 'var(--dsw-alias-state-error-primary)',
         overflowWrap: 'anywhere',
       },
-      previewAssistant: {
-        minWidth: 0,
-        overflowWrap: 'anywhere',
-      },
-      previewView: {
-        flex: 1,
-        minWidth: 0,
-        minHeight: 0,
-        display: 'flex',
-        flexDirection: 'column',
-      },
-      quoteAction: {
-        position: 'absolute',
-        zIndex: 30,
+      retryButton: {
         height: 26,
-        padding: '0 10px',
+        padding: '0 14px',
         borderRadius: 999,
         border: '0.5px solid var(--dsw-alias-border-l3)',
         background: 'var(--dsw-alias-button-floating-fill)',
         color: 'var(--dsw-alias-label-primary)',
-        boxShadow: 'var(--dsw-elevation-panel)',
         font: 'inherit',
-        fontSize: 13,
+        fontSize: 12,
         cursor: 'pointer',
-      },
-      composerWrap: {
-        flex: 'none',
-        minWidth: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '4px 12px 12px',
-      },
-      composerCard: {
-        boxSizing: 'border-box',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        padding: '10px 12px 8px',
-        borderRadius: 'var(--dsw-radius-panel)',
-        background: 'var(--dsw-specific-input-major)',
-        '--dsw-elevation-stroke-color': 'var(--dsw-alias-border-l2)',
-        boxShadow: 'var(--dsw-elevation-soft)',
-        fontSize: 13,
-        lineHeight: 1.5,
-      },
-      composerInput: {
-        boxSizing: 'border-box',
-        width: '100%',
-        minHeight: 44,
-        maxHeight: 180,
-        resize: 'none',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-primary)',
-        font: 'inherit',
-        outline: 'none',
-        padding: 0,
-      },
-      composerRow: {
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        gap: 8,
-        minHeight: 28,
-      },
-      composerError: {
-        marginRight: 'auto',
-        fontSize: 11,
-        lineHeight: 1.4,
-        color: 'var(--dsw-alias-state-error-primary)',
-        wordBreak: 'break-word',
-      },
-      sendButton: {
-        boxSizing: 'border-box',
-        width: 28,
-        height: 28,
-        flex: 'none',
-        borderRadius: '50%',
-        border: 'none',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--dsw-alias-button-info-fill)',
-        color: '#fff',
-        cursor: 'pointer',
-        padding: 0,
-      },
-      sendButtonIdle: {
-        opacity: 0.4,
-        cursor: 'default',
-      },
-      sendGlyph: {
-        fontSize: 14,
-        lineHeight: '14px',
-      },
-      plainText: {
-        whiteSpace: 'pre-wrap',
-        overflowWrap: 'anywhere',
-        padding: 12,
-        font: 'var(--dsw-font-markdown-base)',
-        color: 'var(--dsw-alias-label-primary)',
       },
       title: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
     }
@@ -886,7 +379,7 @@ window.__ModuleLoader__.load({
       inject: ['sessions', 'slots', 'locale', 'sidebarRightTabs'],
       apply(ctx) {
         clientCtx = ctx
-        recordPreviewDiag('module', `icon=${SendIcon === null ? 'missing' : 'ready'}`)
+        recordDiag('module', 'native-fork')
         ctx.effect(() => {
           styles.spinnerKeyframes = document.head.appendChild(Object.assign(document.createElement('style'), {
             textContent: '@keyframes sidechat-spin{to{transform:rotate(360deg)}}',
@@ -917,7 +410,7 @@ window.__ModuleLoader__.load({
             }],
           }), 'side-chat: tab type')
           } catch (error) {
-            recordPreviewDiag('tab-type-failed', (error && error.stack) || error)
+            recordDiag('tab-type-failed', (error && error.stack) || error)
             throw error
           }
         })
@@ -927,18 +420,18 @@ window.__ModuleLoader__.load({
           key: TAB_ID,
           locale: NS,
           children: { [CONV_SLOT]: { kind: 'single', scope: 'session' } },
-        }, ForkChatTab) } catch (error) { recordPreviewDiag('slot-tab-body-failed', (error && error.stack) || error); throw error } }, 'side-chat: tab body')
+        }, ForkChatTab) } catch (error) { recordDiag('slot-tab-body-failed', (error && error.stack) || error); throw error } }, 'side-chat: tab body')
 
         ctx.slots.inject('sidebar.right.pane.tab.title', () => { try { return ctx.slots.register({
           name: 'sidebar.right.pane.tab.title',
           key: TAB_ID,
           locale: NS,
-        }, BranchTitle) } catch (error) { recordPreviewDiag('slot-tab-title-failed', (error && error.stack) || error); throw error } }, 'side-chat: tab title')
+        }, BranchTitle) } catch (error) { recordDiag('slot-tab-title-failed', (error && error.stack) || error); throw error } }, 'side-chat: tab title')
 
         ctx.slots.inject(CONV_SLOT, () => { try { return ctx.slots.register({
           name: CONV_SLOT,
           locale: NS,
-        }, ConversationPanel) } catch (error) { recordPreviewDiag('slot-conversation-failed', (error && error.stack) || error); throw error } }, 'side-chat: conversation')
+        }, ConversationPanel) } catch (error) { recordDiag('slot-conversation-failed', (error && error.stack) || error); throw error } }, 'side-chat: conversation')
       },
     }
   },
