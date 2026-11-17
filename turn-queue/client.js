@@ -9,6 +9,8 @@
 //     approval) and is blocked on the user. Enqueued immediately.
 //   - `done`: the session stayed idle after a turn settled. Enqueued after a
 //     settle window so multi-round goal work is not announced mid-task.
+//   - `manual`: the user right-clicked "add to queue". Low priority: automatic
+//     rows always sit ahead of hand-queued ones, which keep their own order.
 //
 // A click opens the session and marks THAT event read. The same event never
 // returns, even while the session is still waiting; a later event (the user
@@ -323,22 +325,38 @@ window.__ModuleLoader__.load({
         commit()
       }
 
+      /** Automatic rows sit ahead of every hand-queued row, in arrival order. */
+      const insertAuto = (entry) => {
+        const firstManual = entries.findIndex((item) => item.kind === 'manual')
+        if (firstManual === -1) {
+          entries.push(entry)
+          return
+        }
+        const rest = entries.slice()
+        rest.splice(firstManual, 0, entry)
+        entries = rest
+      }
+
       /**
-       * Fold a new event into its session's row while keeping the row's slot.
-       * A row the user queued by hand absorbs the event and stays `manual`: the
-       * bookmark keeps its place until the user opens or unqueues it.
+       * Fold a new event into its session's row. An automatic row updates in
+       * place; a hand-queued row is only a placeholder for that session, so a
+       * real event takes the row over and moves it ahead of the hand-queued
+       * rows.
        */
       const merge = (id, kind, token) => {
         const index = entries.findIndex((entry) => entry.id === id)
         if (index === -1) {
-          entries.push({ id, kind, token, at: Date.now() })
+          insertAuto({ id, kind, token, at: Date.now() })
           return true
         }
         const current = entries[index]
         if (current.token === token) return false
-        const next = current.kind === 'manual'
-          ? { ...current, token, at: Date.now() }
-          : { id, kind, token, at: Date.now() }
+        const next = { id, kind, token, at: Date.now() }
+        if (current.kind === 'manual') {
+          entries = entries.filter((entry) => entry.id !== id)
+          insertAuto(next)
+          return true
+        }
         const rest = entries.slice()
         rest.splice(index, 1, next)
         entries = rest

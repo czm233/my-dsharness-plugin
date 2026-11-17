@@ -455,18 +455,18 @@ function check(name, condition) {
   env.setCurrent('Z')
   env.menus[0].resolve({ sessionId: 'B' })[0].run()
   finishTurn(env, 'A')
-  check('hand-queued row keeps its earlier slot', env.storage.read().join(',') === 'B,A')
+  check('automatic row jumps ahead of the hand-queued row', env.storage.read().join(',') === 'A,B')
   const tree = env.registered[0].Component()
   const cells = Array.isArray(tree.children[0]) ? tree.children[0] : tree.children
   cells[0].props.onClick()
-  check('click opens that session', env.opened.join(',') === 'B')
-  check('click removes the hand-queued row', env.storage.read().join(',') === 'A')
+  check('click opens the automatic row first', env.opened.join(',') === 'A')
+  check('click removes that row', env.storage.read().join(',') === 'B')
   env.setCurrent('B')
   env.status.set(new Map([['B', { running: false }]]))
-  check('the opened row stays gone', env.storage.read().join(',') === 'A')
+  check('the hand-queued row stays', env.storage.read().join(',') === 'B')
 }
 
-// 19. An automatic event of a hand-queued session keeps that one row in place
+// 19. An automatic event takes over a hand-queued row for the same session
 {
   const env = boot()
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
@@ -475,7 +475,7 @@ function check(name, condition) {
   finishTurn(env, 'A')
   const raw = JSON.parse(env.storage.getItem('turn-queue.entries.v1'))
   check('one row per session', raw.length === 1 && raw[0].id === 'A')
-  check('the row stays hand-queued', raw[0].kind === 'manual')
+  check('the row becomes the automatic event', raw[0].kind === 'done')
 }
 
 // 20. Queuing a session that already has an automatic row reuses that slot
@@ -502,6 +502,28 @@ function check(name, condition) {
   env.archived.push('A')
   env.list.set([{ id: 'A', displayTitle: 'Session A', subagent: null }])
   check('archived hand-queued row is dropped', env.storage.read().length === 0)
+}
+
+// 22. Automatic rows jump ahead of hand-queued rows, which keep their order
+{
+  const env = boot()
+  env.list.set([
+    { id: 'A', displayTitle: 'Session A', subagent: null },
+    { id: 'B', displayTitle: 'Session B', subagent: null },
+    { id: 'C', displayTitle: 'Session C', subagent: null },
+    { id: 'D', displayTitle: 'Session D', subagent: null },
+  ])
+  env.setCurrent('Z')
+  const queueByHand = (id) => env.menus[0].resolve({ sessionId: id })[0].run()
+  queueByHand('A')
+  queueByHand('B')
+  check('hand-queued rows keep arrival order', env.storage.read().join(',') === 'A,B')
+  finishTurn(env, 'C')
+  check('the first automatic row jumps ahead of both', env.storage.read().join(',') === 'C,A,B')
+  finishTurn(env, 'D')
+  check('the next automatic row lines up behind it', env.storage.read().join(',') === 'C,D,A,B')
+  queueByHand('C')
+  check('hand-queuing an automatic row moves it to the tail', env.storage.read().join(',') === 'D,A,B,C')
 }
 
 if (failures > 0) {
