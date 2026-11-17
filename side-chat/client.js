@@ -46,8 +46,12 @@ window.__ModuleLoader__.load({
     // The shell provides the shared primitives module to every client plugin
     // (the shipped quote plugin requires it the same way). Only the send glyph
     // is borrowed here; a build without it falls back to a text arrow.
+    let primitivesError = ''
     const primitives = (() => {
-      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (_unavailable) { return null }
+      try { return require('@deepseek-ai/dsh-client-ui-primitives') ?? null } catch (error) {
+        primitivesError = String((error && error.message) || error)
+        return null
+      }
     })()
     const defined = (value) => value !== undefined && value !== null
     // React.memo components are objects, not functions: only test for presence.
@@ -228,7 +232,9 @@ window.__ModuleLoader__.load({
      * Read the parent's recent visible turns from the live Session event feed.
      * Only the human's own prompts and the assistant's committed text qualify:
      * context reminders (their source kinds differ) and tool traffic stay out,
-     * so the preview reads as the conversation the user remembers.
+     * so the preview reads as the conversation the user remembers. A turn's
+     * assistant sections (streaming appends, one per step) merge into one
+     * preview block in event order.
      * @param parentId - owning session identity, when known.
      * @returns the last {@link PREVIEW_TURNS} messages, oldest first.
      */
@@ -244,9 +250,14 @@ window.__ModuleLoader__.load({
       const payload = binding.eventSource.getSnapshot()
       const entries = payload !== null && payload !== undefined && Array.isArray(payload.entries) ? payload.entries : []
       const messages = []
-      // One reply per turn: a multi-step turn narrates between tool calls, and
-      // only its last text is the answer worth re-reading.
-      const replyAt = new Map()
+      // Current session surface semantics (verified against the app bundle and
+      // a real session log): every `assistant/message` event carries
+      // `surfaceOp: 'append'` and holds ONE independently rendered section of
+      // its turn's reply (each section has its own message id). There is no
+      // settlement event that contains the full reply, so the preview must
+      // merge the turn's sections in event order — keeping only the last
+      // section would show a mid-reply fragment instead of the answer.
+      const sectionOfTurn = new Map()
       for (const entry of entries) {
         if (entry === null || typeof entry !== 'object' || entry.type === 'transient') continue
         const event = entry.event
@@ -263,13 +274,13 @@ window.__ModuleLoader__.load({
           const text = textOfContent(message !== undefined ? message.content : undefined)
           if (text === '') continue
           const turn = event.data !== undefined && typeof event.data.turn === 'number' ? event.data.turn : undefined
-          const previous = turn === undefined ? undefined : replyAt.get(turn)
+          const previous = turn === undefined ? undefined : sectionOfTurn.get(turn)
           if (previous !== undefined) {
-            messages[previous] = { key: `a${event.seq}`, role: 'assistant', text }
+            messages[previous] = { key: messages[previous].key, role: 'assistant', text: `${messages[previous].text}\n\n${text}` }
             continue
           }
           messages.push({ key: `a${event.seq}`, role: 'assistant', text })
-          if (turn !== undefined) replyAt.set(turn, messages.length - 1)
+          if (turn !== undefined) sectionOfTurn.set(turn, messages.length - 1)
         }
       }
       return messages.slice(-PREVIEW_TURNS)

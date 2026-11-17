@@ -526,23 +526,32 @@ async function main() {
   check('SessionProvider 只挂一份', providerA5 !== null && providerA5.props.session !== undefined)
 
   console.log('[11] 主对话预览：渲染父会话最近几轮，划词引用写入侧栏草稿')
+  // 现行会话表面语义（对真实会话日志核实过）：assistant/message 事件带
+  // surfaceOp:'append'，每条只是该轮回复的一段（每段独立 message id），
+  // 没有承载完整回复的结算事件——预览必须把同一轮的各段按序合并。
   world.bind('C', [
-    { type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '主对话的问题' }], source: { kind: 'user' } } },
-    { type: 'user/message', seq: 2, data: { content: [{ type: 'text', text: '上下文提醒不该出现' }], source: { kind: 'agent-instructions' } } },
-    { type: 'assistant/message', seq: 3, data: { turn: 1, step: 1, message: { content: [{ type: 'reasoning', text: '内部推理不该出现' }, { type: 'text', text: '先看一眼文件' }] } } },
-    { type: 'assistant/message', seq: 4, data: { turn: 1, step: 2, message: { content: [{ type: 'text', text: '主对话的回答正文' }] } } },
+    { type: 'user/message', seq: 1, surfaceOp: 'append', data: { content: [{ type: 'text', text: '主对话的问题' }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 2, surfaceOp: 'append', data: { content: [{ type: 'text', text: '上下文提醒不该出现' }], source: { kind: 'agent-instructions' } } },
+    { type: 'assistant/message', seq: 3, surfaceOp: 'append', data: { turn: 1, step: 1, message: { id: 'm1', content: [{ type: 'reasoning', text: '内部推理不该出现' }, { type: 'text', text: '先看一眼文件' }] } } },
+    { type: 'assistant/message', seq: 4, surfaceOp: 'append', data: { turn: 1, step: 2, message: { id: 'm2', content: [{ type: 'text', text: '主对话的回答正文' }] } } },
+    { type: 'user/message', seq: 5, surfaceOp: 'append', data: { content: [{ type: 'text', text: '第二轮的提问' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 6, surfaceOp: 'append', data: { turn: 2, step: 1, message: { id: 'm3', content: [{ type: 'text', text: '第二轮的回答' }] } } },
   ])
   const c1 = mount(first.ForkChatTab, tabProps('C', 'tab1'))
   await settle()
   const preview = previewOf(c1)
   check('渲染主对话预览', preview !== undefined)
+  const previewMessages = preview !== undefined ? preview.props.messages : undefined
+  check('同一轮的各段合并为一条消息', Array.isArray(previewMessages) && previewMessages.length === 4
+    && previewMessages[1].role === 'assistant'
+    && previewMessages[1].text === '先看一眼文件\n\n主对话的回答正文'
+    && previewMessages[3].text === '第二轮的回答', JSON.stringify(previewMessages))
   const previewInst = mountComponent(preview)
   const previewText = previewInst === undefined ? '' : collectText(previewInst.output)
   check('预览含人类提问', previewText.includes('主对话的问题'), previewText.slice(0, 160))
-  check('预览含助手正文', previewText.includes('主对话的回答正文'), previewText.slice(0, 160))
+  check('预览含助手各段正文（不再只留最后一段）', previewText.includes('先看一眼文件') && previewText.includes('主对话的回答正文'), previewText.slice(0, 160))
   check('预览不含上下文提醒', previewText.includes('上下文提醒不该出现') === false, previewText.slice(0, 160))
   check('预览不含推理内容', previewText.includes('内部推理不该出现') === false, previewText.slice(0, 160))
-  check('同一轮只留最后一段正文', previewText.includes('先看一眼文件') === false, previewText.slice(0, 160))
   if (previewInst !== undefined) previewInst.unmount()
   preview.props.onQuote('这一段我不懂')
   flush()
