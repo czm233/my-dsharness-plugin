@@ -1,6 +1,6 @@
 {
   "name": "@local/auto-expand-thinking",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Auto-expands every reasoning (thinking) row in chat as soon as it appears, so thinking is readable without clicking each disclosure.",

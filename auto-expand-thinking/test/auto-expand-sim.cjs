@@ -1,5 +1,6 @@
 // Offline gate for the client half: stub the DOM surface client.js touches and
-// verify the expand pass clicks exactly the collapsed reasoning rows once.
+// verify only the latest turn's collapsed think rows get one toggle click, and
+// that flow switches and turn regressions (paging) behave.
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
@@ -7,58 +8,59 @@ const assert = require('node:assert')
 
 const code = fs.readFileSync(path.join(__dirname, '..', 'client.js'), 'utf8')
 
-const state = {
-  loaded: null,
-  observers: [],
-  frames: [],
-}
+const state = { loaded: null, observers: [], frames: [] }
 
-function makeRoot({ collapsed, hasRow, label }) {
+/** Think row root: collapsible disclosure inside a chat-turn region. */
+function thinkRoot({ turn, expanded = false, hasRow = true }) {
   const root = {
-    label,
-    clicks: 0,
     rowClicks: 0,
     hasAttribute(attr) {
-      return attr === 'data-expanded' ? !collapsed : false
+      return attr === 'data-expanded' ? expanded : false
+    },
+    closest(selector) {
+      assert.equal(selector, '[data-chat-turn]')
+      return turn === null ? null : { getAttribute: () => String(turn) }
     },
     querySelector() {
       if (!hasRow) return null
-      const row = {
-        click: () => {
-          root.rowClicks += 1
-        },
-      }
-      return row
-    },
-    click: () => {
-      root.clicks += 1
+      return { click: () => { root.rowClicks += 1 } }
     },
   }
   return root
 }
 
-const roots = {
-  collapsed: makeRoot({ collapsed: true, hasRow: true, label: 'collapsed' }),
-  open: makeRoot({ collapsed: false, hasRow: true, label: 'already-open' }),
-  mounting: makeRoot({ collapsed: true, hasRow: false, label: 'row-not-mounted' }),
+function makeDom() {
+  return {
+    flow: { key: 'flow-a' },
+    tails: [1, 2],
+    roots: [],
+    querySelector(selector) {
+      if (selector === '[data-chat-flow]') {
+        return this.flow.key === null ? null : { getAttribute: () => this.flow.key }
+      }
+      return null
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-turn-tail]') {
+        return this.tails.map((turn) => ({ getAttribute: () => String(turn) }))
+      }
+      if (selector === 'div[data-variant="think"]') return this.roots
+      return []
+    },
+  }
 }
 
-const documentStub = {
-  querySelectorAll(selector) {
-    assert.equal(selector, 'div[data-variant="think"]')
-    return Object.values(roots)
-  },
-}
+const documentStub = makeDom()
 
 class MutationObserverStub {
   constructor(callback) {
     this.callback = callback
-    this.observed = null
+    this.options = null
     this.disconnected = false
     state.observers.push(this)
   }
   observe(target, options) {
-    this.observed = { target, options }
+    this.options = options
   }
   disconnect() {
     this.disconnected = true
@@ -92,34 +94,66 @@ assert.ok(state.loaded, 'module loader received the client module')
 assert.equal(state.loaded.id, '@local/auto-expand-thinking')
 
 const clientModule = state.loaded.factory()
-const teardowns = []
-const ctx = {
-  effect(fn) {
-    teardowns.push(fn)
-  },
-}
-clientModule.apply(ctx)
+const setups = []
+clientModule.apply({ effect: (fn) => setups.push(fn) })
 
 assert.equal(state.observers.length, 1, 'exactly one MutationObserver')
-assert.deepEqual(state.observers[0].observed.options.attributeFilter, ['data-expanded'])
-assert.equal(state.frames.length, 1, 'initial scan scheduled')
+assert.deepEqual(state.observers[0].options.attributeFilter, ['data-expanded'])
 
-// First pass: a DOM mutation arrives, the scheduled frame runs the scan;
-// collapsed row expands, open row untouched, mounting row waits.
-state.observers[0].callback()
-state.frames.shift()()
-assert.equal(roots.collapsed.rowClicks, 1, 'collapsed row clicked once')
-assert.equal(roots.open.rowClicks, 0, 'open row left alone')
-assert.equal(roots.mounting.rowClicks, 0, 'missing row not clicked')
+const mutate = () => {
+  state.observers[0].callback()
+  state.frames.shift()()
+}
 
-// Second pass: processed roots are never re-clicked (manual collapse sticks).
-state.observers[0].callback()
-state.frames.shift()()
-assert.equal(roots.collapsed.rowClicks, 1, 'no double toggle on rescan')
-assert.equal(roots.open.rowClicks, 0)
+// Session open with two turns of history: only the last turn's collapsed row expands.
+documentStub.roots = [
+  thinkRoot({ turn: 1 }),
+  thinkRoot({ turn: 2 }),
+  thinkRoot({ turn: 2, expanded: true }),
+]
+mutate()
+assert.equal(documentStub.roots[0].rowClicks, 0, 'older turn row untouched')
+assert.equal(documentStub.roots[1].rowClicks, 1, 'last turn collapsed row clicked once')
+assert.equal(documentStub.roots[2].rowClicks, 0, 'already-open row untouched')
+
+// Rescan: processed rows never toggle twice.
+mutate()
+assert.equal(documentStub.roots[1].rowClicks, 1, 'no double toggle')
+
+// A late-mounting row in the same (latest) turn still expands.
+const lateRow = thinkRoot({ turn: 2 })
+documentStub.roots.push(lateRow)
+mutate()
+assert.equal(lateRow.rowClicks, 1, 'late row in latest turn expands')
+
+// Paging up unmounts the latest turn tail: the now-last (older) turn must NOT expand.
+documentStub.tails = [1]
+const pagedRow = thinkRoot({ turn: 1 })
+documentStub.roots.push(pagedRow)
+mutate()
+assert.equal(pagedRow.rowClicks, 0, 'older turn skipped while paging')
+
+// Back to the latest turn: fresh elements there expand again.
+documentStub.tails = [1, 2]
+const backRow = thinkRoot({ turn: 2 })
+documentStub.roots.push(backRow)
+mutate()
+assert.equal(backRow.rowClicks, 1, 'latest turn re-expands after paging back')
+
+// Session switch (new flow key): tracking resets, new flow's last turn expands.
+documentStub.flow.key = 'flow-b'
+documentStub.tails = [1]
+const newRow = thinkRoot({ turn: 1 })
+documentStub.roots = [thinkRoot({ turn: 1, expanded: true }), newRow]
+mutate()
+assert.equal(newRow.rowClicks, 1, 'new session last turn expands despite low turn number')
+
+// No chat rendered: scan is a no-op and keeps state.
+documentStub.flow.key = null
+mutate()
 
 // Teardown disconnects the observer (ctx.effect(setup) returns the cleanup).
-teardowns.map((fn) => fn()).forEach((cleanup) => cleanup())
+setups.map((fn) => fn()).forEach((cleanup) => cleanup())
 assert.equal(state.observers[0].disconnected, true, 'observer disconnected on teardown')
 
 console.log('auto-expand-sim: all assertions passed')
