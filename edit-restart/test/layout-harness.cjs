@@ -55,7 +55,7 @@ global.clearTimeout = () => {}
 global.fetch = async (url, options) => {
   const body = options && options.body ? JSON.parse(options.body) : {}
   if (String(url).includes('edit-restart/rpc') && body.action === 'resolve') {
-    return { status: 200, json: async () => ({ ok: true, found: true, initial: '教我 C++', turnStartSeq: 14, seq: 15 }) }
+    return { status: 200, json: async () => ({ ok: true, found: true, initial: '教我 C++', turnStartSeq: 14, cutSeq: 11, seq: 15 }) }
   }
   if (String(url).includes('edit-restart/rpc') && body.action === 'saveDraft') {
     return { status: 200, json: async () => ({ ok: true, draft: { id: 'draft-1' } }) }
@@ -131,7 +131,7 @@ if (anchor < 0) {
   console.error('ANCHOR NOT FOUND: 模块级 "    return {" 不在了，client.js 结构变了，先更新本 harness 的注入锚点')
   process.exit(1)
 }
-lines.splice(anchor, 0, '    window.__test = { scanChat, userMessageIn, turnStartFor, humanMessage, isHumanMessage, editableText }')
+lines.splice(anchor, 0, '    window.__test = { scanChat, userMessageIn, turnStartFor, cutBeforeTurn, humanMessage, isHumanMessage, editableText }')
 const tmp = path.join(os.tmpdir(), 'edit-restart-harness.cjs')
 fs.writeFileSync(tmp, lines.join('\n'))
 require(tmp)
@@ -294,7 +294,11 @@ check('编辑框在流内展开，占据气泡原来的列位置', layer !== und
   await send.onClick()
   check('只 fork 一次', calls.fork.length === 1, JSON.stringify(calls.fork))
   check('fork 不递增标题（归档后仍叫原来的名字）', calls.fork[0]?.increaseTitle === false, JSON.stringify(calls.fork[0]))
-  check('fork 切点 = 这条消息自己那一轮的 turn/start(14)', calls.fork[0]?.atSeq === 14, JSON.stringify(calls.fork[0]))
+  check('fork 切点 = 上一条消息之后（该轮 turn/start 之前的事件 11），不是这一轮的 turn/start(14)',
+    calls.fork[0]?.atSeq === 11, JSON.stringify(calls.fork[0]))
+  check('切点函数：turnStartFor=14, cutBeforeTurn=11',
+    T.turnStartFor(fakeSession.events.getSnapshot().entries, 15) === 14
+    && T.cutBeforeTurn(fakeSession.events.getSnapshot().entries, 14) === 11)
   check('fork 源会话正确', calls.fork[0]?.sessionId === 'sess-2')
   check('新文本发进分支会话', calls.prompt.length === 1 && calls.prompt[0].content[0].text === '教我 C++',
     JSON.stringify(calls.prompt))

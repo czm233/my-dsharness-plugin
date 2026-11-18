@@ -10,7 +10,7 @@
  * 交互：
  *   1. 用户消息的复制行旁边出现一个「修改」按钮（挂在最新一条用户消息上）；
  *   2. 点它就地展开编辑框（气泡列竖排：气泡 → 修改 → 复制 → 编辑框 → 标记）；
- *   3. 点发送：按这条消息所在轮次的 turn/start 原生 fork 出新会话，再把改过的文本
+ *   3. 点发送：在这条消息之前（上一轮结束处）原生 fork 出新会话，再把改过的文本
  *      作为新会话第一条消息发出，切到分支会话，最后把源会话归档——列表里始终只留
  *      改完的那一条，不会越改越多（归档可恢复，不是删除）；
  *   4. 改过的那条消息在本次页面加载内保留「已修改」标记。
@@ -181,6 +181,23 @@ window.__ModuleLoader__.load({
         if (event.type === 'turn/start') answer = event.seq
       }
       return answer
+    }
+
+    /**
+     * 分叉切点：这条消息所在轮次的 turn/start 之前那个事件的 seq。
+     * 直接把 turn/start 当切点，这一轮会被带进新会话（空的 turn/start + fork 收尾），
+     * 看起来就是"在当前这一条上分叉"；退一个事件，切点才落在上一条消息之后。
+     * 第一条消息之前没有事件时返回 undefined（没有历史可保留）。
+     */
+    function cutBeforeTurn(entries, turnStartSeq) {
+      let previous
+      for (const entry of entries) {
+        const event = eventOf(entry)
+        if (!event) continue
+        if (event.seq >= turnStartSeq) break
+        previous = event.seq
+      }
+      return previous
     }
 
     const PENCIL = 'M9.9 2.6a1.3 1.3 0 0 1 1.85 0l1.65 1.65a1.3 1.3 0 0 1 0 1.85L6.1 13.4l-3.35.7.7-3.35L9.9 2.6Z'
@@ -505,7 +522,11 @@ window.__ModuleLoader__.load({
         if (!payload || payload.ok !== true) throw new Error(String(payload?.error ?? `HTTP ${response.status}`))
         if (payload.found !== true) throw new Error(t('stale'))
         if (!Number.isSafeInteger(payload.turnStartSeq)) throw new Error(t('stale'))
-        return { initial: String(payload.initial ?? ''), turnStartSeq: payload.turnStartSeq }
+        return {
+          initial: String(payload.initial ?? ''),
+          turnStartSeq: payload.turnStartSeq,
+          cutSeq: Number.isSafeInteger(payload.cutSeq) ? payload.cutSeq : undefined,
+        }
       }
 
       /** 记录里第 index 条人发消息的正文与 fork 切点；会话在跑直接拒绝。 */
@@ -539,7 +560,7 @@ window.__ModuleLoader__.load({
           if (!isHumanMessage(event)) throw new Error(t('stale'))
           const turnStartSeq = turnStartFor(entries, event.seq)
           if (!Number.isSafeInteger(turnStartSeq)) throw new Error(t('stale'))
-          return { initial: editableText(event.data.content), turnStartSeq }
+          return { initial: editableText(event.data.content), turnStartSeq, cutSeq: cutBeforeTurn(entries, turnStartSeq) }
         })
       }
 
@@ -570,14 +591,15 @@ window.__ModuleLoader__.load({
        * 原生 fork（切点 = 这条消息自己那一轮的 turn/start）→ 发改写后的文本 → 切到分支 → 归档源会话。
        * 标题不递增：源会话被归档后，列表里这一条应当还叫原来的名字。
        */
-      async function resend(id, index, turnStartSeq, text) {
+      async function resend(id, index, turnStartSeq, cutSeq, text) {
         if (resending.has(id)) throw new Error(t('busy'))
         resending.add(id)
         try {
+          const atSeq = Number.isSafeInteger(cutSeq) && cutSeq >= 0 ? cutSeq : turnStartSeq
           let childId
           try {
-            childId = await sessionsOf().fork({ sessionId: id, atSeq: turnStartSeq, increaseTitle: false })
-            diag('fork ok', { childId, turnStartSeq })
+            childId = await sessionsOf().fork({ sessionId: id, atSeq, increaseTitle: false })
+            diag('fork ok', { childId, atSeq, turnStartSeq })
           } catch (failure) {
             diag('fork failed', String(failure?.message ?? failure))
             throw new Error(t('forkFailed').replace('{message}', String(failure?.message ?? failure)))
@@ -670,7 +692,7 @@ window.__ModuleLoader__.load({
           t,
           initial: target.initial,
           onClose: () => closeEditor(),
-          onSubmit: (text) => resend(id, index, target.turnStartSeq, text),
+          onSubmit: (text) => resend(id, index, target.turnStartSeq, target.cutSeq, text),
         }))
         const chain = []
         let cursor = actionEl
@@ -758,7 +780,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.21.1', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.21.2', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

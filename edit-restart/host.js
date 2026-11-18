@@ -98,11 +98,17 @@ async function resolveMessage(ctx, request) {
     seen += 1
   }
   if (target === null) return { found: false, humans: seen }
+  // 分叉切点 = 这一轮 turn/start 之前那个事件：直接把 turn/start 当切点会把空轮带进新会话。
+  let cutSeq
+  for (const event of events) {
+    if (!Number.isSafeInteger(event?.seq) || event.seq >= turnStartSeq) break
+    cutSeq = event.seq
+  }
   const text = (Array.isArray(target.data.content) ? target.data.content : [])
     .map((block) => (block?.type === 'text' ? block.text : block?.type === 'image' ? '[图片]' : block?.type === 'file' ? `[文件 ${block.file?.name ?? ''}]` : ''))
     .filter((part) => part !== '')
     .join('\n\n')
-  return { found: true, initial: text, turnStartSeq, seq: target.seq, humans: seen + 1 }
+  return { found: true, initial: text, turnStartSeq, cutSeq, seq: target.seq, humans: seen + 1 }
 }
 
 /** 在 Host 进程里找 live agent（限定当前 profile 的注册表）。 */
@@ -136,11 +142,12 @@ async function sendDraft(ctx, draft) {
   const sessionId = String(draft.sessionId)
   const turnStartSeq = Number(draft.turnStartSeq)
   if (!Number.isSafeInteger(turnStartSeq) || turnStartSeq < 0) throw new Error('draft has no valid turnStartSeq')
+  const cutSeq = Number.isSafeInteger(Number(draft.cutSeq)) && Number(draft.cutSeq) >= 0 ? Number(draft.cutSeq) : turnStartSeq
   const source = liveAgent(ctx, sessionId)
   const sessions = typeof ctx.get === 'function' ? ctx.get('sessions') : undefined
   if (!source || !source.session) throw new Error(`session ${sessionId} is not live in this host process`)
   if (!sessions || typeof sessions.fork !== 'function') throw new Error('session store is unavailable')
-  const child = await sessions.fork(source.session, { at: turnStartSeq })
+  const child = await sessions.fork(source.session, { at: cutSeq })
   const childId = String(child?.id ?? child?.sessionId ?? child)
   let agent = null
   const agents = typeof ctx.get === 'function' ? ctx.get('agents') : undefined
@@ -205,6 +212,7 @@ export function apply(ctx) {
               id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
               sessionId: String(body.sessionId ?? ''),
               turnStartSeq: Number(body.turnStartSeq),
+              ...Number.isSafeInteger(Number(body.cutSeq)) ? { cutSeq: Number(body.cutSeq) } : {},
               messageIndex: Number(body.messageIndex),
               text: String(body.text ?? ''),
               initial: String(body.initial ?? ''),
