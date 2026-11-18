@@ -2014,8 +2014,8 @@
         "zh": "思考自动展开"
       },
       "description": {
-        "en": "Automatically expands the reasoning (thinking) rows of the latest chat turn only, leaving history untouched; rows you collapse manually stay collapsed.",
-        "zh": "只自动展开最后一个 turn 的思考行,不碰历史轮次;自己手动收起的行不会被再次撑开。"
+        "en": "Automatically expands the reasoning (thinking) rows of the latest chat turn only, including unfolding that turn's folded step groups so hidden rows appear; history stays untouched and anything you collapse manually stays collapsed.",
+        "zh": "只自动展开最后一个 turn 的思考行(含点开最后一轮折叠的步骤组),不碰历史轮次;自己手动收起的行和组不会被再次撑开。"
       },
       "repository": {
         "url": "https://github.com/czm233/my-dsharness-plugin",
@@ -2059,6 +2059,16 @@
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "ec47714656a6d30a9de387a723fbfb09e1dc28c5",
+            "path": "auto-expand-thinking"
+          }
+        },
+        {
+          "version": "1.2.0",
+          "publishTimestamp": 1794995590,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "6c6b30a99a5094360da669a33692cc8ff0822210",
             "path": "auto-expand-thinking"
           }
         }
