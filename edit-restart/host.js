@@ -71,6 +71,51 @@ async function writeDrafts(drafts) {
 }
 
 /**
+ * 按官方 inbox 投影（`agent/inbox/spliced`）把「排队但还没被消费的消息」折出来。
+ * 与 agent-loop 的 inboxProjectionDefinition.apply 同一套 splice 语义。
+ */
+function applyInboxSplice(inbox, event) {
+  if (event?.type !== 'agent/inbox/spliced') return
+  const splice = event.data ?? {}
+  const list = inbox[splice.target]
+  if (!list) return
+  const start = Number.isSafeInteger(splice.start) ? splice.start : 0
+  const removed = Number.isSafeInteger(splice.removedCount) ? splice.removedCount : 0
+  const inserted = Array.isArray(splice.inserted) ? splice.inserted : []
+  list.splice(start, removed, ...inserted)
+}
+
+/**
+ * 分叉切点。两步：
+ *   1. 默认取被改那条消息所在轮次 turn/start 之前的事件（上一条消息之后）；
+ *   2. 如果这个切点上还有排队未消费的消息（`agent/inbox/spliced` 折出来的），就往后推，
+ *      直到这些消息被消费——否则它们会随 fork 一起进新会话被重放一遍（编辑 C 却先跑一遍 B）。
+ *      推进不会越过被改的那条消息本身。
+ */
+function forkBoundary(events, turnStartSeq, messageSeq) {
+  if (!Number.isSafeInteger(turnStartSeq)) return undefined
+  let boundary
+  for (const event of events) {
+    if (!Number.isSafeInteger(event?.seq) || event.seq >= turnStartSeq) break
+    boundary = event.seq
+  }
+  if (!Number.isSafeInteger(boundary)) return undefined
+  const inbox = { 'next-turn': [], 'next-step': [] }
+  for (const event of events) {
+    if (!Number.isSafeInteger(event?.seq) || event.seq > boundary) break
+    applyInboxSplice(inbox, event)
+  }
+  if (inbox['next-turn'].length === 0 && inbox['next-step'].length === 0) return boundary
+  for (const event of events) {
+    if (!Number.isSafeInteger(event?.seq) || event.seq <= boundary) continue
+    if (event.seq >= messageSeq) break
+    applyInboxSplice(inbox, event)
+    if (inbox['next-turn'].length === 0 && inbox['next-step'].length === 0) return event.seq
+  }
+  return boundary
+}
+
+/**
  * 在 Host 侧按「第 index 条人类消息」解析出正文与 fork 切点。
  * 客户端拿不到 Session 对象时用这条路径，避免依赖 client 的会话绑定。
  */
@@ -98,12 +143,8 @@ async function resolveMessage(ctx, request) {
     seen += 1
   }
   if (target === null) return { found: false, humans: seen }
-  // 分叉切点 = 这一轮 turn/start 之前那个事件：直接把 turn/start 当切点会把空轮带进新会话。
-  let cutSeq
-  for (const event of events) {
-    if (!Number.isSafeInteger(event?.seq) || event.seq >= turnStartSeq) break
-    cutSeq = event.seq
-  }
+  // 分叉切点：上一条消息之后；有排队消息时再往后推到它们被消费之后（见 forkBoundary）。
+  const cutSeq = forkBoundary(events, turnStartSeq, target.seq)
   const text = (Array.isArray(target.data.content) ? target.data.content : [])
     .map((block) => (block?.type === 'text' ? block.text : block?.type === 'image' ? '[图片]' : block?.type === 'file' ? `[文件 ${block.file?.name ?? ''}]` : ''))
     .filter((part) => part !== '')
@@ -171,6 +212,8 @@ async function sendDraft(ctx, draft) {
   await appendLog([`send: branch ${childId} created and message appended; source archived=${archived}`])
   return { childId, sent: true, archived }
 }
+
+export { forkBoundary }
 
 export function apply(ctx) {
   // 把当前 Host 进程的 ctx 暴露给同进程的诊断脚本（桌面端没有控制台，只能由进程内脚本代调 RPC）。
