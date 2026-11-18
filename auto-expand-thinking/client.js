@@ -14,7 +14,11 @@
 //   sessions resets tracking instead of comparing turn numbers across flows;
 // - `highest` never decreases within one flow, so paging away from the last
 //   turn (which unmounts its tail) cannot make an older turn look like the
-//   latest and get expanded by accident.
+//   latest and get expanded by accident;
+// - completed work-step groups fold to a header button under group-folding
+//   presentation modes, and reasoning rows inside them are not mounted; the
+//   latest turn's folded groups are one-click-expanded first so those rows
+//   mount and get expanded on the following scan.
 //
 // Each think root element is processed at most once (WeakSet): rows the
 // reader collapses afterwards stay collapsed, rows already open are left
@@ -38,8 +42,17 @@ window.__ModuleLoader__.load({
     const TURN_ANCESTOR = `[${TURN_ATTR}]`
     const FLOW_SELECTOR = '[data-chat-flow]'
     const FLOW_KEY_ATTR = 'data-chat-flow-key'
+    // Folded work-step group: the shipped ChatGroupSeat collapses to its
+    // header button whenever the presentation policy groups completed steps.
+    // Reasoning rows inside a folded group are not mounted at all, so the
+    // think-row pass below never sees them; this module therefore also
+    // one-click-expands the folded groups of the latest turn.
+    const GROUP_SELECTOR = '[data-step-process]'
+    const GROUP_FOLDED_ATTR = 'data-chat-paging-anchor'
+    const GROUP_HEADER_SELECTOR = 'button[aria-expanded="false"]'
 
     const processed = new WeakSet()
+    const processedGroups = new WeakSet()
     let frame = 0
     let flowKey = null
     let highest = 0
@@ -71,13 +84,24 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Owner turn number of an element, or null when untagged. */
+    function ownerTurnOf(element) {
+      const owner = element.closest(TURN_ANCESTOR)
+      if (owner === null) return null
+      const value = Number(owner.getAttribute(TURN_ATTR))
+      return Number.isSafeInteger(value) ? value : null
+    }
+
     function scan() {
       frame = 0
       let clicked = 0
       let inTurn = 0
       let elsewhere = 0
       let open = 0
+      let groupsClicked = 0
+      let groupsFolded = 0
       const samples = []
+      const ownerCounts = new Map()
       try {
         const key = currentFlowKey()
         if (key === null) {
@@ -95,6 +119,18 @@ window.__ModuleLoader__.load({
         const roots = document.querySelectorAll(ROOT_SELECTOR)
         if (turn !== null && turn >= highest) {
           highest = turn
+          // Folded work-step groups hide their reasoning rows entirely; open
+          // the latest turn's folded groups first so the rows mount.
+          for (const group of document.querySelectorAll(GROUP_SELECTOR)) {
+            if (processedGroups.has(group) || !group.hasAttribute(GROUP_FOLDED_ATTR)) continue
+            const groupTurn = ownerTurnOf(group)
+            if (groupTurn !== turn) continue
+            const header = group.querySelector(GROUP_HEADER_SELECTOR)
+            if (header === null) continue
+            processedGroups.add(group)
+            header.click()
+            groupsClicked += 1
+          }
           for (const root of roots) {
             if (processed.has(root)) continue
             if (root.hasAttribute('data-expanded')) {
@@ -102,11 +138,11 @@ window.__ModuleLoader__.load({
               open += 1
               continue
             }
-            const owner = root.closest(TURN_ANCESTOR)
-            const ownerTurn = owner === null ? null : Number(owner.getAttribute(TURN_ATTR))
-            if (ownerTurn !== turn) {
+            const rootTurn = ownerTurnOf(root)
+            if (rootTurn !== turn) {
               elsewhere += 1
-              if (samples.length < 3) samples.push(`elsewhere(turn=${ownerTurn})`)
+              ownerCounts.set(rootTurn, (ownerCounts.get(rootTurn) ?? 0) + 1)
+              if (samples.length < 3) samples.push(`elsewhere(turn=${rootTurn})`)
               continue
             }
             inTurn += 1
@@ -119,16 +155,22 @@ window.__ModuleLoader__.load({
             row.click()
             clicked += 1
           }
+          for (const group of document.querySelectorAll(GROUP_SELECTOR)) {
+            if (processedGroups.has(group) || !group.hasAttribute(GROUP_FOLDED_ATTR)) continue
+            if (ownerTurnOf(group) === turn) groupsFolded += 1
+          }
         } else {
           for (const root of roots) {
             if (processed.has(root) || root.hasAttribute('data-expanded')) continue
             elsewhere += 1
           }
         }
-        const sig = `${key}|${turn}|${highest}|${clicked}|${inTurn}|${elsewhere}|${open}|${samples.join(',')}`
+        const tailValues = [...document.querySelectorAll(TAIL_SELECTOR)].map((tail) => tail.getAttribute('data-turn-tail')).slice(-12).join(',')
+        const histogram = [...ownerCounts.entries()].map(([owner, count]) => `${owner}:${count}`).slice(0, 8).join(',')
+        const sig = `${key}|${turn}|${highest}|${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${groupsFolded}|${samples.join(',')}|${histogram}|${tailValues}`
         if (sig !== lastSig) {
           lastSig = sig
-          diag(`scan flow=${key.slice(0, 24)} tailsLast=${turn} highest=${highest} roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
+          diag(`scan flow=${key.slice(0, 24)} tails=[${tailValues}] highest=${highest} roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked} groupsFolded=${groupsFolded}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
         }
       } catch (error) {
         diag(`scan-error ${String(error?.stack ?? error)}`)

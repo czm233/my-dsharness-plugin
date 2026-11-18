@@ -38,11 +38,33 @@ function thinkRoot({ turn, expanded = false, hasRow = true }) {
   return root
 }
 
+/** Folded work-step group: header button click mounts its body. */
+function stepGroup({ turn, folded = true }) {
+  const group = {
+    headerClicks: 0,
+    turn,
+    folded,
+    hasAttribute(attr) {
+      return attr === 'data-chat-paging-anchor' ? group.folded : false
+    },
+    closest(selector) {
+      assert.equal(selector, '[data-chat-turn]')
+      return { getAttribute: () => String(turn) }
+    },
+    querySelector(selector) {
+      assert.equal(selector, 'button[aria-expanded="false"]')
+      return { click: () => { group.headerClicks += 1 } }
+    },
+  }
+  return group
+}
+
 function makeDom() {
   return {
     flow: { key: 'flow-a' },
     tails: [1, 2],
     roots: [],
+    groups: [],
     querySelector(selector) {
       if (selector === '[data-chat-flow]') {
         return this.flow.key === null ? null : { getAttribute: () => this.flow.key }
@@ -54,6 +76,7 @@ function makeDom() {
         return this.tails.map((turn) => ({ getAttribute: () => String(turn) }))
       }
       if (selector === 'div[data-variant="think"]') return this.roots
+      if (selector === '[data-step-process]') return this.groups
       return []
     },
   }
@@ -120,20 +143,36 @@ documentStub.roots = [
   thinkRoot({ turn: 2 }),
   thinkRoot({ turn: 2, expanded: true }),
 ]
+// The last turn also has a folded step group (hiding more reasoning rows),
+// an unfolded group, and a folded group in an older turn.
+documentStub.groups = [
+  stepGroup({ turn: 2, folded: true }),
+  stepGroup({ turn: 2, folded: false }),
+  stepGroup({ turn: 1, folded: true }),
+]
 mutate()
+assert.equal(documentStub.groups[0].headerClicks, 1, 'last turn folded group clicked once')
+assert.equal(documentStub.groups[1].headerClicks, 0, 'unfolded group untouched')
+assert.equal(documentStub.groups[2].headerClicks, 0, 'older turn folded group untouched')
 assert.equal(documentStub.roots[0].rowClicks, 0, 'older turn row untouched')
 assert.equal(documentStub.roots[1].rowClicks, 1, 'last turn collapsed row clicked once')
 assert.equal(documentStub.roots[2].rowClicks, 0, 'already-open row untouched')
 
-// Rescan: processed rows never toggle twice.
+// Rescan: processed groups and rows never toggle twice.
 mutate()
-assert.equal(documentStub.roots[1].rowClicks, 1, 'no double toggle')
+assert.equal(documentStub.groups[0].headerClicks, 1, 'no double click on group')
+assert.equal(documentStub.roots[1].rowClicks, 1, 'no double toggle on rescan')
 
 // A late-mounting row in the same (latest) turn still expands.
 const lateRow = thinkRoot({ turn: 2 })
 documentStub.roots.push(lateRow)
 mutate()
 assert.equal(lateRow.rowClicks, 1, 'late row in latest turn expands')
+
+// A group the reader folded after our click stays folded (processed set).
+documentStub.groups[0].folded = true
+mutate()
+assert.equal(documentStub.groups[0].headerClicks, 1, 'manually folded group stays folded')
 
 // Paging up unmounts the latest turn tail: the now-last (older) turn must NOT expand.
 documentStub.tails = [1]
