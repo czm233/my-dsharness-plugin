@@ -2051,6 +2051,16 @@
             "commit": "b63a5ce493a3e321c8a96639ea789d4ee48c36f6",
             "path": "auto-expand-thinking"
           }
+        },
+        {
+          "version": "1.1.1",
+          "publishTimestamp": 1794995192,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ec47714656a6d30a9de387a723fbfb09e1dc28c5",
+            "path": "auto-expand-thinking"
+          }
         }
       ]
     }
