@@ -2006,6 +2006,43 @@
           }
         }
       ]
+    },
+    {
+      "name": "auto-expand-thinking",
+      "title": {
+        "en": "Auto Expand Thinking",
+        "zh": "思考自动展开"
+      },
+      "description": {
+        "en": "Automatically expands every reasoning (thinking) row in chat as it appears; rows you collapse manually stay collapsed.",
+        "zh": "聊天里出现的思考行(「思考/已思考」)自动展开正文,不用逐条点击;自己手动收起的行不会被再次撑开。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "auto-expand-thinking"
+      },
+      "metadata": {
+        "category": "chat",
+        "keywords": [
+          "dsh",
+          "thinking",
+          "reasoning",
+          "expand",
+          "chat"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.0.0",
+          "publishTimestamp": 1794988626,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "d72b24c839666f9960825022c9d04a5a1775c761",
+            "path": "auto-expand-thinking"
+          }
+        }
+      ]
     }
   ]
 }
