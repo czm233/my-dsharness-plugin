@@ -11,7 +11,8 @@
  *   1. 用户消息的复制行旁边出现一个「修改」按钮（挂在最新一条用户消息上）；
  *   2. 点它就地展开编辑框（气泡列竖排：气泡 → 修改 → 复制 → 编辑框 → 标记）；
  *   3. 点发送：按这条消息所在轮次的 turn/start 原生 fork 出新会话，再把改过的文本
- *      作为新会话第一条消息发出（原会话原样保留），然后切到分支会话；
+ *      作为新会话第一条消息发出，切到分支会话，最后把源会话归档——列表里始终只留
+ *      改完的那一条，不会越改越多（归档可恢复，不是删除）；
  *   4. 改过的那条消息在本次页面加载内保留「已修改」标记。
  *
  * 定位方式：消息 index = 它在当前会话里的第几条用户消息（官方气泡列 *_userRow），
@@ -51,7 +52,7 @@ window.__ModuleLoader__.load({
       'timeout': '读取会话超时，请稍后重试',
       'close': '知道了',
       'forkFailed': '创建分支失败：{message}',
-      'sendFailed': '分支已创建，但发送失败：{message}',
+      'sendFailed': '发送失败：{message}',
     }
     const en = {
       'action': 'Edit',
@@ -66,7 +67,7 @@ window.__ModuleLoader__.load({
       'timeout': 'Reading the session timed out. Try again.',
       'close': 'OK',
       'forkFailed': 'Could not create the branch: {message}',
-      'sendFailed': 'Branch created, but sending failed: {message}',
+      'sendFailed': 'Sending failed: {message}',
     }
 
     /** `${conversation session}|${index}` → 分支会话 id（只在本次页面加载内有效）。 */
@@ -523,14 +524,40 @@ window.__ModuleLoader__.load({
         })
       }
 
-      /** 原生 fork（切点 = 这条消息自己那一轮的 turn/start），再把改过的文本作为首条消息发出。 */
+      const workspaceOf = () => (typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined)
+
+      /**
+       * 归档一条会话：默认从侧栏消失、可在「全部对话」里恢复，不是删除。
+       * 失败只记诊断不抛错——消息已经发出去了，这里再报错只会让用户以为没发成功。
+       * 典型失败：源会话还有后台任务在跑（官方归档会拒绝），此时保留它比强停工作安全。
+       */
+      async function archiveSession(id) {
+        const workspace = workspaceOf()
+        if (!workspace || typeof workspace.archiveSession !== 'function') {
+          diag('archive skipped: uiWorkspace.archiveSession unavailable', id)
+          return false
+        }
+        try {
+          await workspace.archiveSession(id, {})
+          diag('archived', id)
+          return true
+        } catch (failure) {
+          diag('archive failed', { id, error: String(failure?.message ?? failure) })
+          return false
+        }
+      }
+
+      /**
+       * 原生 fork（切点 = 这条消息自己那一轮的 turn/start）→ 发改写后的文本 → 切到分支 → 归档源会话。
+       * 标题不递增：源会话被归档后，列表里这一条应当还叫原来的名字。
+       */
       async function resend(id, index, turnStartSeq, text) {
         if (resending.has(id)) throw new Error(t('busy'))
         resending.add(id)
         try {
           let childId
           try {
-            childId = await sessionsOf().fork({ sessionId: id, atSeq: turnStartSeq, increaseTitle: true })
+            childId = await sessionsOf().fork({ sessionId: id, atSeq: turnStartSeq, increaseTitle: false })
             diag('fork ok', { childId, turnStartSeq })
           } catch (failure) {
             diag('fork failed', String(failure?.message ?? failure))
@@ -548,14 +575,17 @@ window.__ModuleLoader__.load({
             }
             diag('prompt ok', { childId })
           } catch (failure) {
+            // 分支建出来了却没发出去：把它归档掉，别在列表里留一个空壳。
+            await archiveSession(childId)
             throw new Error(t('sendFailed').replace('{message}', String(failure?.message ?? failure)))
           }
           try {
-            const workspace = typeof ctx.get === 'function' ? ctx.get('uiWorkspace') : undefined
-            workspace?.openSession?.(childId)
+            workspaceOf()?.openSession?.(childId)
           } catch (error) {
             console.warn(LOG, 'open branch failed', error)
           }
+          // 已经切到分支：再把源会话归档，这样一次「修改重发」在列表里只占一条。
+          await archiveSession(id)
           return childId
         } finally {
           resending.delete(id)
@@ -709,7 +739,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.20.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.21.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {

@@ -138,7 +138,7 @@ const plugin = global.__mod.factory(requireStub)
 const T = global.window.__test
 
 // ---- 假会话服务 ----
-const calls = { fork: [], prompt: [], opened: [] }
+const calls = { fork: [], prompt: [], opened: [], archived: [] }
 const events = [
   { type: 'turn/start', seq: 4, data: { turn: 1 } },
   { type: 'user/message', seq: 8, surfaceOp: 'append', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '你好' }] } },
@@ -181,7 +181,10 @@ const ctx = {
   locale: { register() {}, bind: () => (key) => key },
   get: (name) => {
     if (name === 'sessions') return sessions
-    if (name === 'uiWorkspace') return { openSession: (id) => calls.opened.push(id) }
+    if (name === 'uiWorkspace') return {
+      openSession: (id) => calls.opened.push(id),
+      archiveSession: async (id, options) => { calls.archived.push({ id, options }) },
+    }
     return undefined
   },
   effect: (fn) => { const cleanup = fn(); global.__cleanup = cleanup },
@@ -272,11 +275,14 @@ check('编辑框在流内展开，占据气泡原来的列位置', layer !== und
   check('有发送按钮', send !== undefined)
   await send.onClick()
   check('只 fork 一次', calls.fork.length === 1, JSON.stringify(calls.fork))
+  check('fork 不递增标题（归档后仍叫原来的名字）', calls.fork[0]?.increaseTitle === false, JSON.stringify(calls.fork[0]))
   check('fork 切点 = 这条消息自己那一轮的 turn/start(14)', calls.fork[0]?.atSeq === 14, JSON.stringify(calls.fork[0]))
   check('fork 源会话正确', calls.fork[0]?.sessionId === 'sess-2')
   check('新文本发进分支会话', calls.prompt.length === 1 && calls.prompt[0].content[0].text === '教我 C++',
     JSON.stringify(calls.prompt))
   check('切到分支会话', calls.opened[0] === 'sess-child', JSON.stringify(calls.opened))
+  check('源会话被归档（列表里只留一条）', calls.archived.length === 1 && calls.archived[0].id === 'sess-2',
+    JSON.stringify(calls.archived))
 
 console.log('[4] 连续点击 / 晚到超时 不得覆盖已打开的编辑器')
   calls.fork.length = 0
@@ -293,6 +299,27 @@ console.log('[4] 连续点击 / 晚到超时 不得覆盖已打开的编辑器')
   check('连点后编辑器仍然打开（没有被后来的错误覆盖）',
     stillOpen !== undefined && stillOpen.getAttribute('data-active') === 'true')
   check('连点不会重复发起解析（fork 仍为 0）', calls.fork.length === 0)
+
+  console.log('[5] 发送失败：分支不留空壳')
+  calls.fork.length = 0
+  calls.archived.length = 0
+  const originalPrompt = fakeSession.prompt
+  fakeSession.prompt = async () => ({ ok: false, error: { message: 'boom' } })
+  actionEl.fire('click', fakeEvent)
+  for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
+  const retryLayer = roots[1].container.children[0]
+  const retrySend = retryLayer && retryLayer.querySelector('button.dsh-edit-restart-send')
+  check('失败场景：编辑器重新打开', retrySend !== undefined)
+  if (retrySend !== undefined) await retrySend.onClick()
+  check('失败场景：只 fork 一次', calls.fork.length === 1, JSON.stringify(calls.fork))
+  check('失败场景：建出来的分支被归档（不留空壳）', calls.archived.length === 1 && calls.archived[0].id === 'sess-child',
+    JSON.stringify(calls.archived))
+  check('失败场景：源会话不归档（仍然可见、可重试）', calls.archived.every((item) => item.id !== 'sess-2'),
+    JSON.stringify(calls.archived))
+  const failedLayer = roots[1].container.children[0]
+  check('失败场景：编辑器仍然打开（可直接重试）',
+    failedLayer !== undefined && failedLayer.getAttribute('data-active') === 'true')
+  fakeSession.prompt = originalPrompt
 
   if (typeof global.__cleanup === 'function') global.__cleanup()
   console.log('')

@@ -7,7 +7,8 @@
  *     { action: 'saveDraft', sessionId, turnStartSeq, messageIndex, text, initial }
  *                                               → 保存一份待发送草稿（客户端无法可靠使用 prompt 时由 AI 代为发出）
  *     { action: 'drafts' }                      → 列出所有草稿
- *     { action: 'send', draftId }               → 在当前 Host 进程内用 session 服务把草稿做成分支并发出
+ *     { action: 'send', draftId }               → 在当前 Host 进程内用 session 服务把草稿做成分支并发出，
+ *                                                 再把源会话归档（列表里只留改完的那一条）
  *     { action: 'forget', draftId }             → 删除草稿
  *
  * 草稿保存在 ~/.dsh/storages/edit-restart/drafts.json；`send` 只在当前进程的 Agent 注册表里找会话，
@@ -111,6 +112,25 @@ function liveAgent(ctx, sessionId) {
   return agents.get(sessionId) ?? null
 }
 
+/**
+ * 归档源会话：默认从侧栏消失、可在「全部对话」里恢复，不是删除。
+ * 失败只记日志——消息已经发出去，这里抛错只会让调用方以为没发成功。
+ */
+async function archiveSource(ctx, sessionId) {
+  const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : undefined
+  if (!registry || typeof registry.archiveSession !== 'function') {
+    await appendLog([`archive skipped for ${sessionId}: workspaceRegistry unavailable`]).catch(() => {})
+    return false
+  }
+  try {
+    await registry.archiveSession(sessionId, {})
+    return true
+  } catch (error) {
+    await appendLog([`archive failed for ${sessionId}: ${String(error?.message ?? error)}`]).catch(() => {})
+    return false
+  }
+}
+
 /** 分支 + 发首条消息：只用 shipped 的 session 服务，不碰持久化文件。 */
 async function sendDraft(ctx, draft) {
   const sessionId = String(draft.sessionId)
@@ -139,8 +159,10 @@ async function sendDraft(ctx, draft) {
     content: [{ type: 'text', text: String(draft.text) }],
     source: { kind: 'user' },
   }, { surfaceOp: 'append' })
-  await appendLog([`send: branch ${childId} created and message appended`])
-  return { childId, sent: true }
+  // 改完的内容已经发进分支：把源会话归档，列表里只留这一条（可恢复，不是删除）。
+  const archived = await archiveSource(ctx, sessionId)
+  await appendLog([`send: branch ${childId} created and message appended; source archived=${archived}`])
+  return { childId, sent: true, archived }
 }
 
 export function apply(ctx) {
