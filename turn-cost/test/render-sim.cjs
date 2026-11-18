@@ -129,6 +129,20 @@ function findPortal(node) {
   return findPortal(node.children)
 }
 
+function findPortals(node, out = []) {
+  if (node === null || node === undefined) return out
+  if (Array.isArray(node)) {
+    for (const child of node) findPortals(child, out)
+    return out
+  }
+  if (node.type === '#portal') {
+    out.push(node)
+    return out
+  }
+  findPortals(node.children, out)
+  return out
+}
+
 function findButton(node) {
   if (node === null || node === undefined) return null
   if (Array.isArray(node)) {
@@ -152,6 +166,9 @@ const ZH = {
   cacheHitValue: '{percent}% · {tokens} tok', breakdown: '费用明细（按牌价折算）',
   period: '计费时段', peak: '高峰', offPeak: '空闲',
   mixedCurrency: '本轮包含不同币种的模型，不合并合计，按模型分别显示',
+  elapsedSeconds: '已过去{count}秒', elapsedMinutes: '已过去{count}分钟',
+  elapsedHours: '已过去{count}小时', elapsedHoursMinutes: '已过去{count}小时{minutes}分',
+  elapsedDays: '已过去{count}天',
   inputCost: '未缓存输入', cacheReadCost: '缓存读取', cacheWriteCost: '缓存写入', outputCost: '输出',
   total: '合计', unitPrice: '{price}/M tok', listNote: '按模型牌价折算的等效金额，非实际账单',
 }
@@ -182,7 +199,13 @@ async function main() {
     },
     MutationObserver: class { observe() {} disconnect() {} },
     Node: class {},
-    setTimeout,
+    // Elapsed labels re-arm a timer per visible change; keep them out of the
+    // event loop so the check exits on its own.
+    setTimeout: (fn, ms) => {
+      const timer = setTimeout(fn, ms)
+      if (typeof timer?.unref === 'function') timer.unref()
+      return timer
+    },
     clearTimeout,
   }
   vm.createContext(sandbox)
@@ -231,10 +254,16 @@ async function main() {
 
   const callUsage = async () => ({
     attempts, events: 10, matched: 1, interrupted: false, switched: true, routeChanged: false, currency: '$',
+    time: Date.now() - 125000,
   })
   let instance = createInstance()
   let anchorPatched = false
-  const state = { kind: 'done', attempts, switched: true, routeChanged: false, currency: '$' }
+  let clockRow = null
+  let clockSeat = null
+  const state = {
+    kind: 'done', attempts, switched: true, routeChanged: false, currency: '$',
+    time: Date.now() - 125000,
+  }
 
   function renderTail() {
     instance.pending = []
@@ -264,7 +293,22 @@ async function main() {
           isConnected: true,
         }
         shipped.parentElement = parent
-        ref.current = { closest: () => ({ querySelector: () => shipped }) }
+        // Same shape as the shipped actions row: the clock is the last content,
+        // which is where the elapsed label gets appended.
+        const clock = { textContent: '11:03', parentElement: parent, nextElementSibling: null, isConnected: true }
+        clockRow = {
+          lastElementChild: clock,
+          appendChild(seat) {
+            clockSeat = seat
+            seat.parentElement = this
+            this.lastElementChild = seat
+          },
+        }
+        ref.current = {
+          closest: () => ({
+            querySelector: (selector) => (String(selector).includes('data-clock') ? clockRow : shipped),
+          }),
+        }
         anchorPatched = true
       }
     }
@@ -288,6 +332,14 @@ async function main() {
   assert.match(pillText, /DeepSeek V4 Pro/)
   console.log('ok pill:', pillText)
 
+  // The elapsed label gets its own seat appended after the shipped clock.
+  assert.ok(clockSeat, 'elapsed seat is appended to the actions row')
+  const elapsedPortal = findPortals(rendered).find(candidate => candidate.container === clockSeat)
+  assert.ok(elapsedPortal, 'elapsed label portals into the seat after the clock')
+  const elapsedText = textOf(elapsedPortal).join('').replace(/\s+/g, ' ').trim()
+  assert.match(elapsedText, /^已过去2分钟$/)
+  console.log('ok elapsed:', elapsedText)
+
   const button = findButton(rendered)
   assert.ok(button, 'pill button is rendered')
   button.props.onClick()
@@ -302,6 +354,22 @@ async function main() {
   assert.match(panelText, /¥9\/M tok/)
   assert.match(panelText, /≈¥0\.931/)
   console.log('ok panel:', panelText)
+
+  // The label recomputes as the turn ages: seconds under a minute, then
+  // hours+minutes, then days.
+  function elapsedFor(ms) {
+    instance.states[0] = { ...instance.states[0], time: Date.now() - ms }
+    const out = renderTree(renderTail())
+    const hit = findPortals(out).find(candidate => candidate.container === clockSeat)
+    assert.ok(hit, 'elapsed portal stays mounted')
+    return textOf(hit).join('').replace(/\s+/g, ' ').trim()
+  }
+  assert.match(elapsedFor(45_000), /^已过去4[3-6]秒$/)
+  // Offset past the boundary: the fake runtime renders before the tick effect
+  // refreshes "now", so the millisecond gap must not flip the unit.
+  assert.equal(elapsedFor(3 * 3600_000 + 5 * 60_000 + 30_000), '已过去3小时5分')
+  assert.equal(elapsedFor(2 * 86400_000 + 60_000), '已过去2天')
+  console.log('ok elapsed ages')
 
   console.log('\nturn-cost render-sim: all checks passed')
 }

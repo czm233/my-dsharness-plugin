@@ -48,6 +48,11 @@ window.__ModuleLoader__.load({
       'unpricedNote': '未收录「{model}」的单价，合计不含该模型',
       'unpricedAll': '未收录本轮模型的单价，无法折算费用',
       'mixedCurrency': '本轮包含不同币种的模型，不合并合计，按模型分别显示',
+      'elapsedSeconds': '已过去{count}秒',
+      'elapsedMinutes': '已过去{count}分钟',
+      'elapsedHours': '已过去{count}小时',
+      'elapsedHoursMinutes': '已过去{count}小时{minutes}分',
+      'elapsedDays': '已过去{count}天',
     }
     const en = {
       'title': 'Turn cost',
@@ -78,6 +83,11 @@ window.__ModuleLoader__.load({
       'unpricedNote': 'No list price for "{model}"; the total excludes it',
       'unpricedAll': 'No list price for this turn\'s model; cost cannot be estimated',
       'mixedCurrency': 'This turn mixes currencies; totals are shown per model instead of combined',
+      'elapsedSeconds': '{count}s ago',
+      'elapsedMinutes': '{count} min ago',
+      'elapsedHours': '{count}h ago',
+      'elapsedHoursMinutes': '{count}h {minutes}min ago',
+      'elapsedDays': '{count}d ago',
     }
 
     /** Prices arrive from the Host half; until then no rate is assumed. */
@@ -241,6 +251,49 @@ window.__ModuleLoader__.load({
       return `${currency}${Number(value.toFixed(4))}`
     }
 
+    /** "Time since" text for the turn clock: seconds, minutes, hours, then days. */
+    function formatElapsed(totalSeconds, t) {
+      if (totalSeconds < 60) return t('elapsedSeconds', { count: totalSeconds })
+      const minutes = Math.floor(totalSeconds / 60)
+      if (minutes < 60) return t('elapsedMinutes', { count: minutes })
+      const hours = Math.floor(minutes / 60)
+      const restMinutes = minutes % 60
+      if (hours < 24) {
+        return restMinutes === 0
+          ? t('elapsedHours', { count: hours })
+          : t('elapsedHoursMinutes', { count: hours, minutes: restMinutes })
+      }
+      return t('elapsedDays', { count: Math.floor(hours / 24) })
+    }
+
+    /**
+     * Live "time since" label sat right after the shipped clock. Re-arms only
+     * for the next visible change: every second while under a minute, then on
+     * each whole minute, so idle old turns cost one timer per minute.
+     */
+    function ElapsedLabel({ time, t }) {
+      const [now, setNow] = useState(() => Date.now())
+      useEffect(() => {
+        let timer = null
+        let cancelled = false
+        const arm = () => {
+          const moment = Date.now()
+          const elapsed = Math.max(0, moment - time)
+          const delay = elapsed < 60000 ? 1000 - (moment % 1000) : 60000 - (moment % 60000)
+          timer = setTimeout(() => {
+            if (cancelled) return
+            setNow(Date.now())
+            arm()
+          }, Math.max(200, delay))
+        }
+        setNow(Date.now())
+        arm()
+        return () => { cancelled = true; if (timer !== null) clearTimeout(timer) }
+      }, [time])
+      const seconds = Math.max(0, Math.floor((now - time) / 1000))
+      return h('span', { className: 'dsh-turn-cost-elapsed' }, formatElapsed(seconds, t))
+    }
+
     const ICON_SIZE = 'calc(15px + var(--dsh-content-font-delta, 0px))'
     /** Dollar-coin glyph (candidate 2): outline circle with a $ mark. */
     const IconCoin = () => h('svg', {
@@ -273,6 +326,8 @@ window.__ModuleLoader__.load({
       '.dsh-turn-cost-breakdown { margin: 2px 0 8px; color: var(--dsw-alias-label-primary); font-weight: 500; }',
       '.dsh-turn-cost-total-line { display: flex; justify-content: space-between; gap: 16px; margin: 0 0 8px; color: var(--dsw-alias-label-primary); font-weight: 600; font-variant-numeric: tabular-nums; }',
       '.dsh-turn-cost-note { margin-top: 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.dsh-turn-cost-elapsed-seat:empty { display: none; }',
+      '.dsh-turn-cost-elapsed { color: var(--dsw-alias-label-tertiary); font-size: calc(var(--dsh-content-font-size-secondary, 13px) - 1px); line-height: calc(24px + var(--dsh-content-font-delta, 0px)); white-space: nowrap; font-variant-numeric: tabular-nums; }',
     ].join('\n')
 
     const PILL_STYLE = {
@@ -611,6 +666,7 @@ window.__ModuleLoader__.load({
                 switched: value?.switched === true,
                 routeChanged: value?.routeChanged === true,
                 currency: typeof value?.currency === 'string' ? value.currency : undefined,
+                time: typeof value?.time === 'number' && Number.isFinite(value.time) ? value.time : undefined,
               })
             },
             (error) => {
@@ -687,16 +743,28 @@ window.__ModuleLoader__.load({
         body = h(CostPill, { prices, t, mode: 'probe', probeLabel: label, probeLines: lines })
       }
 
+      // Time since the turn finished, printed right after the shipped clock so
+      // the row reads as one line ("11:03 · 已过去2分钟"). Independent of the
+      // money pill: it only needs the turn's completion instant.
+      const elapsedLabel = state.kind === 'done' && state.time !== undefined
+        ? h(ElapsedLabel, { time: state.time, t })
+        : null
+
       // Inline seat: portal the pill immediately left of the shipped usage pill
       // inside the actions row. The tail DOM can be rebuilt at any moment (ESC
       // mid-turn, status flips, virtualized re-renders), so keep re-anchoring
       // via a MutationObserver instead of inserting the seat exactly once.
       const anchorRef = useRef(null)
       const [slot, setSlot] = useState(null)
+      const [clockSlot, setClockSlot] = useState(null)
       useLayoutEffect(() => {
         const seat = document.createElement('span')
         seat.dataset.turnCostSeat = ''
         seat.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;height:calc(28px + var(--dsh-content-font-delta, 0px));vertical-align:middle;'
+        const elapsedSeat = document.createElement('span')
+        elapsedSeat.className = 'dsh-turn-cost-elapsed-seat'
+        elapsedSeat.dataset.turnCostElapsedSeat = ''
+        elapsedSeat.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:0;flex:0 0 auto;vertical-align:middle;'
         let settled = false
         let lastParent = null
         const attach = () => {
@@ -720,6 +788,13 @@ window.__ModuleLoader__.load({
           } else {
             setSlot(prev => (prev === 'fallback' ? prev : 'fallback'))
           }
+          // The clock is the row's last content, so appending to the row keeps
+          // the label to its right regardless of which actions precede it.
+          const clockRow = cell?.querySelector('[data-clock="end"]') ?? null
+          if (clockRow !== null) {
+            if (clockRow.lastElementChild !== elapsedSeat) clockRow.appendChild(elapsedSeat)
+            setClockSlot(prev => (prev === elapsedSeat ? prev : elapsedSeat))
+          }
         }
         attach()
         const observer = new MutationObserver(attach)
@@ -727,8 +802,11 @@ window.__ModuleLoader__.load({
         return () => {
           observer.disconnect()
           seat.remove()
+          elapsedSeat.remove()
         }
       }, [])
+
+      const elapsedPortal = clockSlot !== null ? createPortal(elapsedLabel, clockSlot) : null
 
       if (slot === 'fallback') {
         return h('div', {
@@ -738,10 +816,11 @@ window.__ModuleLoader__.load({
             height: 'calc(28px + var(--dsh-content-font-delta, 0px))',
           },
           'data-turn-cost-row': '',
-        }, body)
+        }, body, elapsedPortal)
       }
       return h('span', { ref: anchorRef, 'data-turn-cost-row': '' },
-        slot !== null && slot !== 'fallback' ? createPortal(body, slot) : null)
+        slot !== null && slot !== 'fallback' ? createPortal(body, slot) : null,
+        elapsedPortal)
     }
 
     return {

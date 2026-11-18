@@ -84,11 +84,15 @@ async function main() {
   const switchedEvents = [
     attemptEvent(1, 'qwen-token-plan-cn', 'deepseek-v4.1-flash', { input: 1_000_000 }, PEAK_FRIDAY),
     attemptEvent(2, 'qwen-token-plan-cn', 'deepseek-v4-pro', { input: 1_000_000 }, PEAK_FRIDAY),
+    { type: 'turn/end', time: PEAK_FRIDAY + 1234, data: { turn: 2, reason: { kind: 'completed' } } },
   ]
   const switched = foldTurnAttempts(switchedEvents, 2, table)
   assert.equal(switched.switched, true)
   assert.equal(switched.previousRoute.model, 'deepseek-v4.1-flash')
   assert.equal(switched.attempts.length, 1)
+  // The clock row prints the turn/end time; the elapsed label counts from the
+  // same instant, so both always agree.
+  assert.equal(switched.endedAt, PEAK_FRIDAY + 1234)
   assert.equal(switched.attempts[0].price.label, 'DeepSeek V4 Pro')
   assert.equal(switched.attempts[0].price.currency, '¥')
   assert.equal(switched.attempts[0].price.rates.input, 9)
@@ -125,6 +129,32 @@ async function main() {
   assert.equal(cached.attempts[0].price.cost.cacheRead, 0.3)
   assert.equal(cached.attempts[0].price.cost.input, 9)
   console.log('ok cache-read rate')
+
+  // The RPC answer the client half reads: the completion instant must travel
+  // under `time` (the field CostTail settles into its state), and the fold must
+  // still carry the per-attempt prices.
+  const host = await import('../index.js')
+  let route
+  host.apply({
+    get: (name) => (name === 'sessionQuery'
+      ? { readSession: async () => ({ events: switchedEvents }) }
+      : undefined),
+    inject: (_names, fn) => fn({
+      effect: (effect) => effect(),
+      connection: { fetch: { register: (definition) => { route = definition; return () => {} } } },
+    }),
+  })
+  assert.ok(route, 'host registers the turn-cost rpc route')
+  const response = await route.fetch(new Request('http://127.0.0.1/api/turn-cost/rpc', {
+    method: 'POST',
+    body: JSON.stringify({ rpcId: 'r1', payload: { action: 'usage', sessionId: 'session-test', turn: 2 } }),
+  }))
+  const answer = await response.json()
+  assert.equal(answer.result.ok, true)
+  assert.equal(answer.result.value.time, PEAK_FRIDAY + 1234)
+  assert.equal(answer.result.value.attempts.length, 1)
+  assert.equal(answer.result.value.attempts[0].price.label, 'DeepSeek V4 Pro')
+  console.log('ok rpc payload')
 
   console.log('\nturn-cost pricing-sim: all checks passed')
 }

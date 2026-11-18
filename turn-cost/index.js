@@ -102,13 +102,20 @@ function foldTurnAttempts(events, turn, table) {
   let matched = 0
   let interrupted = false
   let aborted = false
+  // Completion instant of the turn: the same `turn/end` time the shipped row
+  // prints as its clock, so "time since" counts from the displayed minute.
+  let endedAt
   let previousRoute
   let firstRoute
   let lastRoute
   let routeChanged = false
   for (const event of events) {
     if (event?.type === 'turn/end') {
-      if (Number(event.data?.turn) === turn && event.data?.reason?.kind === 'aborted') aborted = true
+      if (Number(event.data?.turn) === turn) {
+        const at = Number(event.time)
+        if (Number.isFinite(at)) endedAt = at
+        if (event.data?.reason?.kind === 'aborted') aborted = true
+      }
       continue
     }
     if (event?.type !== 'assistant/message') continue
@@ -140,7 +147,7 @@ function foldTurnAttempts(events, turn, table) {
   const switched = routeKey(previousRoute) !== undefined
     && routeKey(firstRoute) !== undefined
     && routeKey(previousRoute) !== routeKey(firstRoute)
-  return { attempts, matched, interrupted, aborted, previousRoute, switched, routeChanged }
+  return { attempts, matched, interrupted, aborted, previousRoute, switched, routeChanged, endedAt }
 }
 
 function asRecord(value) {
@@ -189,6 +196,9 @@ export function apply(ctx) {
       previousRoute: folded.previousRoute,
       switched: folded.switched,
       routeChanged: folded.routeChanged,
+      // The clock printed by the shipped row, so the elapsed label counts from
+      // exactly the minute the user sees.
+      time: folded.endedAt,
       currency: prices.currency,
     }
   }
