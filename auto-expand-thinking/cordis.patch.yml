@@ -1,0 +1,3 @@
+- insert:
+    - id: auto-expand-thinking
+      name: '@local/auto-expand-thinking'

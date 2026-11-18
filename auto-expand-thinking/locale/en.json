@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Auto Expand Thinking",
+    "description": "Automatically expands every reasoning (thinking) row in chat as it appears, so the thinking text is readable without clicking each disclosure; rows you collapse manually stay collapsed."
+  }
+}
