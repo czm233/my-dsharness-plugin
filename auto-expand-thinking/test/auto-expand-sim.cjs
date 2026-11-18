@@ -8,7 +8,16 @@ const assert = require('node:assert')
 
 const code = fs.readFileSync(path.join(__dirname, '..', 'client.js'), 'utf8')
 
-const state = { loaded: null, observers: [], frames: [] }
+const state = { loaded: null, observers: [], frames: [], diagPosts: 0 }
+
+// client.js POSTs breadcrumbs to the host route; keep that off the network.
+globalThis.fetch = async (url, init) => {
+  assert.equal(url, '/api/auto-expand-thinking/rpc')
+  const body = JSON.parse(init.body)
+  assert.equal(body.action, 'log')
+  state.diagPosts += body.lines.length
+  return { ok: true }
+}
 
 /** Think row root: collapsible disclosure inside a chat-turn region. */
 function thinkRoot({ turn, expanded = false, hasRow = true }) {

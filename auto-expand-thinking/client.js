@@ -22,6 +22,11 @@
 // the state; we only deliver the same click a reader would, on the
 // `[data-disclosure-row][data-expandable]` element where DisclosureRow binds
 // its toggle handler.
+//
+// Diagnostics: the desktop client has no console, so scans POST a
+// signature-gated breadcrumb to the host route, which appends it to
+// ~/.dsh/storages/auto-expand-thinking/client.log (same pattern as
+// edit-restart). Logging failures are swallowed; they never affect behavior.
 
 window.__ModuleLoader__.load({
   id: '@local/auto-expand-thinking',
@@ -38,6 +43,7 @@ window.__ModuleLoader__.load({
     let frame = 0
     let flowKey = null
     let highest = 0
+    let lastSig = ''
 
     /** null when no chat flow is rendered (settings open, empty state, …). */
     function currentFlowKey() {
@@ -53,26 +59,79 @@ window.__ModuleLoader__.load({
       return Number.isSafeInteger(value) && value >= 0 ? value : null
     }
 
+    function diag(line) {
+      try {
+        fetch('/api/auto-expand-thinking/rpc', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'log', lines: [line] }),
+        }).catch(() => {})
+      } catch (_offline) {
+        /* 离线时不留痕 */
+      }
+    }
+
     function scan() {
       frame = 0
-      const key = currentFlowKey()
-      if (key === null) return
-      if (key !== flowKey) {
-        flowKey = key
-        highest = 0
-      }
-      const turn = lastTailTurn()
-      if (turn === null || turn < highest) return
-      highest = turn
-      for (const root of document.querySelectorAll(ROOT_SELECTOR)) {
-        if (processed.has(root) || root.hasAttribute('data-expanded')) continue
-        const owner = root.closest(TURN_ANCESTOR)
-        if (owner === null || Number(owner.getAttribute(TURN_ATTR)) !== turn) continue
-        const row = root.querySelector(ROW_SELECTOR)
-        if (row !== null) {
-          processed.add(root)
-          row.click()
+      let clicked = 0
+      let inTurn = 0
+      let elsewhere = 0
+      let open = 0
+      const samples = []
+      try {
+        const key = currentFlowKey()
+        if (key === null) {
+          if (lastSig !== 'no-flow') {
+            lastSig = 'no-flow'
+            diag('scan no-flow')
+          }
+          return
         }
+        if (key !== flowKey) {
+          flowKey = key
+          highest = 0
+        }
+        const turn = lastTailTurn()
+        const roots = document.querySelectorAll(ROOT_SELECTOR)
+        if (turn !== null && turn >= highest) {
+          highest = turn
+          for (const root of roots) {
+            if (processed.has(root)) continue
+            if (root.hasAttribute('data-expanded')) {
+              processed.add(root)
+              open += 1
+              continue
+            }
+            const owner = root.closest(TURN_ANCESTOR)
+            const ownerTurn = owner === null ? null : Number(owner.getAttribute(TURN_ATTR))
+            if (ownerTurn !== turn) {
+              elsewhere += 1
+              if (samples.length < 3) samples.push(`elsewhere(turn=${ownerTurn})`)
+              continue
+            }
+            inTurn += 1
+            const row = root.querySelector(ROW_SELECTOR)
+            if (row === null) {
+              if (samples.length < 3) samples.push('norow')
+              continue
+            }
+            processed.add(root)
+            row.click()
+            clicked += 1
+          }
+        } else {
+          for (const root of roots) {
+            if (processed.has(root) || root.hasAttribute('data-expanded')) continue
+            elsewhere += 1
+          }
+        }
+        const sig = `${key}|${turn}|${highest}|${clicked}|${inTurn}|${elsewhere}|${open}|${samples.join(',')}`
+        if (sig !== lastSig) {
+          lastSig = sig
+          diag(`scan flow=${key.slice(0, 24)} tailsLast=${turn} highest=${highest} roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
+        }
+      } catch (error) {
+        diag(`scan-error ${String(error?.stack ?? error)}`)
       }
     }
 
@@ -83,6 +142,7 @@ window.__ModuleLoader__.load({
     return {
       inject: [],
       apply(ctx) {
+        diag('client applied')
         const observer = new MutationObserver(schedule)
         observer.observe(document.body, {
           childList: true,
