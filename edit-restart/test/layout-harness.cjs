@@ -85,7 +85,8 @@ function toDom(element) {
   for (const [key, value] of Object.entries(element.props)) {
     if (/^on[A-Z]/.test(key)) { node[key] = value; continue }
     if (key === 'value') { node.value = value; continue }
-    if (key === 'ref' || key === 'children' || value === undefined || value === null || value === false) continue
+    if (key === 'ref') { if (value && typeof value === 'object') value.current = node; continue }
+    if (key === 'children' || value === undefined || value === null || value === false) continue
     if (key.startsWith('data-') || key.startsWith('aria-')) { node.setAttribute(key, value === true ? '' : String(value)); continue }
     if (key === 'className' && typeof value === 'string') {
       node.className = value
@@ -273,6 +274,23 @@ check('编辑框在流内展开，占据气泡原来的列位置', layer !== und
     JSON.stringify(textarea && textarea.value))
   const send = layer && layer.querySelector('button.dsh-edit-restart-send')
   check('有发送按钮', send !== undefined)
+  // 输入法回车：上屏那一下不能触发发送
+  const enter = (extra) => ({
+    key: 'Enter', shiftKey: false, target: textarea,
+    preventDefault() { this.defaultPrevented = true },
+    stopPropagation() {},
+    ...extra,
+  })
+  textarea.onCompositionStart()
+  layer.onKeyDown(enter({}))
+  textarea.onCompositionEnd()
+  check('组合期间的回车不发送', calls.fork.length === 0, JSON.stringify(calls.fork))
+  layer.onKeyDown(enter({ nativeEvent: { isComposing: true } }))
+  check('原生 isComposing 的回车不发送', calls.fork.length === 0)
+  layer.onKeyDown(enter({ keyCode: 229, nativeEvent: { keyCode: 229 } }))
+  check('keyCode 229（输入法组合键）的回车不发送', calls.fork.length === 0)
+  layer.onKeyDown(enter({}))
+  check('刚上屏完的回车也不发送（同一下上屏）', calls.fork.length === 0)
   await send.onClick()
   check('只 fork 一次', calls.fork.length === 1, JSON.stringify(calls.fork))
   check('fork 不递增标题（归档后仍叫原来的名字）', calls.fork[0]?.increaseTitle === false, JSON.stringify(calls.fork[0]))
@@ -320,6 +338,29 @@ console.log('[4] 连续点击 / 晚到超时 不得覆盖已打开的编辑器')
   check('失败场景：编辑器仍然打开（可直接重试）',
     failedLayer !== undefined && failedLayer.getAttribute('data-active') === 'true')
   fakeSession.prompt = originalPrompt
+
+  console.log('[6] 普通回车仍然发送（不误伤）')
+  calls.fork.length = 0
+  calls.archived.length = 0
+  const closeBtn = roots[1].container.children[0]
+  const cancelAgain = closeBtn && closeBtn.querySelector('button.dsh-edit-restart-cancel')
+  if (cancelAgain) await cancelAgain.onClick()
+  actionEl.fire('click', fakeEvent)
+  for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
+  const plainLayer = roots[1].container.children[0]
+  const plainBox = plainLayer && plainLayer.querySelector('textarea')
+  check('普通回车场景：编辑器打开', plainBox !== undefined)
+  if (plainBox !== undefined) {
+    plainLayer.onKeyDown({
+      key: 'Enter', shiftKey: false, target: plainBox,
+      preventDefault() { this.defaultPrevented = true },
+      stopPropagation() {},
+    })
+    for (let tick = 0; tick < 8; tick += 1) await Promise.resolve()
+  }
+  check('普通回车发送（fork 一次）', calls.fork.length === 1, JSON.stringify(calls.fork))
+  check('普通回车：源会话归档', calls.archived.length === 1 && calls.archived[0].id === 'sess-2',
+    JSON.stringify(calls.archived))
 
   if (typeof global.__cleanup === 'function') global.__cleanup()
   console.log('')

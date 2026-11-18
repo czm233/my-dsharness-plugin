@@ -290,6 +290,20 @@ window.__ModuleLoader__.load({
         }
       }
 
+      // 输入法里的回车先归输入法：中文/日文上屏那一下必须放过去，不能当成「发送」。
+      const composingRef = React.useRef(false)
+      const compositionEndAt = React.useRef(0)
+
+      /** 这一下回车是不是输入法正在用它上屏（含刚上屏完的瞬间）。 */
+      const imeEnter = (event) => {
+        const native = event.nativeEvent ?? {}
+        if (composingRef.current || native.isComposing === true || event.isComposing === true) return true
+        // Chromium 在输入法组合期间派发的 keydown 一律是 229
+        if (native.keyCode === 229 || event.keyCode === 229) return true
+        // 有的输入法先结束组合、再派发这同一下回车：上屏后极短时间的回车仍算上屏
+        return Date.now() - compositionEndAt.current < 120
+      }
+
       const onKeyDown = (event) => {
         if (event.key === 'Escape') {
           event.stopPropagation()
@@ -297,7 +311,7 @@ window.__ModuleLoader__.load({
           cancel()
           return
         }
-        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.target === boxRef.current) {
+        if (event.key === 'Enter' && !event.shiftKey && event.target === boxRef.current && !imeEnter(event)) {
           event.preventDefault()
           submit()
         }
@@ -309,6 +323,11 @@ window.__ModuleLoader__.load({
           value: text,
           'aria-label': t('title'),
           onChange: (event) => setText(event.target.value),
+          onCompositionStart: () => { composingRef.current = true },
+          onCompositionEnd: () => {
+            composingRef.current = false
+            compositionEndAt.current = Date.now()
+          },
         }),
         h('div', { className: `${P}-bar` },
           error !== '' ? h('span', { className: `${P}-note` }, error)
@@ -739,7 +758,7 @@ window.__ModuleLoader__.load({
 
       const observer = new MutationObserver(schedule)
       observer.observe(document.body, { childList: true, subtree: true })
-      diag('boot 0.21.0', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
+      diag('boot 0.21.1', `host=${describe(document.querySelector('[data-conversation-content]'))}`, `fetch=${typeof fetch}`)
       scan()
 
       return () => {
