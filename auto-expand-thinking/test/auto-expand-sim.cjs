@@ -1,9 +1,10 @@
 // Offline gate for the client half: stub the DOM surface client.js touches and
 // verify only the latest turn's collapsed think rows get one toggle click while
-// the reply is in progress (1.4.0 running gate: `[data-chat-running]` mounted),
-// that a finished reply makes the module inert, that per-session watermarks
-// reset on session switches (1.3.0 regression: one long session's turn scale
-// bricked every shorter session), and that paging regressions behave.
+// the reply is in progress (running gate: `[data-chat-running]` mounted), that
+// a finished reply folds those rows back closed exactly once (1.5.0), that
+// per-session watermarks reset on session switches (1.3.0 regression: one long
+// session's turn scale bricked every shorter session), and that paging
+// regressions behave.
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
@@ -48,12 +49,15 @@ function makeScope(id) {
   return scope
 }
 
-/** Think row root: collapsible disclosure inside a chat-turn region. */
+/** Think row root: collapsible disclosure inside a chat-turn region. Each row
+ * click toggles the open flag, mirroring DisclosureRow's handler. */
 function thinkRoot({ turn, scope, expanded = false, hasRow = true }) {
   const root = {
     rowClicks: 0,
+    open: expanded,
+    isConnected: true,
     hasAttribute(attr) {
-      return attr === 'data-expanded' ? expanded : false
+      return attr === 'data-expanded' ? root.open : false
     },
     closest(selector) {
       if (selector === '[data-chat-turn]') {
@@ -64,7 +68,7 @@ function thinkRoot({ turn, scope, expanded = false, hasRow = true }) {
     },
     querySelector() {
       if (!hasRow) return null
-      return { click: () => { root.rowClicks += 1 } }
+      return { click: () => { root.rowClicks += 1; root.open = !root.open } }
     },
   }
   return root
@@ -252,9 +256,9 @@ documentStub.roots = [reopenRow]
 mutate()
 assert.equal(reopenRow.rowClicks, 1, 'remounted session expands its last turn again')
 
-// 1.4.0 running gate: once the reply finished (RunningStatus unmounted) the
-// module goes inert — fresh collapsed rows and folded groups of the finished
-// turn are left alone instead of being expanded after the fact.
+// 1.5.0 fold-back: once the reply finished (RunningStatus unmounted), every
+// row this module expanded during the run is toggled closed again, and no new
+// expansion happens.
 scopeA2.running = false
 const doneRow = thinkRoot({ turn: 2, scope: scopeA2 })
 const doneGroup = stepGroup({ turn: 2, scope: scopeA2, folded: true })
@@ -263,23 +267,60 @@ documentStub.groups = [doneGroup]
 mutate()
 assert.equal(doneRow.rowClicks, 0, 'finished reply: new collapsed row stays collapsed')
 assert.equal(doneGroup.headerClicks, 0, 'finished reply: folded group stays folded')
-assert.equal(reopenRow.rowClicks, 1, 'finished reply: earlier expand is not undone')
+assert.equal(reopenRow.rowClicks, 2, 'finished reply: row we expanded is folded back closed')
+assert.equal(reopenRow.open, false, 'folded-back row reports collapsed')
+
+// Rescan after fold-back: the collapse is never toggled twice.
+mutate()
+assert.equal(reopenRow.rowClicks, 2, 'no double toggle after fold-back')
+
+// A row the reader collapsed before the finish is left alone (no re-expand).
+scopeA2.running = true
+const userRow = thinkRoot({ turn: 2, scope: scopeA2 })
+documentStub.roots = [reopenRow, doneRow, userRow]
+documentStub.groups = []
+mutate()
+assert.equal(userRow.rowClicks, 1, 'running again: fresh row expands')
+userRow.open = false
+scopeA2.running = false
+mutate()
+assert.equal(userRow.rowClicks, 1, 'reader-collapsed row is not re-expanded at finish')
+
+// A row that was already open when first seen was never ours: it stays open.
+scopeA2.running = true
+const foreignRow = thinkRoot({ turn: 2, scope: scopeA2, expanded: true })
+documentStub.roots = [userRow, foreignRow]
+mutate()
+scopeA2.running = false
+mutate()
+assert.equal(foreignRow.rowClicks, 0, 'pre-open row we never expanded stays open')
+assert.equal(foreignRow.open, true, 'pre-open row still reports expanded')
+
+// A row that unmounted with its group before the finish is skipped safely.
+scopeA2.running = true
+const goneRow = thinkRoot({ turn: 2, scope: scopeA2 })
+documentStub.roots = [foreignRow, goneRow]
+mutate()
+assert.equal(goneRow.rowClicks, 1, 'running: row expands before unmounting')
+goneRow.isConnected = false
+scopeA2.running = false
+mutate()
+assert.equal(goneRow.rowClicks, 1, 'unmounted row skipped without crash')
 
 // The next turn starts: the indicator remounts and the plugin re-arms on the
 // new latest turn.
 scopeA2.running = true
 scopeA2.tails = [1, 2, 3]
 const freshRow = thinkRoot({ turn: 3, scope: scopeA2 })
-documentStub.roots = [reopenRow, doneRow, freshRow]
-documentStub.groups = []
+documentStub.roots = [foreignRow, freshRow]
 mutate()
 assert.equal(freshRow.rowClicks, 1, 'new turn while running expands again')
-assert.equal(doneRow.rowClicks, 0, 'rows of the finished turn stay collapsed')
+assert.equal(foreignRow.rowClicks, 0, 'older turn untouched while running')
 
 // A think root outside any conversation shell has no running scope to consult
 // and must be skipped without crashing.
 const strayRow = thinkRoot({ turn: 3, scope: null })
-documentStub.roots = [reopenRow, doneRow, freshRow, strayRow]
+documentStub.roots = [foreignRow, freshRow, strayRow]
 mutate()
 assert.equal(strayRow.rowClicks, 0, 'root outside any shell never expands')
 

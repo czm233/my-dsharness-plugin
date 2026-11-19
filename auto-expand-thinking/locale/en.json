@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Auto Expand Thinking",
-    "description": "Expands the latest turn's reasoning rows (including that turn's folded step groups) only while the reply is in progress; once the reply finishes nothing new expands, and the next turn re-arms it automatically."
+    "description": "Expands the latest turn's reasoning rows (including that turn's folded step groups) while the reply is in progress, then folds them back closed once the reply finishes; the next turn re-arms it automatically."
   }
 }

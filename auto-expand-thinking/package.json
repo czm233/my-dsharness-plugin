@@ -1,9 +1,9 @@
 {
   "name": "@local/auto-expand-thinking",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "Auto-expands reasoning (thinking) rows while the reply is in progress only; once the reply finishes the module stops expanding.",
+  "description": "Auto-expands reasoning (thinking) rows while the reply is in progress and folds them back closed once the reply finishes; re-arms on the next turn.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

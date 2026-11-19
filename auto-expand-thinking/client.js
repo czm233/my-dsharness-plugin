@@ -32,16 +32,20 @@
 //   at the flow tail exactly while the session is running or holding its slot
 //   (turn still open) and unmounts it once the turn's actions row replaces it,
 //   so its presence inside the conversation scope is the DOM's "reply in
-//   progress" bit. Scans only click while it is mounted; once the reply is
-//   finished the module goes inert for that scope (nothing new expands), and
-//   the next turn's indicator re-arms it.
+//   progress" bit. Scans only click while it is mounted.
+// - 1.5.0 fold-back: when the gate closes (reply finished) every row this
+//   module expanded during the run is toggled closed again, so the transcript
+//   ends as it started; the next turn's indicator re-arms expansion.
 //
-// Each think root element is processed at most once (WeakSet): rows the
-// reader collapses afterwards stay collapsed, rows already open are left
-// alone, and rows that mount later in the same turn still expand. React owns
-// the state; we only deliver the same click a reader would, on the
+// Each think root element is processed at most once for expansion (WeakSet):
+// rows the reader collapses afterwards stay collapsed, rows already open are
+// left alone, and rows that mount later in the same turn still expand. React
+// owns the state; we only deliver the same click a reader would, on the
 // `[data-disclosure-row][data-expandable]` element where DisclosureRow binds
-// its toggle handler.
+// its toggle handler. Rows this module expanded are remembered per scope; the
+// first scan after the running gate closes folds them back (a second toggle
+// click) unless the reader already collapsed them (`data-expanded` gone) or
+// they unmounted with their group.
 //
 // Diagnostics: the desktop client has no console, so scans POST a
 // signature-gated breadcrumb to the host route, which appends it to
@@ -96,12 +100,13 @@ window.__ModuleLoader__.load({
       return Number.isSafeInteger(value) && value >= 0 ? value : null
     }
 
-    /** Per-session turn watermark, reset when the scope left the document. */
+    /** Per-session state: turn watermark + rows we expanded, reset when the
+     * scope left the document. */
     function trackScope(scopeEl, key) {
       let entry = trackedScopes.get(key)
       if (entry !== undefined && entry.el !== null && !entry.el.isConnected) entry = undefined
       if (entry === undefined) {
-        entry = { el: scopeEl, highest: 0 }
+        entry = { el: scopeEl, highest: 0, ours: new Set() }
         trackedScopes.set(key, entry)
       }
       return entry
@@ -135,6 +140,7 @@ window.__ModuleLoader__.load({
       let open = 0
       let groupsClicked = 0
       let idle = 0
+      let collapsed = 0
       const samples = []
       const ownerCounts = new Map()
       const scopeLabels = []
@@ -163,15 +169,27 @@ window.__ModuleLoader__.load({
           if (scopeLabels.length < 3) scopeLabels.push(bucket.key.slice(0, 24) || '(none)')
           const turn = lastTailTurnIn(scopeEl)
           if (turn === null) continue
-          // Running gate: expand nothing once the reply finished. Holding
-          // (paused / waiting mid-turn) still mounts the indicator, so it
-          // counts as in-progress; only a closed turn goes inert.
+          const entry = trackScope(scopeEl, bucket.key)
+          // Running gate (1.4.0): expand only while the official
+          // RunningStatus element is mounted. Holding (paused / waiting
+          // mid-turn) keeps it mounted, so only a closed turn reaches the
+          // fold-back below.
           if (scopeEl === null || scopeEl.querySelector(RUNNING_SELECTOR) === null) {
+            // Fold-back (1.5.0): toggle closed the rows we expanded during
+            // the run. Reader-collapsed rows lost `data-expanded` and stay
+            // put; rows unmounted with their group are skipped.
+            for (const root of entry.ours) {
+              if (!root.isConnected || !root.hasAttribute('data-expanded')) continue
+              const row = root.querySelector(ROW_SELECTOR)
+              if (row === null) continue
+              row.click()
+              collapsed += 1
+            }
+            entry.ours.clear()
             idle += 1
             if (samples.length < 3) samples.push('idle')
             continue
           }
-          const entry = trackScope(scopeEl, bucket.key)
           if (turn < entry.highest) continue
           entry.highest = turn
           entry.el = scopeEl
@@ -207,6 +225,7 @@ window.__ModuleLoader__.load({
             }
             processed.add(root)
             row.click()
+            entry.ours.add(root)
             clicked += 1
           }
         }
@@ -217,10 +236,10 @@ window.__ModuleLoader__.load({
         }
         const tailValues = [...document.querySelectorAll(TAIL_SELECTOR)].map((tail) => tail.getAttribute('data-turn-tail')).slice(-12).join(',')
         const histogram = [...ownerCounts.entries()].map(([owner, count]) => `${owner}:${count}`).slice(0, 8).join(',')
-        const sig = `${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${idle}|${buckets.size}|${samples.join(',')}|${histogram}|${tailValues}`
+        const sig = `${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${idle}|${collapsed}|${buckets.size}|${samples.join(',')}|${histogram}|${tailValues}`
         if (sig !== lastSig) {
           lastSig = sig
-          diag(`scan scopes=[${scopeLabels.join(',')}] tails=[${tailValues}] roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked} idle=${idle}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
+          diag(`scan scopes=[${scopeLabels.join(',')}] tails=[${tailValues}] roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked} idle=${idle} collapsed=${collapsed}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
         }
       } catch (error) {
         diag(`scan-error ${String(error?.stack ?? error)}`)
