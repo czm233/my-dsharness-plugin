@@ -2151,7 +2151,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "86fc596",
+            "commit": "86fc596d823751db9c08b7ea594120f611ccd1c6",
             "path": "dsh-bark-notifications"
           }
         }
