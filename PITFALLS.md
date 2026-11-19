@@ -557,3 +557,11 @@ strings "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar" | grep 
 - 想要「继承上下文的侧聊/续聊」而不是「分派任务」，必须 `delivery: 'caller'`。
 - 桌面端没有控制台：host 半从第一天就要**落盘诊断**（本次 `~/Library/Application Support/dsh-side-chat/host.log` 一行一条），否则三轮都只能拿到同一句界面报错，看不出是 404、服务解析还是内部崩溃。
 - 同一句 UI 文案对应多个底层故障时，用户看到的就是「你没修」——每轮必须用可离线读取的证据（host 日志原文 + 官方源码行号）推进，而不是改完就问「好了吗」。
+
+## 32. DSH 升级把属性挪了宿主元素：选择器静默失效，靠诊断日志的数字对不上定位（2026-11-19，auto-expand-thinking 1.2.0→1.3.0）
+
+- **现象**：思考行不再自动展开，且无报错；所有会话全灭。
+- **根因**：1.2.0 用 `document.querySelector('[data-chat-flow]').getAttribute('data-chat-flow-key')` 做会话标识。DSH 升级后 `data-chat-flow` 挂到了两个**不带 key** 的容器上（聊天列、步骤组 body），而 `data-chat-flow-key` 挪到了**每个 chat 节点**的 flowItem 上——取到的 key 永远是 `''`，切会话永远不重置 `highest` 水位。于是先看过一个 190 轮的长会话后，任何轮号 <190 的会话全部判「旧轮次」跳过。属性还在、选择器也能命中，但**语义换了宿主**，是最阴的一种失效。
+- **定位**：插件的落盘诊断日志（`~/.dsh/storages/auto-expand-thinking/client.log`）里 `flow=`（空串）+ `tails=[9]` vs `highest=190` 两个数字对不上，一眼锁定；`clicked=0` 从某时刻起再没变过。没有这份日志就只能盲猜。
+- **解法**：会话级标识改用会话外壳 body 的 `data-conversation-session`（属性值就是 sessionId，dsh-client-ui-conversation 渲染）；水位 Map 按会话分键，壳元素断连即清水位防重挂泄漏。
+- **教训/门禁**：① 对官方 DOM 属性的依赖必须写清「属性→宿主元素→语义」三元组，升级后失效时先从 asar 抽真实 bundle 核对宿主（PITFALLS #3 的 strings 法要配对正确遍历：walk 从 `header` 起步，从 `header.files` 起步会 0 文件、得出假阴性）；② 带数字状态的跨会话逻辑，水位必须带会话身份，且要有一条「数字对不上」就能从日志看出的诊断线；③ 涉及跨会话行为的 sim 用例必须有「长会话→短会话切换」一条。
