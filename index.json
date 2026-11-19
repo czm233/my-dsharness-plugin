@@ -8,6 +8,46 @@
     "en": "Personal DeepSeek Harness plugins maintained by czm233.",
     "zh": "czm233 维护的 DeepSeek Harness 个人插件。"
   },
+  "metadata": {
+    "categories": {
+      "usage": {
+        "title": {
+          "en": "Usage & costs",
+          "zh": "用量与费用"
+        }
+      },
+      "workflow": {
+        "title": {
+          "en": "Workflow",
+          "zh": "工作流"
+        }
+      },
+      "interface": {
+        "title": {
+          "en": "Interface",
+          "zh": "界面"
+        }
+      },
+      "security": {
+        "title": {
+          "en": "Security",
+          "zh": "安全"
+        }
+      },
+      "notes": {
+        "title": {
+          "en": "Notes",
+          "zh": "笔记"
+        }
+      },
+      "chat": {
+        "title": {
+          "en": "Chat",
+          "zh": "对话"
+        }
+      }
+    }
+  },
   "plugins": [
     {
       "name": "composer-usage-plus",
