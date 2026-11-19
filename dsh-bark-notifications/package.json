@@ -1,0 +1,23 @@
+{
+  "name": "dsh-bark-notifications",
+  "version": "0.4.6",
+  "type": "module",
+  "main": "./dsh/index.mjs",
+  "files": [
+    "dsh/index.mjs",
+    "dsh/send.ps1",
+    "cordis.patch.yml",
+    "dsh/test.mjs",
+    "locale/*.json"
+  ],
+  "scripts": {
+    "test": "node --test dsh/test.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "description": "Bark turn notifications for DeepSeek Harness; device settings remain local.",
+  "license": "MIT"
+}

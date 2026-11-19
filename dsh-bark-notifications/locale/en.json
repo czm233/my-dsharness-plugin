@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Bark Notifications",
+    "description": "Sends Bark push notifications (and optional desktop banners) when a turn ends or approval is waiting; device settings stay local."
+  }
+}
