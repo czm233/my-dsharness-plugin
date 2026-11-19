@@ -1,8 +1,9 @@
 // Offline gate for the client half: stub the DOM surface client.js touches and
-// verify only the latest turn's collapsed think rows get one toggle click, that
-// per-session watermarks reset on session switches (1.3.0 regression: one long
-// session's turn scale bricked every shorter session), and that paging
-// regressions behave.
+// verify only the latest turn's collapsed think rows get one toggle click while
+// the reply is in progress (1.4.0 running gate: `[data-chat-running]` mounted),
+// that a finished reply makes the module inert, that per-session watermarks
+// reset on session switches (1.3.0 regression: one long session's turn scale
+// bricked every shorter session), and that paging regressions behave.
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
@@ -26,10 +27,18 @@ function makeScope(id) {
   const scope = {
     id,
     tails: [],
+    // 1.4.0 running gate: mirrors the official RunningStatus element, which
+    // stays mounted while the reply is in progress and unmounts once the
+    // turn's actions row replaces it.
+    running: true,
     isConnected: true,
     getAttribute(attr) {
       assert.equal(attr, 'data-conversation-session')
       return scope.id
+    },
+    querySelector(selector) {
+      assert.equal(selector, '[data-chat-running]')
+      return scope.running ? { flag: true } : null
     },
     querySelectorAll(selector) {
       assert.equal(selector, '[data-turn-tail]')
@@ -242,6 +251,37 @@ const reopenRow = thinkRoot({ turn: 2, scope: scopeA2 })
 documentStub.roots = [reopenRow]
 mutate()
 assert.equal(reopenRow.rowClicks, 1, 'remounted session expands its last turn again')
+
+// 1.4.0 running gate: once the reply finished (RunningStatus unmounted) the
+// module goes inert — fresh collapsed rows and folded groups of the finished
+// turn are left alone instead of being expanded after the fact.
+scopeA2.running = false
+const doneRow = thinkRoot({ turn: 2, scope: scopeA2 })
+const doneGroup = stepGroup({ turn: 2, scope: scopeA2, folded: true })
+documentStub.roots = [reopenRow, doneRow]
+documentStub.groups = [doneGroup]
+mutate()
+assert.equal(doneRow.rowClicks, 0, 'finished reply: new collapsed row stays collapsed')
+assert.equal(doneGroup.headerClicks, 0, 'finished reply: folded group stays folded')
+assert.equal(reopenRow.rowClicks, 1, 'finished reply: earlier expand is not undone')
+
+// The next turn starts: the indicator remounts and the plugin re-arms on the
+// new latest turn.
+scopeA2.running = true
+scopeA2.tails = [1, 2, 3]
+const freshRow = thinkRoot({ turn: 3, scope: scopeA2 })
+documentStub.roots = [reopenRow, doneRow, freshRow]
+documentStub.groups = []
+mutate()
+assert.equal(freshRow.rowClicks, 1, 'new turn while running expands again')
+assert.equal(doneRow.rowClicks, 0, 'rows of the finished turn stay collapsed')
+
+// A think root outside any conversation shell has no running scope to consult
+// and must be skipped without crashing.
+const strayRow = thinkRoot({ turn: 3, scope: null })
+documentStub.roots = [reopenRow, doneRow, freshRow, strayRow]
+mutate()
+assert.equal(strayRow.rowClicks, 0, 'root outside any shell never expands')
 
 // No chat rendered: scan is a no-op and keeps state.
 documentStub.scopes = []

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Auto Expand Thinking",
-    "description": "Automatically expands the reasoning (thinking) rows of the latest chat turn only, including unfolding that turn's folded step groups so hidden rows appear; history stays untouched and anything you collapse manually stays collapsed."
+    "description": "Expands the latest turn's reasoning rows (including that turn's folded step groups) only while the reply is in progress; once the reply finishes nothing new expands, and the next turn re-arms it automatically."
   }
 }

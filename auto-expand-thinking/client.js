@@ -28,6 +28,13 @@
 //   presentation modes, and reasoning rows inside them are not mounted; the
 //   latest turn's folded groups are one-click-expanded first so those rows
 //   mount and get expanded on the following scan.
+// - 1.4.0 running gate: the shipped RunningStatus mounts `div[data-chat-running]`
+//   at the flow tail exactly while the session is running or holding its slot
+//   (turn still open) and unmounts it once the turn's actions row replaces it,
+//   so its presence inside the conversation scope is the DOM's "reply in
+//   progress" bit. Scans only click while it is mounted; once the reply is
+//   finished the module goes inert for that scope (nothing new expands), and
+//   the next turn's indicator re-arms it.
 //
 // Each think root element is processed at most once (WeakSet): rows the
 // reader collapses afterwards stay collapsed, rows already open are left
@@ -60,6 +67,10 @@ window.__ModuleLoader__.load({
     const GROUP_SELECTOR = '[data-step-process]'
     const GROUP_FOLDED_ATTR = 'data-chat-paging-anchor'
     const GROUP_HEADER_SELECTOR = 'button[aria-expanded="false"]'
+    // RunningStatus flag (1.4.0): mounted per flow while the reply is in
+    // progress, unmounted once the turn closes. Its presence inside a
+    // conversation scope gates every click below.
+    const RUNNING_SELECTOR = '[data-chat-running]'
 
     const processed = new WeakSet()
     const processedGroups = new WeakSet()
@@ -123,6 +134,7 @@ window.__ModuleLoader__.load({
       let elsewhere = 0
       let open = 0
       let groupsClicked = 0
+      let idle = 0
       const samples = []
       const ownerCounts = new Map()
       const scopeLabels = []
@@ -151,6 +163,14 @@ window.__ModuleLoader__.load({
           if (scopeLabels.length < 3) scopeLabels.push(bucket.key.slice(0, 24) || '(none)')
           const turn = lastTailTurnIn(scopeEl)
           if (turn === null) continue
+          // Running gate: expand nothing once the reply finished. Holding
+          // (paused / waiting mid-turn) still mounts the indicator, so it
+          // counts as in-progress; only a closed turn goes inert.
+          if (scopeEl === null || scopeEl.querySelector(RUNNING_SELECTOR) === null) {
+            idle += 1
+            if (samples.length < 3) samples.push('idle')
+            continue
+          }
           const entry = trackScope(scopeEl, bucket.key)
           if (turn < entry.highest) continue
           entry.highest = turn
@@ -197,10 +217,10 @@ window.__ModuleLoader__.load({
         }
         const tailValues = [...document.querySelectorAll(TAIL_SELECTOR)].map((tail) => tail.getAttribute('data-turn-tail')).slice(-12).join(',')
         const histogram = [...ownerCounts.entries()].map(([owner, count]) => `${owner}:${count}`).slice(0, 8).join(',')
-        const sig = `${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${buckets.size}|${samples.join(',')}|${histogram}|${tailValues}`
+        const sig = `${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${idle}|${buckets.size}|${samples.join(',')}|${histogram}|${tailValues}`
         if (sig !== lastSig) {
           lastSig = sig
-          diag(`scan scopes=[${scopeLabels.join(',')}] tails=[${tailValues}] roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
+          diag(`scan scopes=[${scopeLabels.join(',')}] tails=[${tailValues}] roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked} idle=${idle}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
         }
       } catch (error) {
         diag(`scan-error ${String(error?.stack ?? error)}`)
