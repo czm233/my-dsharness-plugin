@@ -2114,7 +2114,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "5d96fa773f8fa0d464af331b8bb115a0dde086b9",
+            "commit": "c5d6242ecd086f88f7325a96d559b5fa58461bf2",
             "path": "auto-expand-thinking"
           }
         }
@@ -2151,7 +2151,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "590a36b56bad9ddf53b9962874f7f051ee373ac5",
+            "commit": "86fc596",
             "path": "dsh-bark-notifications"
           }
         }
