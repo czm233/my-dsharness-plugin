@@ -45,6 +45,12 @@
           "en": "Chat",
           "zh": "对话"
         }
+      },
+      "notifications": {
+        "title": {
+          "en": "Notifications",
+          "zh": "通知"
+        }
       }
     }
   },
@@ -2100,6 +2106,43 @@
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "6c6b30a99a5094360da669a33692cc8ff0822210",
             "path": "auto-expand-thinking"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-bark-notifications",
+      "title": {
+        "en": "Bark Notifications",
+        "zh": "Bark 通知"
+      },
+      "description": {
+        "en": "Sends Bark push notifications (and optional desktop banners) when a turn ends or approval is waiting; device settings stay local.",
+        "zh": "在每轮结束或等待审批时通过 Bark 推送通知，可选桌面横幅；设备配置只保存在本机。"
+      },
+      "repository": {
+        "url": "https://github.com/czm233/my-dsharness-plugin",
+        "directory": "dsh-bark-notifications"
+      },
+      "metadata": {
+        "category": "notifications",
+        "keywords": [
+          "dsh",
+          "bark",
+          "notification",
+          "push",
+          "ios"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.4.6",
+          "publishTimestamp": 1795054688,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "590a36b56bad9ddf53b9962874f7f051ee373ac5",
+            "path": "dsh-bark-notifications"
           }
         }
       ]
