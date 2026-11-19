@@ -4,17 +4,26 @@
 // open state starts collapsed until the reader clicks it, no matter what the
 // work-details settings say (those settings only fold whole turn processes).
 // This module keeps a page-level MutationObserver over the chat DOM and
-// expands collapsed think rows, but only inside the latest turn:
+// expands collapsed think rows, but only inside the latest turn of each
+// conversation:
 //
-// - `[data-turn-tail]` exists once per rendered turn and carries the turn
-//   number, so the last match in document order identifies the latest turn;
+// - `[data-conversation-session]` is the conversation shell's content body and
+//   carries the session id as its attribute value (1.3.0). Per-session
+//   tracking replaced the 1.2.0 flow key: that release read
+//   `data-chat-flow-key` off the first `[data-chat-flow]` element, but DSH
+//   now renders that attribute on the (key-less) chat column and on step-group
+//   bodies, while the keyed elements are per-chat-node flow items — so the
+//   key read as '' forever, `highest` never reset on session switches and one
+//   long session's turn numbers bricked every shorter session.
+// - `[data-turn-tail]` exists once per rendered turn and carries the
+//   per-session turn number, so the last match inside the scope identifies the
+//   latest turn of that session;
 // - every chat node sits under an ancestor tagged `data-chat-turn`, used to
 //   tell which turn a think row belongs to;
-// - `[data-chat-flow-key]` identifies the rendered chat flow, so switching
-//   sessions resets tracking instead of comparing turn numbers across flows;
-// - `highest` never decreases within one flow, so paging away from the last
+// - `highest` never decreases within one session, so paging away from the last
 //   turn (which unmounts its tail) cannot make an older turn look like the
-//   latest and get expanded by accident;
+//   latest and get expanded by accident; scope entries whose shell element
+//   left the document are dropped, so stale scales never leak into remounts;
 // - completed work-step groups fold to a header button under group-folding
 //   presentation modes, and reasoning rows inside them are not mounted; the
 //   latest turn's folded groups are one-click-expanded first so those rows
@@ -40,8 +49,9 @@ window.__ModuleLoader__.load({
     const TAIL_SELECTOR = '[data-turn-tail]'
     const TURN_ATTR = 'data-chat-turn'
     const TURN_ANCESTOR = `[${TURN_ATTR}]`
-    const FLOW_SELECTOR = '[data-chat-flow]'
-    const FLOW_KEY_ATTR = 'data-chat-flow-key'
+    // Conversation shell body carrying the session id as attribute value.
+    const SCOPE_SELECTOR = '[data-conversation-session]'
+    const SCOPE_ATTR = 'data-conversation-session'
     // Folded work-step group: the shipped ChatGroupSeat collapses to its
     // header button whenever the presentation policy groups completed steps.
     // Reasoning rows inside a folded group are not mounted at all, so the
@@ -53,23 +63,37 @@ window.__ModuleLoader__.load({
 
     const processed = new WeakSet()
     const processedGroups = new WeakSet()
+    /** scope key → { el, highest }; el only guards staleness. */
+    const trackedScopes = new Map()
     let frame = 0
-    let flowKey = null
-    let highest = 0
     let lastSig = ''
 
-    /** null when no chat flow is rendered (settings open, empty state, …). */
-    function currentFlowKey() {
-      const flow = document.querySelector(FLOW_SELECTOR)
-      return flow === null ? null : flow.getAttribute(FLOW_KEY_ATTR) ?? ''
+    /** Scope element a chat node renders in, or null outside any shell. */
+    function scopeOf(element) {
+      return element.closest(SCOPE_SELECTOR)
     }
 
-    /** Latest turn number present in the DOM, or null. */
-    function lastTailTurn() {
-      const tails = document.querySelectorAll(TAIL_SELECTOR)
+    function scopeKeyOf(scopeEl) {
+      return scopeEl === null ? '' : scopeEl.getAttribute(SCOPE_ATTR) ?? ''
+    }
+
+    /** Latest turn number inside a scope, or null. */
+    function lastTailTurnIn(scopeEl) {
+      const tails = (scopeEl ?? document).querySelectorAll(TAIL_SELECTOR)
       if (tails.length === 0) return null
       const value = Number(tails[tails.length - 1].getAttribute('data-turn-tail'))
       return Number.isSafeInteger(value) && value >= 0 ? value : null
+    }
+
+    /** Per-session turn watermark, reset when the scope left the document. */
+    function trackScope(scopeEl, key) {
+      let entry = trackedScopes.get(key)
+      if (entry !== undefined && entry.el !== null && !entry.el.isConnected) entry = undefined
+      if (entry === undefined) {
+        entry = { el: scopeEl, highest: 0 }
+        trackedScopes.set(key, entry)
+      }
+      return entry
     }
 
     function diag(line) {
@@ -99,39 +123,49 @@ window.__ModuleLoader__.load({
       let elsewhere = 0
       let open = 0
       let groupsClicked = 0
-      let groupsFolded = 0
       const samples = []
       const ownerCounts = new Map()
+      const scopeLabels = []
       try {
-        const key = currentFlowKey()
-        if (key === null) {
-          if (lastSig !== 'no-flow') {
-            lastSig = 'no-flow'
-            diag('scan no-flow')
-          }
-          return
-        }
-        if (key !== flowKey) {
-          flowKey = key
-          highest = 0
-        }
-        const turn = lastTailTurn()
+        // Bucket roots and folded groups by conversation scope first, then
+        // run the watermark + latest-turn passes per scope.
+        const buckets = new Map()
         const roots = document.querySelectorAll(ROOT_SELECTOR)
-        if (turn !== null && turn >= highest) {
-          highest = turn
+        for (const root of roots) {
+          const scopeEl = scopeOf(root)
+          let bucket = buckets.get(scopeEl)
+          if (bucket === undefined) {
+            bucket = { key: scopeKeyOf(scopeEl), roots: [], groups: [] }
+            buckets.set(scopeEl, bucket)
+          }
+          bucket.roots.push(root)
+        }
+        for (const group of document.querySelectorAll(GROUP_SELECTOR)) {
+          if (processedGroups.has(group) || !group.hasAttribute(GROUP_FOLDED_ATTR)) continue
+          const scopeEl = scopeOf(group)
+          const bucket = buckets.get(scopeEl)
+          if (bucket === undefined) continue
+          bucket.groups.push(group)
+        }
+        for (const [scopeEl, bucket] of buckets) {
+          if (scopeLabels.length < 3) scopeLabels.push(bucket.key.slice(0, 24) || '(none)')
+          const turn = lastTailTurnIn(scopeEl)
+          if (turn === null) continue
+          const entry = trackScope(scopeEl, bucket.key)
+          if (turn < entry.highest) continue
+          entry.highest = turn
+          entry.el = scopeEl
           // Folded work-step groups hide their reasoning rows entirely; open
           // the latest turn's folded groups first so the rows mount.
-          for (const group of document.querySelectorAll(GROUP_SELECTOR)) {
-            if (processedGroups.has(group) || !group.hasAttribute(GROUP_FOLDED_ATTR)) continue
-            const groupTurn = ownerTurnOf(group)
-            if (groupTurn !== turn) continue
+          for (const group of bucket.groups) {
+            if (ownerTurnOf(group) !== turn) continue
             const header = group.querySelector(GROUP_HEADER_SELECTOR)
             if (header === null) continue
             processedGroups.add(group)
             header.click()
             groupsClicked += 1
           }
-          for (const root of roots) {
+          for (const root of bucket.roots) {
             if (processed.has(root)) continue
             if (root.hasAttribute('data-expanded')) {
               processed.add(root)
@@ -155,22 +189,18 @@ window.__ModuleLoader__.load({
             row.click()
             clicked += 1
           }
-          for (const group of document.querySelectorAll(GROUP_SELECTOR)) {
-            if (processedGroups.has(group) || !group.hasAttribute(GROUP_FOLDED_ATTR)) continue
-            if (ownerTurnOf(group) === turn) groupsFolded += 1
-          }
-        } else {
-          for (const root of roots) {
-            if (processed.has(root) || root.hasAttribute('data-expanded')) continue
-            elsewhere += 1
-          }
+        }
+        // Drop scopes whose shell left the document so their turn scale
+        // cannot leak into a later remount of the same session.
+        for (const [key, entry] of trackedScopes) {
+          if (entry.el !== null && !entry.el.isConnected) trackedScopes.delete(key)
         }
         const tailValues = [...document.querySelectorAll(TAIL_SELECTOR)].map((tail) => tail.getAttribute('data-turn-tail')).slice(-12).join(',')
         const histogram = [...ownerCounts.entries()].map(([owner, count]) => `${owner}:${count}`).slice(0, 8).join(',')
-        const sig = `${key}|${turn}|${highest}|${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${groupsFolded}|${samples.join(',')}|${histogram}|${tailValues}`
+        const sig = `${clicked}|${inTurn}|${elsewhere}|${open}|${groupsClicked}|${buckets.size}|${samples.join(',')}|${histogram}|${tailValues}`
         if (sig !== lastSig) {
           lastSig = sig
-          diag(`scan flow=${key.slice(0, 24)} tails=[${tailValues}] highest=${highest} roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked} groupsFolded=${groupsFolded}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
+          diag(`scan scopes=[${scopeLabels.join(',')}] tails=[${tailValues}] roots=${roots.length} inTurn=${inTurn} clicked=${clicked} elsewhere=${elsewhere} open=${open} groupsClicked=${groupsClicked}${histogram !== '' ? ` owners=${histogram}` : ''}${samples.length > 0 ? ` samples=${samples.join(',')}` : ''}`)
         }
       } catch (error) {
         diag(`scan-error ${String(error?.stack ?? error)}`)

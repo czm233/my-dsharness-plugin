@@ -1,6 +1,8 @@
 // Offline gate for the client half: stub the DOM surface client.js touches and
-// verify only the latest turn's collapsed think rows get one toggle click, and
-// that flow switches and turn regressions (paging) behave.
+// verify only the latest turn's collapsed think rows get one toggle click, that
+// per-session watermarks reset on session switches (1.3.0 regression: one long
+// session's turn scale bricked every shorter session), and that paging
+// regressions behave.
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
@@ -19,16 +21,37 @@ globalThis.fetch = async (url, init) => {
   return { ok: true }
 }
 
+/** Conversation shell body carrying the session id as attribute value. */
+function makeScope(id) {
+  const scope = {
+    id,
+    tails: [],
+    isConnected: true,
+    getAttribute(attr) {
+      assert.equal(attr, 'data-conversation-session')
+      return scope.id
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, '[data-turn-tail]')
+      return scope.tails.map((turn) => ({ getAttribute: () => String(turn) }))
+    },
+  }
+  return scope
+}
+
 /** Think row root: collapsible disclosure inside a chat-turn region. */
-function thinkRoot({ turn, expanded = false, hasRow = true }) {
+function thinkRoot({ turn, scope, expanded = false, hasRow = true }) {
   const root = {
     rowClicks: 0,
     hasAttribute(attr) {
       return attr === 'data-expanded' ? expanded : false
     },
     closest(selector) {
-      assert.equal(selector, '[data-chat-turn]')
-      return turn === null ? null : { getAttribute: () => String(turn) }
+      if (selector === '[data-chat-turn]') {
+        return turn === null ? null : { getAttribute: () => String(turn) }
+      }
+      assert.equal(selector, '[data-conversation-session]')
+      return scope
     },
     querySelector() {
       if (!hasRow) return null
@@ -39,17 +62,19 @@ function thinkRoot({ turn, expanded = false, hasRow = true }) {
 }
 
 /** Folded work-step group: header button click mounts its body. */
-function stepGroup({ turn, folded = true }) {
+function stepGroup({ turn, scope, folded = true }) {
   const group = {
     headerClicks: 0,
-    turn,
     folded,
     hasAttribute(attr) {
       return attr === 'data-chat-paging-anchor' ? group.folded : false
     },
     closest(selector) {
-      assert.equal(selector, '[data-chat-turn]')
-      return { getAttribute: () => String(turn) }
+      if (selector === '[data-chat-turn]') {
+        return { getAttribute: () => String(turn) }
+      }
+      assert.equal(selector, '[data-conversation-session]')
+      return scope
     },
     querySelector(selector) {
       assert.equal(selector, 'button[aria-expanded="false"]')
@@ -60,26 +85,23 @@ function stepGroup({ turn, folded = true }) {
 }
 
 function makeDom() {
-  return {
-    flow: { key: 'flow-a' },
-    tails: [1, 2],
+  const dom = {
+    scopes: [],
     roots: [],
     groups: [],
-    querySelector(selector) {
-      if (selector === '[data-chat-flow]') {
-        return this.flow.key === null ? null : { getAttribute: () => this.flow.key }
-      }
+    querySelector() {
       return null
     },
     querySelectorAll(selector) {
+      if (selector === 'div[data-variant="think"]') return dom.roots
+      if (selector === '[data-step-process]') return dom.groups
       if (selector === '[data-turn-tail]') {
-        return this.tails.map((turn) => ({ getAttribute: () => String(turn) }))
+        return dom.scopes.flatMap((scope) => scope.tails).map((turn) => ({ getAttribute: () => String(turn) }))
       }
-      if (selector === 'div[data-variant="think"]') return this.roots
-      if (selector === '[data-step-process]') return this.groups
       return []
     },
   }
+  return dom
 }
 
 const documentStub = makeDom()
@@ -137,18 +159,21 @@ const mutate = () => {
   state.frames.shift()()
 }
 
-// Session open with two turns of history: only the last turn's collapsed row expands.
+// Session A open with two turns of history: only the last turn's collapsed row expands.
+const scopeA = makeScope('session-a')
+scopeA.tails = [1, 2]
+documentStub.scopes = [scopeA]
 documentStub.roots = [
-  thinkRoot({ turn: 1 }),
-  thinkRoot({ turn: 2 }),
-  thinkRoot({ turn: 2, expanded: true }),
+  thinkRoot({ turn: 1, scope: scopeA }),
+  thinkRoot({ turn: 2, scope: scopeA }),
+  thinkRoot({ turn: 2, scope: scopeA, expanded: true }),
 ]
 // The last turn also has a folded step group (hiding more reasoning rows),
 // an unfolded group, and a folded group in an older turn.
 documentStub.groups = [
-  stepGroup({ turn: 2, folded: true }),
-  stepGroup({ turn: 2, folded: false }),
-  stepGroup({ turn: 1, folded: true }),
+  stepGroup({ turn: 2, scope: scopeA, folded: true }),
+  stepGroup({ turn: 2, scope: scopeA, folded: false }),
+  stepGroup({ turn: 1, scope: scopeA, folded: true }),
 ]
 mutate()
 assert.equal(documentStub.groups[0].headerClicks, 1, 'last turn folded group clicked once')
@@ -164,7 +189,7 @@ assert.equal(documentStub.groups[0].headerClicks, 1, 'no double click on group')
 assert.equal(documentStub.roots[1].rowClicks, 1, 'no double toggle on rescan')
 
 // A late-mounting row in the same (latest) turn still expands.
-const lateRow = thinkRoot({ turn: 2 })
+const lateRow = thinkRoot({ turn: 2, scope: scopeA })
 documentStub.roots.push(lateRow)
 mutate()
 assert.equal(lateRow.rowClicks, 1, 'late row in latest turn expands')
@@ -175,29 +200,52 @@ mutate()
 assert.equal(documentStub.groups[0].headerClicks, 1, 'manually folded group stays folded')
 
 // Paging up unmounts the latest turn tail: the now-last (older) turn must NOT expand.
-documentStub.tails = [1]
-const pagedRow = thinkRoot({ turn: 1 })
+scopeA.tails = [1]
+const pagedRow = thinkRoot({ turn: 1, scope: scopeA })
 documentStub.roots.push(pagedRow)
 mutate()
 assert.equal(pagedRow.rowClicks, 0, 'older turn skipped while paging')
 
 // Back to the latest turn: fresh elements there expand again.
-documentStub.tails = [1, 2]
-const backRow = thinkRoot({ turn: 2 })
+scopeA.tails = [1, 2]
+const backRow = thinkRoot({ turn: 2, scope: scopeA })
 documentStub.roots.push(backRow)
 mutate()
 assert.equal(backRow.rowClicks, 1, 'latest turn re-expands after paging back')
 
-// Session switch (new flow key): tracking resets, new flow's last turn expands.
-documentStub.flow.key = 'flow-b'
-documentStub.tails = [1]
-const newRow = thinkRoot({ turn: 1 })
-documentStub.roots = [thinkRoot({ turn: 1, expanded: true }), newRow]
+// 1.3.0 regression: session A climbs to a high turn scale, then the reader
+// switches to session B whose turn numbers are much lower — B's last turn
+// must still expand (1.2.0 shared one watermark across sessions and bricked).
+scopeA.tails = [188, 189, 190]
+const highRow = thinkRoot({ turn: 190, scope: scopeA })
+documentStub.roots = [highRow]
+documentStub.groups = []
 mutate()
-assert.equal(newRow.rowClicks, 1, 'new session last turn expands despite low turn number')
+assert.equal(highRow.rowClicks, 1, 'long session latest turn expands')
+
+const scopeB = makeScope('session-b')
+scopeB.tails = [9]
+scopeA.isConnected = false
+documentStub.scopes = [scopeB]
+const lowRow = thinkRoot({ turn: 9, scope: scopeB })
+documentStub.roots = [lowRow]
+mutate()
+assert.equal(lowRow.rowClicks, 1, 'short session last turn expands despite lower scale')
+
+// Reopening session A remounts its shell: the stale watermark was dropped with
+// the disconnected element, so the freshly mounted last turn expands again.
+scopeB.isConnected = false
+const scopeA2 = makeScope('session-a')
+scopeA2.tails = [1, 2]
+documentStub.scopes = [scopeA2]
+const reopenRow = thinkRoot({ turn: 2, scope: scopeA2 })
+documentStub.roots = [reopenRow]
+mutate()
+assert.equal(reopenRow.rowClicks, 1, 'remounted session expands its last turn again')
 
 // No chat rendered: scan is a no-op and keeps state.
-documentStub.flow.key = null
+documentStub.scopes = []
+documentStub.roots = []
 mutate()
 
 // Teardown disconnects the observer (ctx.effect(setup) returns the cleanup).
