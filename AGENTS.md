@@ -62,7 +62,7 @@
 - **新增或更新插件后必须同步更新 `index.json`**:新插件加一个条目;版本更新要在 `versions` 里追加一项,并填当时的 commit hash。
 - **只登记能用的版本(2026-11-11 用户拍板)**:`versions` 的唯一用途是"回滚到某个可用版本",所以发布过程中被证实不可用的版本**不登记**——即使 commit 已经存在。做法:验证通过后再补登该版本条目;中间坏版本留在 git 历史里即可,需要时按 commit 回看。发现误登记了坏版本,直接删掉该条目。
 - 本地 profile 的插件市场配置(`~/.dsh/profiles/desktop/cordis.patch.yml` 的 `plugin-market.indexes`)已包含本仓库的 raw 地址;新机器配置时记得加上。
-- **插件与技能双机同步见 [WINDOWS-SETUP.md](WINDOWS-SETUP.md)**：主通道是 skill `dsh-plugin-sync`(产地 my-codex-skills,两台装在 ~/.agents/skills/),「插件上线/接上/同步」「技能接上/同步技能」任一台皆可,push 即同步意图;技能走技能仓 `my-codex-skills` 的 `skills.sync.tsv` + `install.sh`/`install.ps1`(DSH 无技能市场,只读本机 `~/.dsh/skills/` 与 `~/.agents/skills/`);用户级配置不跨机。
+- **插件与技能双机同步**：原 skill `dsh-plugin-sync` 已删除（2026-11-19），同步改为手动——插件仓 `git pull` + 按需补 profile 登记表（§2.5）+ `pnpm install`，push 即同步意图；技能走技能仓 `my-codex-skills` 的 `skills.sync.tsv` + `install.sh`/`install.ps1`(DSH 无技能市场,只读本机 `~/.dsh/skills/` 与 `~/.agents/skills/`);用户级配置不跨机。细则见 [WINDOWS-SETUP.md](WINDOWS-SETUP.md)。
 
 ## 5. 新插件上手清单
 
