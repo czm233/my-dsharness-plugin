@@ -93,7 +93,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "3e3dbf497a55",
+            "commit": "3e3dbf497a55d5b319c877d71a891331d8e85855",
             "path": "composer-usage-plus"
           }
         },
@@ -103,7 +103,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "95171cc162ab",
+            "commit": "95171cc162ab2895497deedb0b4d48ff01c27b80",
             "path": "composer-usage-plus"
           }
         },
@@ -113,7 +113,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "f6178da97e8e",
+            "commit": "f6178da97e8eea6ca8ba369f7dd895ec593d02ff",
             "path": "composer-usage-plus"
           }
         },
@@ -123,7 +123,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "8f1a28a",
+            "commit": "8f1a28a4cfc061c8768c5b9fa1ff5c1922d08604",
             "path": "composer-usage-plus"
           }
         },
@@ -153,7 +153,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "3e88e50",
+            "commit": "3e88e50bcc75e55e33cd26fb3025f0df2c065f7b",
             "path": "composer-usage-plus"
           }
         }
@@ -765,16 +765,6 @@
         },
         {
           "version": "2.17.2",
-          "publishTimestamp": 1793347628,
-          "source": {
-            "type": "git",
-            "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "b21d7032ae16668112690dfbc3eab3f119c69fa5",
-            "path": "agent-workflow-board"
-          }
-        },
-        {
-          "version": "2.17.2",
           "publishTimestamp": 1793348206,
           "source": {
             "type": "git",
@@ -904,7 +894,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "36f47da",
+            "commit": "36f47daa2c2b16563e5c3e5af5138ca2e79924bd",
             "path": "composer-effort-chips"
           }
         },
@@ -914,7 +904,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "a59625c",
+            "commit": "a59625cab97c7723efebe1fa84a3ccaa2b92a739",
             "path": "composer-effort-chips"
           }
         },
@@ -944,7 +934,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "7edb493",
+            "commit": "7edb493a87cbb6d9a3ec6b35e5f8b882ee99b58e",
             "path": "composer-effort-chips"
           }
         },
@@ -954,7 +944,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "4dfc390",
+            "commit": "4dfc39088a90ac56b299944f21fdf5608ae20f68",
             "path": "composer-effort-chips"
           }
         },
@@ -964,7 +954,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "52444bb3",
+            "commit": "52444bb3829925c3eabee64a19031df00be0c4db",
             "path": "composer-effort-chips"
           }
         }
@@ -1000,7 +990,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "4a7b312",
+            "commit": "4a7b3123741cd4aaeb6e6d12c21887fa35b62215",
             "path": "quote-selection"
           }
         },
@@ -1010,7 +1000,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "06de717",
+            "commit": "06de7178e82e0d149134f93e8483982ec4d4b1ea",
             "path": "quote-selection"
           }
         },
@@ -1363,7 +1353,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "de16b54",
+            "commit": "de16b5469e32d76f76aa52f99d06ac91efa6cc3e",
             "path": "side-chat"
           }
         },
@@ -1373,7 +1363,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "a2e5047",
+            "commit": "a2e504742c672546671308e7e93e8bab5a7bb95d",
             "path": "side-chat"
           }
         },
@@ -1383,7 +1373,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "77192a8",
+            "commit": "77192a86c0430e2928c2a8467b7158ef220d53b0",
             "path": "side-chat"
           }
         },
@@ -1393,7 +1383,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "1c63066",
+            "commit": "1c630662a1d16ae7fe600fdd27b6a225ef5313bd",
             "path": "side-chat"
           }
         },
@@ -1403,7 +1393,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "217fb24",
+            "commit": "217fb24f4211519efe3f27b1a309e5ca2da5ea2b",
             "path": "side-chat"
           }
         },
@@ -1413,7 +1403,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "44a53a42",
+            "commit": "44a53a42f88a0e15a9af757c9f1dba20e845c06c",
             "path": "side-chat"
           }
         },
@@ -1423,7 +1413,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "d52cb97e",
+            "commit": "d52cb97ebb0db0ce7ff505d9f2e7e8dd1e93d482",
             "path": "side-chat"
           }
         },
@@ -1433,7 +1423,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "19a1092a",
+            "commit": "19a1092a73b3022f67a706a1341fb65918874425",
             "path": "side-chat"
           }
         }
@@ -1718,7 +1708,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
-            "commit": "834d36b",
+            "commit": "834d36b2546d825f046e0fe38fe8a837470d6c27",
             "path": "dsh-full-access-default"
           }
         },
