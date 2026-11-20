@@ -53,6 +53,12 @@ window.__ModuleLoader__.load({
       'elapsedHours': '已过去{count}小时',
       'elapsedHoursMinutes': '已过去{count}小时{minutes}分',
       'elapsedDays': '已过去{count}天',
+      'durationSeconds': '耗时{count}秒',
+      'durationMinutes': '耗时{count}分钟',
+      'durationMinutesSeconds': '耗时{count}分{seconds}秒',
+      'durationHours': '耗时{count}小时',
+      'durationHoursMinutes': '耗时{count}小时{minutes}分',
+      'durationDays': '耗时{count}天',
     }
     const en = {
       'title': 'Turn cost',
@@ -88,6 +94,12 @@ window.__ModuleLoader__.load({
       'elapsedHours': '{count}h ago',
       'elapsedHoursMinutes': '{count}h {minutes}min ago',
       'elapsedDays': '{count}d ago',
+      'durationSeconds': 'took {count}s',
+      'durationMinutes': 'took {count} min',
+      'durationMinutesSeconds': 'took {count}m {seconds}s',
+      'durationHours': 'took {count}h',
+      'durationHoursMinutes': 'took {count}h {minutes}m',
+      'durationDays': 'took {count}d',
     }
 
     /** Prices arrive from the Host half; until then no rate is assumed. */
@@ -266,12 +278,34 @@ window.__ModuleLoader__.load({
       return t('elapsedDays', { count: Math.floor(hours / 24) })
     }
 
+    /** How long the turn itself ran (start → end): keeps seconds visible, unlike the aging clock. */
+    function formatDuration(totalSeconds, t) {
+      if (totalSeconds < 60) return t('durationSeconds', { count: totalSeconds })
+      const minutes = Math.floor(totalSeconds / 60)
+      const restSeconds = totalSeconds % 60
+      if (minutes < 60) {
+        return restSeconds === 0
+          ? t('durationMinutes', { count: minutes })
+          : t('durationMinutesSeconds', { count: minutes, seconds: restSeconds })
+      }
+      const hours = Math.floor(minutes / 60)
+      const restMinutes = minutes % 60
+      if (hours < 24) {
+        return restMinutes === 0
+          ? t('durationHours', { count: hours })
+          : t('durationHoursMinutes', { count: hours, minutes: restMinutes })
+      }
+      return t('durationDays', { count: Math.floor(hours / 24) })
+    }
+
     /**
-     * Live "time since" label sat right after the shipped clock. Re-arms only
+     * Live "time since" label sat right after the shipped clock, followed by
+     * how long the turn itself ran ("已过去2分钟 · 耗时1分12秒"). Re-arms only
      * for the next visible change: every second while under a minute, then on
-     * each whole minute, so idle old turns cost one timer per minute.
+     * each whole minute, so idle old turns cost one timer per minute. The
+     * duration is fixed once the turn ends, so it needs no timer of its own.
      */
-    function ElapsedLabel({ time, t }) {
+    function ElapsedLabel({ time, durationSeconds, t }) {
       const [now, setNow] = useState(() => Date.now())
       useEffect(() => {
         let timer = null
@@ -291,7 +325,14 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; if (timer !== null) clearTimeout(timer) }
       }, [time])
       const seconds = Math.max(0, Math.floor((now - time) / 1000))
-      return h('span', { className: 'dsh-turn-cost-elapsed' }, formatElapsed(seconds, t))
+      const children = durationSeconds !== undefined && durationSeconds > 0
+        ? [
+            h('span', { key: 'ago' }, formatElapsed(seconds, t)),
+            h('span', { key: 'sep' }, ' · '),
+            h('span', { key: 'duration' }, formatDuration(durationSeconds, t)),
+          ]
+        : formatElapsed(seconds, t)
+      return h('span', { className: 'dsh-turn-cost-elapsed' }, children)
     }
 
     const ICON_SIZE = 'calc(15px + var(--dsh-content-font-delta, 0px))'
@@ -667,6 +708,7 @@ window.__ModuleLoader__.load({
                 routeChanged: value?.routeChanged === true,
                 currency: typeof value?.currency === 'string' ? value.currency : undefined,
                 time: typeof value?.time === 'number' && Number.isFinite(value.time) ? value.time : undefined,
+                startedAt: typeof value?.startedAt === 'number' && Number.isFinite(value.startedAt) ? value.startedAt : undefined,
               })
             },
             (error) => {
@@ -744,10 +786,15 @@ window.__ModuleLoader__.load({
       }
 
       // Time since the turn finished, printed right after the shipped clock so
-      // the row reads as one line ("11:03 · 已过去2分钟"). Independent of the
-      // money pill: it only needs the turn's completion instant.
+      // the row reads as one line ("11:03 · 已过去2分钟 · 耗时1分12秒").
+      // Independent of the money pill: it only needs the turn's completion
+      // instant plus its start.
+      const durationSeconds = state.kind === 'done' && state.time !== undefined
+        && state.startedAt !== undefined && state.time > state.startedAt
+        ? Math.floor((state.time - state.startedAt) / 1000)
+        : undefined
       const elapsedLabel = state.kind === 'done' && state.time !== undefined
-        ? h(ElapsedLabel, { time: state.time, t })
+        ? h(ElapsedLabel, { time: state.time, durationSeconds, t })
         : null
 
       // Inline seat: portal the pill immediately left of the shipped usage pill

@@ -91,14 +91,29 @@ async function main() {
   assert.equal(switched.previousRoute.model, 'deepseek-v4.1-flash')
   assert.equal(switched.attempts.length, 1)
   // The clock row prints the turn/end time; the elapsed label counts from the
-  // same instant, so both always agree.
+  // same instant, so both always agree. No turn/start in the log => no duration.
   assert.equal(switched.endedAt, PEAK_FRIDAY + 1234)
+  assert.equal(switched.startedAt, undefined)
   assert.equal(switched.attempts[0].price.label, 'DeepSeek V4 Pro')
   assert.equal(switched.attempts[0].price.currency, '¥')
   assert.equal(switched.attempts[0].price.rates.input, 9)
   assert.equal(switched.attempts[0].price.cost.input, 9)
   assert.equal(switched.attempts[0].price.cost.cacheRead, 0)
   console.log('ok switch detection + new-model pricing')
+
+  // The fold also carries this turn's own turn/start so the client can print
+  // how long the turn ran (end − start), even across earlier turns in between.
+  const timed = foldTurnAttempts([
+    { type: 'turn/start', time: PEAK_FRIDAY - 60_000, data: { turn: 1 } },
+    attemptEvent(1, 'qwen-token-plan-cn', 'deepseek-v4.1-flash', { input: 10 }, PEAK_FRIDAY),
+    { type: 'turn/end', time: PEAK_FRIDAY - 30_000, data: { turn: 1, reason: { kind: 'completed' } } },
+    { type: 'turn/start', time: PEAK_FRIDAY - 5_000, data: { turn: 2 } },
+    attemptEvent(2, 'qwen-token-plan-cn', 'deepseek-v4-pro', { input: 10 }, PEAK_FRIDAY),
+    { type: 'turn/end', time: PEAK_FRIDAY + 1234, data: { turn: 2, reason: { kind: 'completed' } } },
+  ], 2, table)
+  assert.equal(timed.startedAt, PEAK_FRIDAY - 5_000)
+  assert.equal(timed.endedAt, PEAK_FRIDAY + 1234)
+  console.log('ok turn duration fold (startedAt tracks the queried turn)')
 
   // Same model across turns stays quiet; a mid-turn route change is flagged.
   const sameEvents = [

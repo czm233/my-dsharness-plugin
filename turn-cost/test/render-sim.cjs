@@ -169,6 +169,9 @@ const ZH = {
   elapsedSeconds: '已过去{count}秒', elapsedMinutes: '已过去{count}分钟',
   elapsedHours: '已过去{count}小时', elapsedHoursMinutes: '已过去{count}小时{minutes}分',
   elapsedDays: '已过去{count}天',
+  durationSeconds: '耗时{count}秒', durationMinutes: '耗时{count}分钟',
+  durationMinutesSeconds: '耗时{count}分{seconds}秒', durationHours: '耗时{count}小时',
+  durationHoursMinutes: '耗时{count}小时{minutes}分', durationDays: '耗时{count}天',
   inputCost: '未缓存输入', cacheReadCost: '缓存读取', cacheWriteCost: '缓存写入', outputCost: '输出',
   total: '合计', unitPrice: '{price}/M tok', listNote: '按模型牌价折算的等效金额，非实际账单',
 }
@@ -255,6 +258,7 @@ async function main() {
   const callUsage = async () => ({
     attempts, events: 10, matched: 1, interrupted: false, switched: true, routeChanged: false, currency: '$',
     time: Date.now() - 125000,
+    startedAt: Date.now() - 125000 - 72_000,
   })
   let instance = createInstance()
   let anchorPatched = false
@@ -263,6 +267,7 @@ async function main() {
   const state = {
     kind: 'done', attempts, switched: true, routeChanged: false, currency: '$',
     time: Date.now() - 125000,
+    startedAt: Date.now() - 125000 - 72_000,
   }
 
   function renderTail() {
@@ -337,7 +342,7 @@ async function main() {
   const elapsedPortal = findPortals(rendered).find(candidate => candidate.container === clockSeat)
   assert.ok(elapsedPortal, 'elapsed label portals into the seat after the clock')
   const elapsedText = textOf(elapsedPortal).join('').replace(/\s+/g, ' ').trim()
-  assert.match(elapsedText, /^已过去2分钟$/)
+  assert.match(elapsedText, /^已过去2分钟 · 耗时1分12秒$/)
   console.log('ok elapsed:', elapsedText)
 
   const button = findButton(rendered)
@@ -356,20 +361,40 @@ async function main() {
   console.log('ok panel:', panelText)
 
   // The label recomputes as the turn ages: seconds under a minute, then
-  // hours+minutes, then days.
+  // hours+minutes, then days. The run duration stays fixed throughout: in the
+  // real payload start and end travel together, so shift both by the same delta.
   function elapsedFor(ms) {
-    instance.states[0] = { ...instance.states[0], time: Date.now() - ms }
+    instance.states[0] = {
+      ...instance.states[0],
+      time: Date.now() - ms,
+      startedAt: Date.now() - ms - 72_000,
+    }
     const out = renderTree(renderTail())
     const hit = findPortals(out).find(candidate => candidate.container === clockSeat)
     assert.ok(hit, 'elapsed portal stays mounted')
     return textOf(hit).join('').replace(/\s+/g, ' ').trim()
   }
-  assert.match(elapsedFor(45_000), /^已过去4[3-6]秒$/)
+  assert.match(elapsedFor(45_000), /^已过去4[3-6]秒 · 耗时1分12秒$/)
   // Offset past the boundary: the fake runtime renders before the tick effect
   // refreshes "now", so the millisecond gap must not flip the unit.
-  assert.equal(elapsedFor(3 * 3600_000 + 5 * 60_000 + 30_000), '已过去3小时5分')
-  assert.equal(elapsedFor(2 * 86400_000 + 60_000), '已过去2天')
+  assert.equal(elapsedFor(3 * 3600_000 + 5 * 60_000 + 30_000), '已过去3小时5分 · 耗时1分12秒')
+  assert.equal(elapsedFor(2 * 86400_000 + 60_000), '已过去2天 · 耗时1分12秒')
   console.log('ok elapsed ages')
+
+  // Without a usable start instant (old logs) or a start that lands after the
+  // end (aborted fold), the label falls back to the plain aging clock: no
+  // separator, no duration.
+  function labelNow() {
+    const out = renderTree(renderTail())
+    const hit = findPortals(out).find(candidate => candidate.container === clockSeat)
+    assert.ok(hit, 'elapsed portal stays mounted')
+    return textOf(hit).join('').replace(/\s+/g, ' ').trim()
+  }
+  instance.states[0] = { ...instance.states[0], time: Date.now() - 125_000, startedAt: undefined }
+  assert.equal(labelNow(), '已过去2分钟')
+  instance.states[0] = { ...instance.states[0], startedAt: Date.now() - 125_000 + 60_000 }
+  assert.equal(labelNow(), '已过去2分钟')
+  console.log('ok duration fallback')
 
   console.log('\nturn-cost render-sim: all checks passed')
 }
