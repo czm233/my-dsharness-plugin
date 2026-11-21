@@ -991,6 +991,26 @@
       },
       "versions": [
         {
+          "version": "1.18.0",
+          "publishTimestamp": 1795162140,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "56790211a57613c60f2ad7374a766cf4007b5189",
+            "path": "turn-cost"
+          }
+        },
+        {
+          "version": "1.17.0",
+          "publishTimestamp": 1794971547,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8a7081317ee76fa6174cc0386ee1c2cea7800f2d",
+            "path": "turn-cost"
+          }
+        },
+        {
           "version": "1.16.1",
           "publishTimestamp": 1794640846,
           "source": {
@@ -1462,6 +1482,46 @@
             "type": "git",
             "url": "https://github.com/czm233/my-dsharness-plugin",
             "commit": "f6b6256a2dae16b071e637f3b3cb521344eede01",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.21.0",
+          "publishTimestamp": 1794971105,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "7f822d989f1155f0abf91567d9f4d63ed326a937",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.21.1",
+          "publishTimestamp": 1794971232,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "ae7c09329a740b1675c9efad4989d636720ef3ad",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.21.2",
+          "publishTimestamp": 1794971693,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8841807d40e70cbce497d9a1c63d6dedaa6225d2",
+            "path": "edit-restart"
+          }
+        },
+        {
+          "version": "0.21.3",
+          "publishTimestamp": 1794987923,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/czm233/my-dsharness-plugin",
+            "commit": "8a17aeb1562122ecf64315bc4ec14a3a103a0011",
             "path": "edit-restart"
           }
         }
